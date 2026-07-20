@@ -1,0 +1,8 @@
+.DS_Store
+.build/
+.swiftpm/
+# local-only: maintainer docs and internal dev notes, never published
+CLAUDE.md
+RELEASING.md
+docs/plans/
+docs/specs/
