@@ -1,7 +1,7 @@
 # Chestnut
 
 <p align="center">
-  <a href="https://gapmiss.github.io/chestnut"><img src="docs/hero.gif" alt="Chestnut, a pixel-art treasure chest creature" width="96"></a>
+  <a href="https://gapmiss.github.io/chestnut"><img src="docs/hero.gif" alt="Chestnut, a pixel-art treasure chest creature" width="192"></a>
 </p>
 
 A native macOS desktop companion for multi-vault Obsidian users.
