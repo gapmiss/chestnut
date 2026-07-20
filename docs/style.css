@@ -705,6 +705,8 @@ section h2::after {
   color: var(--text-secondary);
   font-size: 14px;
 }
+.build-note + .brew-cmd { margin-top: 8px; }
+.brew-cmd + .build-note { margin-top: 18px; }
 
 /* ---------- Footer ---------- */
 
