@@ -133,8 +133,33 @@ with full control over what Chestnut does:
 | `vault` | no | Vault hint for `save`: `"ask"` (picker), `"pinned"`, `"last"`, or a vault path |
 | `folder` | no | Subfolder within the vault for `save` (created if needed) |
 | `notify` | no | Subtitle text for the notice bubble |
+| `attachments` | no | Array of files to copy alongside the note (see below) |
 
 Unknown fields are ignored (forward-compat).
+
+### Attachments
+
+When `action` is `"save"`, the `attachments` array lets a plugin save
+additional files (images, PDFs, etc.) into the same vault folder as the note:
+
+```json
+{
+  "action": "save",
+  "content": "# OCR\n\n![[scan.png]]\n\nExtracted text...",
+  "filename": "ocr-note.md",
+  "attachments": [
+    { "source": "/path/to/original.png", "filename": "scan.png" }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `source` | Absolute path to the file to copy |
+| `filename` | Destination filename inside the vault folder |
+
+Each attachment is copied (not moved) into the same directory as the note.
+Name conflicts get Obsidian-style suffixes, same as notes.
 
 ## Error handling
 
@@ -149,6 +174,12 @@ Errors never trigger the gulp animation.
 When several plugins accept the same input type, Chestnut shows a picker
 palette (type to filter, arrows to navigate, enter to run). If only one
 matches, it runs immediately.
+
+## Viewing installed plugins
+
+Right-click the pet → **Plugins** to see all installed plugins with their
+descriptions. The submenu also includes **Open Plugins Folder** to reveal the
+plugins directory in Finder.
 
 ## Hot reload
 
@@ -180,16 +211,27 @@ content, and dispatches to matching plugins. Configure in the config file:
 }
 ```
 
-## Example plugin
+## Example plugins
 
-See [`Examples/plugins/yt-transcript/`](Examples/plugins/yt-transcript/) for a
-complete plugin that downloads YouTube transcripts via `yt-dlp` and saves them
-as formatted vault notes with timestamped, clickable transcript lines.
+The [`Examples/plugins/`](Examples/plugins/) directory contains ready-to-use
+plugins in different languages, covering every input type and output mode:
 
-To install it:
+| Plugin | Language | Input | Output | Description |
+|--------|----------|-------|--------|-------------|
+| [`yt-transcript`](Examples/plugins/yt-transcript/) | Python | `url` | `structured` (save) | YouTube transcript to vault note via `yt-dlp` |
+| [`img-ocr`](Examples/plugins/img-ocr/) | Swift | `image` | `structured` (save + attachment) | OCR via macOS Vision; saves text note + image |
+| [`img-info`](Examples/plugins/img-info/) | Bash | `image` | `notify` | Show image dimensions and file size |
+| [`url-bookmark`](Examples/plugins/url-bookmark/) | Python | `url` | `structured` (save) | Bookmark note with page title and description |
+| [`code-snippet`](Examples/plugins/code-snippet/) | Ruby | `text` | `structured` (save) | Auto-detect language, save fenced code note |
+| [`pdf-extract`](Examples/plugins/pdf-extract/) | Python | `pdf` | `structured` (save) | Extract text from PDF via `textutil` |
+| [`word-count`](Examples/plugins/word-count/) | Perl | `text` | `notify` | Word count and reading time bubble |
+| [`clipboard-clean`](Examples/plugins/clipboard-clean/) | Zsh | `text` | `clipboard` | Strip smart quotes and whitespace |
+
+To install any example:
 
 ```bash
-cp -r Examples/plugins/yt-transcript ~/.config/chestnut/plugins/
+cp -r Examples/plugins/<name> ~/.config/chestnut/plugins/
 ```
 
-Requires `yt-dlp` (`brew install yt-dlp`).
+`yt-transcript` requires `yt-dlp` (`brew install yt-dlp`). All others use
+only macOS built-in tools.

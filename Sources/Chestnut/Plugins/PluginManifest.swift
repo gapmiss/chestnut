@@ -73,6 +73,11 @@ extension PluginManifest {
     }
 }
 
+struct PluginAttachment: Codable, Sendable {
+    let source: String
+    let filename: String
+}
+
 struct PluginEnvelope: Codable, Sendable {
     let action: String
     let content: String?
@@ -80,6 +85,7 @@ struct PluginEnvelope: Codable, Sendable {
     let vault: String?
     let folder: String?
     let notify: String?
+    let attachments: [PluginAttachment]?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -89,5 +95,8 @@ struct PluginEnvelope: Codable, Sendable {
         vault = try c.decodeIfPresent(String.self, forKey: .vault)
         folder = try c.decodeIfPresent(String.self, forKey: .folder)
         notify = try c.decodeIfPresent(String.self, forKey: .notify)
+        attachments = try c.decodeIfPresent(
+            [PluginAttachment].self, forKey: .attachments
+        )
     }
 }

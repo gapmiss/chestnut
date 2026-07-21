@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "name": "img-ocr",
+  "description": "OCR an image and save text + attachment to vault",
+  "accepts": ["image"],
+  "output": "structured",
+  "script": "img-ocr.swift",
+  "timeout": 30
+}

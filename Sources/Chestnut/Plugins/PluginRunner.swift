@@ -37,6 +37,7 @@ enum PluginRunner {
         let vaultHint: String?
         let folder: String?
         let notifyText: String?
+        let attachments: [PluginAttachment]?
     }
 
     static func environment(
@@ -187,7 +188,8 @@ enum PluginRunner {
                 filename: envelope.filename,
                 vaultHint: envelope.vault,
                 folder: envelope.folder,
-                notifyText: envelope.notify
+                notifyText: envelope.notify,
+                attachments: envelope.attachments
             )
         }
 
@@ -197,7 +199,8 @@ enum PluginRunner {
             filename: nil,
             vaultHint: nil,
             folder: nil,
-            notifyText: nil
+            notifyText: nil,
+            attachments: nil
         )
     }
 }

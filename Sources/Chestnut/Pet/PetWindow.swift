@@ -29,6 +29,8 @@ final class PetWindow: NSPanel {
     var onCapture: (() -> Void)?
     var onUndoCapture: (() -> Void)?
     var canUndoCapture: (() -> Bool)?
+    var installedPlugins: (() -> [PluginManifest])?
+    var onOpenPluginsFolder: (() -> Void)?
 
     private var config: Config
 
@@ -283,6 +285,45 @@ final class PetWindow: NSPanel {
         fullScreenItem.state = config.showInFullScreen ? .on : .off
         menu.addItem(fullScreenItem)
 
+        let pluginsMenu = NSMenu()
+        let plugins = installedPlugins?() ?? []
+        if plugins.isEmpty {
+            let noneItem = NSMenuItem(
+                title: "No plugins installed", action: nil, keyEquivalent: ""
+            )
+            noneItem.isEnabled = false
+            pluginsMenu.addItem(noneItem)
+        } else {
+            for plugin in plugins.sorted(by: { $0.name < $1.name }) {
+                let item = NSMenuItem(title: plugin.name, action: nil, keyEquivalent: "")
+                item.isEnabled = false
+                if !plugin.description.isEmpty {
+                    let title = NSMutableAttributedString(
+                        string: plugin.name,
+                        attributes: [.font: NSFont.menuFont(ofSize: 0)]
+                    )
+                    title.append(NSAttributedString(
+                        string: "\n\(plugin.description)",
+                        attributes: [
+                            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                            .foregroundColor: NSColor.secondaryLabelColor,
+                        ]
+                    ))
+                    item.attributedTitle = title
+                }
+                pluginsMenu.addItem(item)
+            }
+        }
+        pluginsMenu.addItem(.separator())
+        let openFolderItem = NSMenuItem(
+            title: "Open Plugins Folder", action: #selector(openPluginsFolder), keyEquivalent: ""
+        )
+        openFolderItem.target = self
+        pluginsMenu.addItem(openFolderItem)
+        let pluginsItem = NSMenuItem(title: "Plugins", action: nil, keyEquivalent: "")
+        pluginsItem.submenu = pluginsMenu
+        menu.addItem(pluginsItem)
+
         menu.addItem(.separator())
         // No action/target: stays disabled, a plain "what version am I on" line.
         menu.addItem(NSMenuItem(
@@ -459,6 +500,8 @@ final class PetWindow: NSPanel {
     private static func opensInBrowserBadge() -> NSMenuItemBadge {
         NSMenuItemBadge(string: "↗")
     }
+
+    @objc private func openPluginsFolder() { onOpenPluginsFolder?() }
 
     @objc private func openReleases() { NSWorkspace.shared.open(AppInfo.releasesURL) }
 

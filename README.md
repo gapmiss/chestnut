@@ -29,8 +29,9 @@ modified.
 - **Plugins** let you extend drag-and-drop and a paste hotkey with shell
   scripts. Drop a URL, image, or file onto Chestnut and a plugin transforms
   it into a vault note. See [PLUGINS.md](PLUGINS.md) for the full guide and
-  [`Examples/plugins/`](Examples/plugins/) for a ready-made YouTube transcript
-  downloader.
+  [`Examples/plugins/`](Examples/plugins/) for ready-made examples (OCR,
+  PDF extraction, bookmarks, code snippets, and more). View installed plugins
+  in the right-click menu.
 - After a capture or delivery, a speech bubble tells you where your text
   went. Click it to open the note in Obsidian (uses the `obsidian` CLI when
   available, falls back to opening the vault).

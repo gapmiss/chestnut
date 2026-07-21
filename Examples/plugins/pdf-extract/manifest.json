@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "name": "pdf-extract",
+  "description": "Extract text from a PDF into a vault note",
+  "accepts": ["pdf"],
+  "output": "structured",
+  "script": "pdf-extract.swift",
+  "timeout": 30
+}

@@ -115,6 +115,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onUndoCapture = { [weak self] in
             self?.undoLastCapture()
         }
+        window.installedPlugins = { [weak self] in
+            self?.pluginRegistry.plugins ?? []
+        }
+        window.onOpenPluginsFolder = {
+            let dir = PluginRegistry.pluginsDirectory
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: dir.path) {
+                try? fm.createDirectory(
+                    at: dir, withIntermediateDirectories: true
+                )
+            }
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dir.path)
+        }
         controller.onStateChange = { [weak window] state in
             window?.petScene.play(state)
         }
@@ -505,6 +518,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let filename = result.filename ?? "untitled.md"
         let content = result.content
         let folder = result.folder
+        let attachments = result.attachments ?? []
 
         func save(to vault: Vault) {
             var dir = URL(fileURLWithPath: vault.path)
@@ -529,6 +543,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try content.write(
                     to: url, atomically: true, encoding: .utf8
                 )
+                for att in attachments {
+                    let src = URL(fileURLWithPath: att.source)
+                        .standardizedFileURL
+                    let dest = Courier.availableURL(
+                        for: dir.appendingPathComponent(att.filename)
+                    )
+                    try FileManager.default.copyItem(at: src, to: dest)
+                }
                 petWindow?.petScene.celebrateDelivery()
                 controller.noteInteraction()
                 showNotice(
