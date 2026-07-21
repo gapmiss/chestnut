@@ -699,7 +699,7 @@ final class PetView: SKView {
             return []
         }
         petScene?.setOpenWide(true)
-        if allMDFiles(sender) || obsidianFileURL(from: sender) != nil {
+        if !urls.isEmpty || obsidianFileURL(from: sender) != nil {
             return petWindow.courierDragOperation
         }
         return .copy
@@ -707,7 +707,8 @@ final class PetView: SKView {
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
-        if allMDFiles(sender) || obsidianFileURL(from: sender) != nil {
+        let urls = fileURLs(from: sender)
+        if !urls.isEmpty || obsidianFileURL(from: sender) != nil {
             return petWindow.courierDragOperation
         }
         return .copy
@@ -719,12 +720,6 @@ final class PetView: SKView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender)
-        let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
-        if !mdURLs.isEmpty, mdURLs.count == urls.count {
-            DebugLog.log("drop: \(mdURLs.count) .md file(s) → courier")
-            petWindow?.filesDropped(urls)
-            return true
-        }
 
         if let resolved = obsidianFileURL(from: sender) {
             DebugLog.log("drop: obsidian:// URL resolved to \(resolved.path) → courier")
@@ -732,15 +727,18 @@ final class PetView: SKView {
             return true
         }
 
-        if let (type, input) = PluginDispatch.classifyDrag(sender) {
-            DebugLog.log("drop: plugin dispatch, type=\(type.rawValue)")
-            petWindow?.onPluginDrop?(type, input)
+        // All file URL drags → courier (.md to vault root, others to
+        // attachment folder). Plugin dispatch handles non-file pasteboard
+        // content below (image data, text, web URLs).
+        if !urls.isEmpty {
+            DebugLog.log("drop: \(urls.count) file(s) → courier")
+            petWindow?.filesDropped(urls)
             return true
         }
 
-        if !urls.isEmpty {
-            DebugLog.log("drop: \(urls.count) non-.md file(s) → courier fallback")
-            petWindow?.filesDropped(urls)
+        if let (type, input) = PluginDispatch.classifyDrag(sender) {
+            DebugLog.log("drop: plugin dispatch, type=\(type.rawValue)")
+            petWindow?.onPluginDrop?(type, input)
             return true
         }
 

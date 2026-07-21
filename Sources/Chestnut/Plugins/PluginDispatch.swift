@@ -21,11 +21,19 @@ enum PluginDispatch {
             .bundleIdentifier
 
         // File URLs (skip if all .md).
-        if let urls = pasteboard.readObjects(
+        var fileURLs = (pasteboard.readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty {
-            let nonMD = urls.filter {
+        ) as? [URL]) ?? []
+        // Electron apps put file:// URLs on public.url instead of
+        // public.file-url — urlReadingFileURLsOnly skips them.
+        if fileURLs.isEmpty,
+           let raw = pasteboard.string(forType: .URL),
+           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
+            fileURLs = [url]
+        }
+        if !fileURLs.isEmpty {
+            let nonMD = fileURLs.filter {
                 $0.pathExtension.lowercased() != "md"
             }
             if let first = nonMD.first {
@@ -98,10 +106,16 @@ enum PluginDispatch {
         let pb = sender.draggingPasteboard
         // Guard: if all dragged items are .md file URLs, return nil so
         // the caller falls through to the courier.
-        if let urls = pb.readObjects(
+        var urls = (pb.readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty {
+        ) as? [URL]) ?? []
+        if urls.isEmpty,
+           let raw = pb.string(forType: .URL),
+           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
+            urls = [url]
+        }
+        if !urls.isEmpty {
             let allMD = urls.allSatisfy {
                 $0.pathExtension.lowercased() == "md"
             }
