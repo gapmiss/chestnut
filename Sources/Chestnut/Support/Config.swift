@@ -52,6 +52,8 @@ struct Config: Codable, Equatable {
     var petPalette: [String: String]?
     /// User-defined sprite themes (appear in the right-click Theme menu).
     var customThemes: [CustomThemeConfig]?
+    /// How long notice bubbles stay visible (seconds).
+    var noticeDuration = 5.0
     /// Show the pet window over full-screen apps.
     var showInFullScreen = true
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
@@ -88,6 +90,8 @@ struct Config: Codable, Equatable {
         // after registerCustomThemes.
         petTheme = try c.decodeIfPresent(String.self, forKey: .petTheme)
             ?? SpriteTheme.defaultID
+        let rawNotice = try c.decodeIfPresent(Double.self, forKey: .noticeDuration) ?? 5.0
+        noticeDuration = max(rawNotice, 1.0)
         showInFullScreen =
             try c.decodeIfPresent(Bool.self, forKey: .showInFullScreen) ?? true
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
@@ -148,6 +152,7 @@ struct HotkeyConfig: Codable, Equatable {
     var capture = "control+option+space"
     var hopper = "control+option+v"
     var notice = "control+option+o"
+    var paste = "control+option+c"
 
     init() {}
 
@@ -156,6 +161,7 @@ struct HotkeyConfig: Codable, Equatable {
         capture = try c.decodeIfPresent(String.self, forKey: .capture) ?? "control+option+space"
         hopper = try c.decodeIfPresent(String.self, forKey: .hopper) ?? "control+option+v"
         notice = try c.decodeIfPresent(String.self, forKey: .notice) ?? "control+option+o"
+        paste = try c.decodeIfPresent(String.self, forKey: .paste) ?? "control+option+c"
     }
 }
 

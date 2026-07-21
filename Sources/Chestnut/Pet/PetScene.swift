@@ -146,6 +146,28 @@ final class PetScene: SKScene {
         }
     }
 
+    /// Plugin-running pose: continuous gentle chewing with a slow breathing
+    /// sway, distinct from the static open-wide and the brief writing chatter.
+    func setChewing(_ chewing: Bool) {
+        guard openWide != chewing else { return }
+        openWide = chewing
+        if chewing {
+            pet.removeAction(forKey: ActionKey.stateLoop)
+            pet.removeAction(forKey: ActionKey.eyePeek)
+            pet.removeAction(forKey: ActionKey.breathe)
+            removeAction(forKey: ActionKey.zSpawner)
+            pet.setScale(1)
+            let chew = SKAction.animate(
+                with: [tex.chatterOpen, tex.glint, tex.base, tex.glint],
+                timePerFrame: 0.3
+            )
+            pet.run(.repeatForever(chew), withKey: ActionKey.stateLoop)
+            startBreathing(period: 3.0, amount: 1.02)
+        } else {
+            play(currentState)
+        }
+    }
+
     /// Delivery complete: gulp, satisfied squash, gem sparkle, back to state.
     func celebrateDelivery() {
         pet.removeAction(forKey: ActionKey.stateLoop)

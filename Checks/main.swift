@@ -133,6 +133,10 @@ struct Check {
         customThemeChecks()
         themeChecks()
         frameChecks()
+        pluginManifestChecks()
+        await pluginRegistryChecks()
+        pluginRunnerChecks()
+        pluginDispatchChecks()
 
         print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
         exit(failures == 0 ? 0 : 1)
@@ -494,6 +498,285 @@ struct Check {
               "grid is 24×18 (classic chest)")
         check(PetFrames.base != PetFrames.glint && PetFrames.base != PetFrames.chatterOpen,
               "variants actually differ from base")
+    }
+
+    // MARK: - Plugin manifest
+
+    static func pluginManifestChecks() {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-plugins-\(ProcessInfo.processInfo.processIdentifier)")
+        defer { try? fm.removeItem(at: base) }
+
+        func writePlugin(_ name: String, manifest: String, script: String? = nil) -> URL {
+            let dir = base.appendingPathComponent(name)
+            try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try! manifest.write(to: dir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+            if let script {
+                let scriptURL = dir.appendingPathComponent("run.sh")
+                try! script.write(to: scriptURL, atomically: true, encoding: .utf8)
+                try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            }
+            return dir
+        }
+
+        // Valid manifest.
+        let validDir = writePlugin("valid", manifest: """
+        {"api":1,"name":"valid","description":"A test plugin","accepts":["text","url"],"output":"capture","script":"run.sh","timeout":5}
+        """, script: "#!/bin/bash\necho hello")
+        if case .ok(let m) = PluginManifest.load(from: validDir) {
+            check(m.name == "valid", "manifest name parses")
+            check(m.description == "A test plugin", "manifest description parses")
+            check(m.accepts == [.text, .url], "manifest accepts parses")
+            check(m.output == .capture, "manifest output parses")
+            check(m.timeout == 5, "manifest timeout parses")
+        } else {
+            check(false, "valid manifest should load as .ok")
+        }
+
+        // Unknown accepts aliases are silently filtered.
+        let unknownDir = writePlugin("unknown-type", manifest: """
+        {"api":1,"name":"unknown-type","accepts":["text","video","hologram"],"output":"notify","script":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: unknownDir) {
+            check(m.accepts == [.text], "unknown accepts aliases are filtered out")
+        } else {
+            check(false, "manifest with at least one valid accept should load")
+        }
+
+        // All unknown accepts → invalid.
+        let allUnknownDir = writePlugin("all-unknown", manifest: """
+        {"api":1,"name":"all-unknown","accepts":["video"],"output":"notify","script":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .invalid = PluginManifest.load(from: allUnknownDir) {
+            check(true, "all-unknown accepts → .invalid")
+        } else {
+            check(false, "manifest with no valid accepts should be .invalid")
+        }
+
+        // api too high.
+        let futureDir = writePlugin("future", manifest: """
+        {"api":99,"name":"future","accepts":["text"],"output":"capture","script":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .apiTooHigh(let name, let api) = PluginManifest.load(from: futureDir) {
+            check(name == "future" && api == 99, "api too high reports name and version")
+        } else {
+            check(false, "future api should return .apiTooHigh")
+        }
+
+        // Missing script → invalid.
+        let noScriptDir = writePlugin("no-script", manifest: """
+        {"api":1,"name":"no-script","accepts":["text"],"output":"capture","script":"missing.sh"}
+        """)
+        if case .invalid = PluginManifest.load(from: noScriptDir) {
+            check(true, "missing script → .invalid")
+        } else {
+            check(false, "manifest with missing script should be .invalid")
+        }
+
+        // Default timeout.
+        let noTimeoutDir = writePlugin("no-timeout", manifest: """
+        {"api":1,"name":"no-timeout","accepts":["text"],"output":"notify","script":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: noTimeoutDir) {
+            check(m.timeout == 10, "default timeout is 10")
+        } else {
+            check(false, "no-timeout manifest should load")
+        }
+
+        // Envelope parsing with missing optional fields.
+        let envelopeJSON = #"{"action":"save","content":"hello"}"#
+        if let data = envelopeJSON.data(using: .utf8),
+           let env = try? JSONDecoder().decode(PluginEnvelope.self, from: data) {
+            check(env.action == "save", "envelope action parses")
+            check(env.content == "hello", "envelope content parses")
+            check(env.filename == nil, "envelope missing filename is nil")
+            check(env.vault == nil, "envelope missing vault is nil")
+            check(env.folder == nil, "envelope missing folder is nil")
+            check(env.notify == nil, "envelope missing notify is nil")
+        } else {
+            check(false, "envelope should parse with missing optional fields")
+        }
+
+        // Full envelope.
+        let fullJSON = #"{"action":"save","content":"x","filename":"note.md","vault":"ask","folder":"inbox","notify":"Done!"}"#
+        if let data = fullJSON.data(using: .utf8),
+           let env = try? JSONDecoder().decode(PluginEnvelope.self, from: data) {
+            check(env.filename == "note.md" && env.vault == "ask"
+                    && env.folder == "inbox" && env.notify == "Done!",
+                  "full envelope round-trips all fields")
+        } else {
+            check(false, "full envelope should parse")
+        }
+
+        // Unknown keys in envelope are ignored.
+        let extraJSON = #"{"action":"notify","content":"hi","extraField":42}"#
+        if let data = extraJSON.data(using: .utf8),
+           let env = try? JSONDecoder().decode(PluginEnvelope.self, from: data) {
+            check(env.action == "notify", "envelope ignores unknown keys")
+        } else {
+            check(false, "envelope with unknown keys should still parse")
+        }
+    }
+
+    // MARK: - Plugin registry
+
+    @MainActor static func pluginRegistryChecks() async {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-registry-\(ProcessInfo.processInfo.processIdentifier)")
+        defer { try? fm.removeItem(at: base) }
+
+        func writePlugin(_ name: String, manifest: String, script: String) {
+            let dir = base.appendingPathComponent(name)
+            try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            try! manifest.write(to: dir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+            let scriptURL = dir.appendingPathComponent("run.sh")
+            try! script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+        }
+
+        try! fm.createDirectory(at: base, withIntermediateDirectories: true)
+
+        writePlugin("alpha", manifest: """
+        {"api":1,"name":"alpha","accepts":["text"],"output":"capture","script":"run.sh"}
+        """, script: "#!/bin/bash\necho a")
+
+        writePlugin("beta", manifest: """
+        {"api":1,"name":"beta","accepts":["image","file"],"output":"save","script":"run.sh"}
+        """, script: "#!/bin/bash\necho b")
+
+        // Invalid: no script file (manifest references missing.sh).
+        let invalidDir = base.appendingPathComponent("invalid")
+        try! fm.createDirectory(at: invalidDir, withIntermediateDirectories: true)
+        try! #"{"api":1,"name":"invalid","accepts":["text"],"output":"notify","script":"missing.sh"}"#
+            .write(to: invalidDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+
+        // Scan the temp dir directly (not using the real plugins dir).
+        let entries = try! fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
+        var scanned: [PluginManifest] = []
+        var dirs: [String: URL] = [:]
+        for entry in entries {
+            let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
+            guard isDir else { continue }
+            if case .ok(let m) = PluginManifest.load(from: entry), dirs[m.name] == nil {
+                scanned.append(m)
+                dirs[m.name] = entry
+            }
+        }
+
+        check(scanned.count == 2, "registry discovers 2 valid plugins (got \(scanned.count))")
+
+        let textPlugins = scanned.filter { $0.accepts.contains(.text) }
+        check(textPlugins.count == 1 && textPlugins.first?.name == "alpha",
+              "pluginsAccepting(.text) returns alpha only")
+
+        let imagePlugins = scanned.filter { $0.accepts.contains(.image) }
+        check(imagePlugins.count == 1 && imagePlugins.first?.name == "beta",
+              "pluginsAccepting(.image) returns beta only")
+
+        let pdfPlugins = scanned.filter { $0.accepts.contains(.pdf) }
+        check(pdfPlugins.isEmpty, "pluginsAccepting(.pdf) returns nothing")
+    }
+
+    // MARK: - Plugin runner
+
+    static func pluginRunnerChecks() {
+        // Environment builder.
+        let input = PluginRunner.Input(type: .text, text: "hello", filePath: nil, sourceApp: "com.test.app")
+        let dir = URL(fileURLWithPath: "/tmp/test-plugin")
+        let env = PluginRunner.environment(for: input, pluginDir: dir)
+        check(env["CHESTNUT_INPUT_TYPE"] == "text", "env CHESTNUT_INPUT_TYPE is set")
+        check(env["CHESTNUT_SOURCE_APP"] == "com.test.app", "env CHESTNUT_SOURCE_APP is set")
+        check(env["CHESTNUT_FILE_PATH"] == "", "env CHESTNUT_FILE_PATH is empty for text input")
+        check(env["CHESTNUT_PLUGIN_DIR"] == "/tmp/test-plugin", "env CHESTNUT_PLUGIN_DIR is set")
+        check(env["CHESTNUT_TIMESTAMP"] != nil && !env["CHESTNUT_TIMESTAMP"]!.isEmpty, "env CHESTNUT_TIMESTAMP is set")
+        check(env["PATH"] != nil, "env PATH is set")
+        check(env["HOME"] != nil, "env HOME is set")
+
+        let fileInput = PluginRunner.Input(type: .image, text: nil, filePath: "/tmp/img.png", sourceApp: nil)
+        let fileEnv = PluginRunner.environment(for: fileInput, pluginDir: dir)
+        check(fileEnv["CHESTNUT_INPUT_TYPE"] == "image", "env type for image input")
+        check(fileEnv["CHESTNUT_FILE_PATH"] == "/tmp/img.png", "env file path for image input")
+        check(fileEnv["CHESTNUT_SOURCE_APP"] == "", "env source app defaults to empty")
+
+        // Interpret: non-zero exit.
+        let failResult = PluginRunner.RawResult(exitCode: 1, stdout: "", stderr: "bad input\nsecond line")
+        let failManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        do {
+            _ = try PluginRunner.interpret(result: failResult, manifest: failManifest)
+            check(false, "non-zero exit should throw")
+        } catch let e as PluginError {
+            if case .nonZeroExit(let msg) = e {
+                check(msg == "bad input", "non-zero exit extracts first line of stderr")
+            } else {
+                check(false, "expected nonZeroExit error")
+            }
+        } catch {
+            check(false, "unexpected error type")
+        }
+
+        // Interpret: capture mode.
+        let captureResult = PluginRunner.RawResult(exitCode: 0, stdout: "captured text", stderr: "")
+        let captureManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        if let interp = try? PluginRunner.interpret(result: captureResult, manifest: captureManifest) {
+            check(interp.action == .capture, "capture mode action is .capture")
+            check(interp.content == "captured text", "capture mode content is stdout")
+            check(interp.filename == nil, "capture mode has no filename")
+        } else {
+            check(false, "capture interpret should succeed")
+        }
+
+        // Interpret: structured envelope.
+        let structuredResult = PluginRunner.RawResult(
+            exitCode: 0,
+            stdout: #"{"action":"save","content":"hello","filename":"test.md","vault":"ask"}"#,
+            stderr: ""
+        )
+        let structuredManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .structured, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        if let interp = try? PluginRunner.interpret(result: structuredResult, manifest: structuredManifest) {
+            check(interp.action == .save, "structured envelope action is .save")
+            check(interp.content == "hello", "structured envelope content parses")
+            check(interp.filename == "test.md", "structured envelope filename parses")
+            check(interp.vaultHint == "ask", "structured envelope vault hint parses")
+        } else {
+            check(false, "structured interpret should succeed")
+        }
+
+        // Interpret: bad structured output.
+        let badStructured = PluginRunner.RawResult(exitCode: 0, stdout: "not json", stderr: "")
+        do {
+            _ = try PluginRunner.interpret(result: badStructured, manifest: structuredManifest)
+            check(false, "bad structured output should throw")
+        } catch let e as PluginError {
+            if case .badStructuredOutput = e {
+                check(true, "bad structured output throws .badStructuredOutput")
+            } else {
+                check(false, "expected badStructuredOutput error")
+            }
+        } catch {
+            check(false, "unexpected error type for bad structured")
+        }
+    }
+
+    // MARK: - Plugin dispatch
+
+    static func pluginDispatchChecks() {
+        check(PluginDispatch.extensionToType("png") == .image, "png → .image")
+        check(PluginDispatch.extensionToType("PNG") == .image, "PNG (uppercase) → .image")
+        check(PluginDispatch.extensionToType("jpg") == .image, "jpg → .image")
+        check(PluginDispatch.extensionToType("jpeg") == .image, "jpeg → .image")
+        check(PluginDispatch.extensionToType("gif") == .image, "gif → .image")
+        check(PluginDispatch.extensionToType("heic") == .image, "heic → .image")
+        check(PluginDispatch.extensionToType("webp") == .image, "webp → .image")
+        check(PluginDispatch.extensionToType("svg") == .image, "svg → .image")
+        check(PluginDispatch.extensionToType("tiff") == .image, "tiff → .image")
+        check(PluginDispatch.extensionToType("pdf") == .pdf, "pdf → .pdf")
+        check(PluginDispatch.extensionToType("PDF") == .pdf, "PDF (uppercase) → .pdf")
+        check(PluginDispatch.extensionToType("zip") == .file, "zip → .file")
+        check(PluginDispatch.extensionToType("docx") == .file, "docx → .file")
+        check(PluginDispatch.extensionToType("txt") == .file, "txt → .file")
+        check(PluginDispatch.extensionToType("") == .file, "empty extension → .file")
     }
 
     // MARK: - Courier / Journal

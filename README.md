@@ -26,6 +26,11 @@ modified.
 - **Quick Capture** is a floating panel for jotting markdown into any vault.
   Formatting toolbar, ⌘B/⌘I/⌘K shortcuts, ⌘1-⌘9 to pick the vault. Drafts
   survive dismiss/reopen.
+- **Plugins** let you extend drag-and-drop and a paste hotkey with shell
+  scripts. Drop a URL, image, or file onto Chestnut and a plugin transforms
+  it into a vault note. See [PLUGINS.md](PLUGINS.md) for the full guide and
+  [`Examples/plugins/`](Examples/plugins/) for a ready-made YouTube transcript
+  downloader.
 - After a capture or delivery, a speech bubble tells you where your text
   went. Click it to open the note in Obsidian (uses the `obsidian` CLI when
   available, falls back to opening the vault).
@@ -93,6 +98,7 @@ Sources/Chestnut/
   Vaults/     # VaultRegistry, VaultWatcher
   Actions/    # ObsidianBridge, Courier, Capture
   Panels/     # SwiftUI palettes/panels (NSPanel-hosted)
+  Plugins/    # PluginManifest, PluginRegistry, PluginRunner, PluginDispatch, PluginPalette
   Support/    # Config, Hotkeys, Journal
 ```
 
@@ -107,6 +113,7 @@ on first run. Hand-editable; changes take effect on next launch.
 |--------|---------|-------------|
 | Quick Capture | `control+option+space` | Toggle the capture panel |
 | Vault Hopper | `control+option+v` | Toggle the vault palette |
+| Plugin Paste | `control+option+c` | Run plugins on clipboard content |
 | Open notice | `control+option+o` | Act on the speech bubble; only active while one is showing |
 
 Override in the config file:
@@ -116,6 +123,7 @@ Override in the config file:
   "hotkeys": {
     "capture": "control+option+space",
     "hopper": "control+option+v",
+    "paste": "control+option+c",
     "notice": "control+option+o"
   }
 }
@@ -124,6 +132,18 @@ Override in the config file:
 Keys: `a`-`z`, `0`-`9`, `space`, `tab`, `return`, `escape`, `delete`, `f1`-`f12`.
 Modifiers: `control`/`ctrl`, `option`/`alt`, `command`/`cmd`, `shift`.
 Set a binding to `""` or `"none"` to disable it.
+
+### Notice duration
+
+Control how long the speech bubble stays visible (in seconds, minimum 1):
+
+```json
+{
+  "noticeDuration": 8
+}
+```
+
+Default: `5`.
 
 ### Quick Capture destination
 

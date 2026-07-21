@@ -115,6 +115,7 @@ final class HotkeyCenter {
     var onCapture: (() -> Void)?
     var onHopper: (() -> Void)?
     var onNotice: (() -> Void)?
+    var onPaste: (() -> Void)?
 
     private var registeredKeys: [UInt32: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
@@ -124,6 +125,7 @@ final class HotkeyCenter {
     private static let captureID: UInt32 = 1
     private static let hopperID: UInt32 = 2
     private static let noticeID: UInt32 = 3
+    private static let pasteID: UInt32 = 4
 
     func start(config: HotkeyConfig) {
         var eventType = EventTypeSpec(
@@ -153,6 +155,7 @@ final class HotkeyCenter {
 
         register(config.capture, id: Self.captureID, label: "capture")
         register(config.hopper, id: Self.hopperID, label: "hopper")
+        register(config.paste, id: Self.pasteID, label: "paste")
 
         // The notice hotkey is registered on demand — only while an
         // actionable bubble is visible — so Chestnut doesn't consume the
@@ -214,6 +217,7 @@ final class HotkeyCenter {
         case Self.captureID: onCapture?()
         case Self.hopperID: onHopper?()
         case Self.noticeID: onNotice?()
+        case Self.pasteID: onPaste?()
         default: break
         }
     }

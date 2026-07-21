@@ -25,7 +25,11 @@ check: site-gen
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \
-		Sources/$(APP)/Pet/SpriteTheme.swift
+		Sources/$(APP)/Pet/SpriteTheme.swift \
+		Sources/$(APP)/Plugins/PluginManifest.swift \
+		Sources/$(APP)/Plugins/PluginRegistry.swift \
+		Sources/$(APP)/Plugins/PluginRunner.swift \
+		Sources/$(APP)/Plugins/PluginDispatch.swift
 	$(BUILD)/chestnut-check
 	@$(SITE_GEN) $(BUILD)/sprites-drift.js $(VERSION)
 	@diff -u docs/sprites.js $(BUILD)/sprites-drift.js \

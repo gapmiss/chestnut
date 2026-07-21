@@ -21,6 +21,8 @@ final class PetWindow: NSPanel {
     /// Files dropped on the pet; second argument is the effective copy flag
     /// (persisted default already XOR-ed with ⌥).
     var onFilesDropped: (([URL], Bool) -> Void)?
+    /// Non-.md content dropped on the pet, classified for plugin dispatch.
+    var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
     var onUndoDelivery: (() -> Void)?
     var canUndoDelivery: (() -> Bool)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
@@ -137,7 +139,7 @@ final class PetWindow: NSPanel {
         let view = PetView(frame: NSRect(origin: .zero, size: size))
         view.allowsTransparency = true
         view.presentScene(petScene)
-        view.registerForDraggedTypes([.fileURL])
+        view.registerForDraggedTypes([.fileURL, .string, .URL, .tiff, .png])
         contentView = view
 
         acceptsMouseMovedEvents = true
@@ -594,14 +596,30 @@ final class PetView: SKView {
         ) as? [URL]) ?? []
     }
 
+    private func allMDFiles(_ sender: NSDraggingInfo) -> Bool {
+        let urls = fileURLs(from: sender)
+        return !urls.isEmpty && urls.allSatisfy {
+            $0.pathExtension.lowercased() == "md"
+        }
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard let petWindow, !fileURLs(from: sender).isEmpty else { return [] }
-        petScene?.setOpenWide(true)  // mouth open, ready to chomp
-        return petWindow.courierDragOperation
+        guard let petWindow else { return [] }
+        let urls = fileURLs(from: sender)
+        let hasDraggable = !urls.isEmpty
+            || sender.draggingPasteboard.string(forType: .string) != nil
+            || sender.draggingPasteboard.data(forType: .tiff) != nil
+            || sender.draggingPasteboard.data(forType: .png) != nil
+        guard hasDraggable else { return [] }
+        petScene?.setOpenWide(true)
+        return allMDFiles(sender)
+            ? petWindow.courierDragOperation : .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        petWindow?.courierDragOperation ?? []
+        guard let petWindow else { return [] }
+        return allMDFiles(sender)
+            ? petWindow.courierDragOperation : .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -609,13 +627,27 @@ final class PetView: SKView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        // .md file URLs → courier (existing path).
         let urls = fileURLs(from: sender)
-        guard !urls.isEmpty else {
-            petScene?.setOpenWide(false)
-            return false
+        let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
+        if !mdURLs.isEmpty, mdURLs.count == urls.count {
+            petWindow?.filesDropped(urls)
+            return true
         }
-        // Pose stays open: the delegate anchors the destination palette to it.
-        petWindow?.filesDropped(urls)
-        return true
+
+        // Try plugin dispatch for non-.md content.
+        if let (type, input) = PluginDispatch.classifyDrag(sender) {
+            petWindow?.onPluginDrop?(type, input)
+            return true
+        }
+
+        // Remaining file URLs → courier fallback.
+        if !urls.isEmpty {
+            petWindow?.filesDropped(urls)
+            return true
+        }
+
+        petScene?.setOpenWide(false)
+        return false
     }
 }

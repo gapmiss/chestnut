@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let journal: Journal<CourierOperation> = .deliveries
     private let captureJournal: Journal<CaptureRecord> = .captures
     private let hotkeys = HotkeyCenter()
+    private let pluginRegistry = PluginRegistry()
     private var petWindow: PetWindow?
     /// The one panel on screen (Vault Hopper, courier destination picker,
     /// or capture bubble).
@@ -59,11 +60,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onNotice = { [weak self] in
             self?.notice?.performAction()
         }
+        hotkeys.onPaste = { [weak self] in
+            self?.handlePasteHotkey()
+        }
         hotkeys.start(config: config.hotkeys)
+
+        pluginRegistry.onAPINotice = { [weak self] name, api in
+            self?.showNotice(
+                "Plugin \u{201C}\(name)\u{201D} requires api \(api)",
+                "This version of Chestnut supports api \(PluginManifest.maxAPI)"
+            )
+        }
+        pluginRegistry.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkeys.stop()
+        pluginRegistry.stop()
     }
 
     private func openPetWindow() {
@@ -83,6 +96,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
+        }
+        window.onPluginDrop = { [weak self] type, input in
+            self?.handlePluginInput(type: type, input: input)
         }
         window.canUndoDelivery = { [weak self] in
             self?.journal.last() != nil
@@ -391,9 +407,191 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
         }
-        panel.show(aboveSprite: petWindow.spriteFrame)
+        panel.show(aboveSprite: petWindow.spriteFrame, for: config.noticeDuration)
         notice = panel
         if onClick != nil { hotkeys.setNoticeHotkeyEnabled(true) }
+    }
+
+    // MARK: - Plugins
+
+    private func handlePasteHotkey() {
+        guard let classified = PluginDispatch.classify(.general) else { return }
+        handlePluginInput(type: classified.0, input: classified.1)
+    }
+
+    private func handlePluginInput(
+        type: PluginInputType, input: PluginRunner.Input
+    ) {
+        let matches = pluginRegistry.pluginsAccepting(type)
+        switch matches.count {
+        case 0:
+            petWindow?.petScene.setOpenWide(false)
+        case 1:
+            runPlugin(
+                manifest: matches[0].0, dir: matches[0].1, input: input
+            )
+        default:
+            presentPalette(
+                PluginPalettePanel(plugins: matches) { [weak self] manifest, dir in
+                    self?.runPlugin(
+                        manifest: manifest, dir: dir, input: input
+                    )
+                }
+            )
+        }
+    }
+
+    private func runPlugin(
+        manifest: PluginManifest, dir: URL, input: PluginRunner.Input
+    ) {
+        palette?.dismiss()
+        petWindow?.petScene.setChewing(true)
+        let tempPath = input.filePath
+        Task { [weak self] in
+            defer {
+                if let tempPath,
+                    tempPath.hasPrefix(
+                        NSTemporaryDirectory() + "chestnut-plugins/")
+                {
+                    try? FileManager.default.removeItem(atPath: tempPath)
+                }
+            }
+            do {
+                let raw = try await PluginRunner.run(
+                    manifest: manifest, pluginDir: dir, input: input
+                )
+                let result = try PluginRunner.interpret(
+                    result: raw, manifest: manifest
+                )
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginResult(result)
+            } catch let error as PluginError {
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginError(error)
+            } catch {
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginError(
+                    .nonZeroExit(error.localizedDescription))
+            }
+        }
+    }
+
+    private func handlePluginResult(_ result: PluginRunner.InterpretedResult) {
+        switch result.action {
+        case .capture:
+            captureDraft = result.content
+            toggleCapture()
+        case .save:
+            savePluginOutput(result)
+        case .clipboard:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(result.content, forType: .string)
+            petWindow?.petScene.celebrateDelivery()
+            controller.noteInteraction()
+            showNotice("Copied to clipboard", result.notifyText ?? "")
+        case .notify:
+            petWindow?.petScene.celebrateDelivery()
+            controller.noteInteraction()
+            showNotice(
+                result.content.isEmpty ? "Plugin completed" : result.content,
+                result.notifyText ?? ""
+            )
+        case .structured:
+            break
+        }
+    }
+
+    private func savePluginOutput(_ result: PluginRunner.InterpretedResult) {
+        let filename = result.filename ?? "untitled.md"
+        let content = result.content
+        let folder = result.folder
+
+        func save(to vault: Vault) {
+            var dir = URL(fileURLWithPath: vault.path)
+            if let folder, !folder.isEmpty {
+                dir = dir.appendingPathComponent(folder)
+            }
+            let vaultStd = URL(fileURLWithPath: vault.path).standardizedFileURL
+            guard dir.standardizedFileURL.path.hasPrefix(vaultStd.path)
+            else {
+                presentAlert(
+                    "Plugin save failed",
+                    "Target folder would escape the vault root."
+                )
+                return
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: dir, withIntermediateDirectories: true
+                )
+                let desired = dir.appendingPathComponent(filename)
+                let url = Courier.availableURL(for: desired)
+                try content.write(
+                    to: url, atomically: true, encoding: .utf8
+                )
+                petWindow?.petScene.celebrateDelivery()
+                controller.noteInteraction()
+                showNotice(
+                    "Saved to \(vault.name)",
+                    url.lastPathComponent
+                ) {
+                    ObsidianBridge.openNote(
+                        path: url.path, vaultPath: vault.path
+                    )
+                }
+            } catch {
+                presentAlert(
+                    "Plugin save failed", error.localizedDescription
+                )
+            }
+        }
+
+        let hint = result.vaultHint
+        if hint == "ask" || hint == nil {
+            let vaults = pinnedFirst(registry.vaults)
+            guard !vaults.isEmpty else {
+                presentAlert(
+                    "Nowhere to save",
+                    "No vaults found in Obsidian's vault list."
+                )
+                return
+            }
+            presentPalette(
+                VaultPalettePanel(
+                    vaults: vaults,
+                    placeholder: "Save to vault\u{2026}",
+                    pinnedPath: config.pinnedVaultPath,
+                    onPinChange: { [weak self] path in
+                        self?.setPinnedVault(path)
+                    }
+                ) { vault in save(to: vault) }
+            )
+        } else if hint == "pinned" {
+            let vault = registry.vaults.first {
+                $0.path == config.pinnedVaultPath
+            } ?? registry.vaults.first
+            if let vault { save(to: vault) }
+        } else if hint == "last" {
+            let vault = registry.vaults.first {
+                $0.path == config.lastCaptureVaultPath
+            } ?? registry.vaults.first
+            if let vault { save(to: vault) }
+        } else if let hint {
+            if let vault = registry.vaults.first(where: {
+                $0.path == hint
+            }) {
+                save(to: vault)
+            } else {
+                presentAlert(
+                    "Unknown vault",
+                    "No vault found at: \(hint)"
+                )
+            }
+        }
+    }
+
+    private func handlePluginError(_ error: PluginError) {
+        showNotice("Plugin error", error.localizedDescription)
     }
 
     private func presentAlert(_ title: String, _ message: String) {
