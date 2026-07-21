@@ -22,6 +22,7 @@ check: site-gen
 		Sources/$(APP)/Actions/Capture.swift \
 		Sources/$(APP)/Support/Journal.swift \
 		Sources/$(APP)/Support/Config.swift \
+		Sources/$(APP)/Support/DebugLog.swift \
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \

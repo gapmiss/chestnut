@@ -102,7 +102,16 @@ final class VaultRegistry {
             return
         }
         guard parsed != vaults || notifyEvenIfUnchanged else { return }
+        let oldPaths = Set(vaults.map(\.path))
         vaults = parsed
+        let newPaths = Set(vaults.map(\.path))
+        let added = newPaths.subtracting(oldPaths)
+        let removed = oldPaths.subtracting(newPaths)
+        if DebugLog.enabled {
+            DebugLog.log("vault registry: reload — \(vaults.count) vault(s), \(vaults.filter(\.isOpen).count) open")
+            if !added.isEmpty { DebugLog.log("vault registry:   added: \(added)") }
+            if !removed.isEmpty { DebugLog.log("vault registry:   removed: \(removed)") }
+        }
         onChange?(vaults)
     }
 

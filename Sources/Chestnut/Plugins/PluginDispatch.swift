@@ -30,6 +30,7 @@ enum PluginDispatch {
             }
             if let first = nonMD.first {
                 let type = extensionToType(first.pathExtension)
+                DebugLog.log("plugin dispatch: classified as \(type.rawValue), file=\(first.path)")
                 return (type, PluginRunner.Input(
                     type: type,
                     text: nil,
@@ -44,6 +45,7 @@ enum PluginDispatch {
             ?? pasteboard.string(forType: .string),
             let url = URL(string: urlString),
             url.scheme == "http" || url.scheme == "https" {
+            DebugLog.log("plugin dispatch: classified as url (\(urlString.prefix(80)))")
             return (.url, PluginRunner.Input(
                 type: .url,
                 text: urlString,
@@ -64,6 +66,7 @@ enum PluginDispatch {
             if FileManager.default.createFile(
                 atPath: tempFile, contents: imageData
             ) {
+                DebugLog.log("plugin dispatch: classified as image, temp=\(tempFile)")
                 return (.image, PluginRunner.Input(
                     type: .image,
                     text: nil,
@@ -76,6 +79,7 @@ enum PluginDispatch {
         // Plain string.
         if let text = pasteboard.string(forType: .string),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            DebugLog.log("plugin dispatch: classified as text (\(text.prefix(80)))")
             return (.text, PluginRunner.Input(
                 type: .text,
                 text: text,
@@ -84,6 +88,7 @@ enum PluginDispatch {
             ))
         }
 
+        DebugLog.log("plugin dispatch: nothing classifiable on pasteboard")
         return nil
     }
 

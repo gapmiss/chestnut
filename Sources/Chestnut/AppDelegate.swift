@@ -33,11 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DebugLog.configure(enabled: config.debug)
+        DebugLog.log("config loaded from \(Config.fileURL.path)")
         UserDefaults.standard.set(300, forKey: "NSInitialToolTipDelay")
         if let custom = config.customThemes {
             SpriteTheme.registerCustomThemes(custom)
+            DebugLog.log("config: registered \(custom.count) custom theme(s): \(custom.map(\.id))")
         }
         if SpriteTheme.theme(id: config.petTheme).id != config.petTheme {
+            DebugLog.log("config: theme \"\(config.petTheme)\" invalid, falling back to default")
             config.petTheme = SpriteTheme.defaultID
         }
         openPetWindow()
@@ -180,6 +184,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             palette?.dismiss()
             return
         }
+        DebugLog.log("hopper: opening with \(registry.vaults.count) vault(s)")
         presentPalette(
             VaultPalettePanel(
                 vaults: pinnedFirst(registry.vaults),
@@ -259,7 +264,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func completeDelivery(of files: [URL], to vault: Vault, from source: Vault?, copy: Bool) {
-        palette?.dismiss()  // close first so the gulp isn't stomped by the pose reset
+        palette?.dismiss()
+        DebugLog.log("courier: delivering \(files.count) file(s) to \(vault.name) (\(vault.path))")
         do {
             let op = try courier.deliver(
                 files: files,
@@ -271,6 +277,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try journal.append(op)
             } catch {
                 NSLog("Journal append failed (delivery succeeded): %@", error.localizedDescription)
+            }
+            if DebugLog.enabled {
+                for t in op.transfers {
+                    DebugLog.log("courier:   \(t.from) → \(t.to)\(t.dedup ? " (dedup)" : "")")
+                }
             }
             petWindow?.petScene.celebrateDelivery()
             controller.noteInteraction()
@@ -352,11 +363,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func completeCapture(_ text: String, to vault: Vault) {
+        DebugLog.log("capture: to \(vault.name) (\(vault.path)), \(text.count) chars")
         config.lastCaptureVaultPath = vault.path
         config.save()
-        // The CLI path blocks on the live Obsidian app (hard 3s timeouts,
-        // twice) — run it off the main actor so the pet, panels, and hotkeys
-        // stay responsive, then hop back for the journal and feedback.
         let capture = self.capture
         let vaultURL = URL(fileURLWithPath: vault.path)
         let cliVaultName = cliName(for: vault)
@@ -367,6 +376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch result {
             case .success(let record):
+                DebugLog.log("capture: success → \(record.notePath), created=\(record.createdFile)")
                 do {
                     try self.captureJournal.append(record)
                 } catch {
@@ -439,6 +449,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         type: PluginInputType, input: PluginRunner.Input
     ) {
         let matches = pluginRegistry.pluginsAccepting(type)
+        DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name))")
         switch matches.count {
         case 0:
             petWindow?.petScene.setOpenWide(false)
@@ -460,6 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func runPlugin(
         manifest: PluginManifest, dir: URL, input: PluginRunner.Input
     ) {
+        DebugLog.log("plugin run: \(manifest.name) at \(dir.path)")
         palette?.dismiss()
         petWindow?.petScene.setChewing(true)
         let tempPath = input.filePath
@@ -476,9 +488,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let raw = try await PluginRunner.run(
                     manifest: manifest, pluginDir: dir, input: input
                 )
+                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, stderr=\(raw.stderr.prefix(200))")
                 let result = try PluginRunner.interpret(
                     result: raw, manifest: manifest
                 )
+                DebugLog.log("plugin result: action=\(result.action.rawValue), content=\(result.content.count) bytes, attachments=\(result.attachments?.count ?? 0)")
                 self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginResult(result)
             } catch let error as PluginError {

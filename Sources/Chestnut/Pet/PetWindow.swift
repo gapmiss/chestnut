@@ -658,10 +658,18 @@ final class PetView: SKView {
               let vaultName = components.queryItems?.first(where: { $0.name == "vault" })?.value,
               let filePath = components.queryItems?.first(where: { $0.name == "file" })?.value
         else { return nil }
-        guard let vault = petWindow?.resolveVaultByName?(vaultName) else { return nil }
+        DebugLog.log("obsidian:// URL — vault=\(vaultName) file=\(filePath)")
+        guard let vault = petWindow?.resolveVaultByName?(vaultName) else {
+            DebugLog.log("obsidian:// — vault \"\(vaultName)\" not found in registry")
+            return nil
+        }
         let full = (vault as NSString).appendingPathComponent(filePath)
         let withExt = full.hasSuffix(".md") ? full : full + ".md"
-        guard FileManager.default.fileExists(atPath: withExt) else { return nil }
+        guard FileManager.default.fileExists(atPath: withExt) else {
+            DebugLog.log("obsidian:// — resolved path not found: \(withExt)")
+            return nil
+        }
+        DebugLog.log("obsidian:// — resolved to \(withExt)")
         return URL(fileURLWithPath: withExt)
     }
 
@@ -674,13 +682,22 @@ final class PetView: SKView {
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
+        let pb = sender.draggingPasteboard
+        if DebugLog.enabled {
+            let types = pb.types?.map(\.rawValue) ?? []
+            let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+            DebugLog.log("drag entered — source app: \(source), pasteboard types: \(types)")
+        }
         let urls = fileURLs(from: sender)
         let hasDraggable = !urls.isEmpty
             || obsidianFileURL(from: sender) != nil
-            || sender.draggingPasteboard.string(forType: .string) != nil
-            || sender.draggingPasteboard.data(forType: .tiff) != nil
-            || sender.draggingPasteboard.data(forType: .png) != nil
-        guard hasDraggable else { return [] }
+            || pb.string(forType: .string) != nil
+            || pb.data(forType: .tiff) != nil
+            || pb.data(forType: .png) != nil
+        guard hasDraggable else {
+            DebugLog.log("drag entered — nothing draggable, rejecting")
+            return []
+        }
         petScene?.setOpenWide(true)
         if allMDFiles(sender) || obsidianFileURL(from: sender) != nil {
             return petWindow.courierDragOperation
@@ -701,32 +718,33 @@ final class PetView: SKView {
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        // .md file URLs → courier (existing path).
         let urls = fileURLs(from: sender)
         let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
         if !mdURLs.isEmpty, mdURLs.count == urls.count {
+            DebugLog.log("drop: \(mdURLs.count) .md file(s) → courier")
             petWindow?.filesDropped(urls)
             return true
         }
 
-        // obsidian://open URLs → resolve to .md file, route to courier.
         if let resolved = obsidianFileURL(from: sender) {
+            DebugLog.log("drop: obsidian:// URL resolved to \(resolved.path) → courier")
             petWindow?.filesDropped([resolved])
             return true
         }
 
-        // Try plugin dispatch for non-.md content.
         if let (type, input) = PluginDispatch.classifyDrag(sender) {
+            DebugLog.log("drop: plugin dispatch, type=\(type.rawValue)")
             petWindow?.onPluginDrop?(type, input)
             return true
         }
 
-        // Remaining file URLs → courier fallback.
         if !urls.isEmpty {
+            DebugLog.log("drop: \(urls.count) non-.md file(s) → courier fallback")
             petWindow?.filesDropped(urls)
             return true
         }
 
+        DebugLog.log("drop: unhandled, rejecting")
         petScene?.setOpenWide(false)
         return false
     }

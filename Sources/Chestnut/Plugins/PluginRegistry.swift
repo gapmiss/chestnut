@@ -24,6 +24,7 @@ final class PluginRegistry {
         )
         rescan()
         watchDirectory(dir)
+        DebugLog.log("plugin registry: started, \(plugins.count) plugin(s) at \(dir.path)")
     }
 
     func stop() {
@@ -76,8 +77,19 @@ final class PluginRegistry {
             }
         }
 
+        let wasEmpty = plugins.isEmpty
+        let added = newPlugins.filter { p in !plugins.contains(where: { $0.name == p.name }) }
+        let removed = plugins.filter { p in !newPlugins.contains(where: { $0.name == p.name }) }
         plugins = newPlugins
         pluginDirs = newDirs
+        if DebugLog.enabled, !added.isEmpty || !removed.isEmpty || wasEmpty {
+            DebugLog.log("plugin registry: rescan — added=\(added.map(\.name)) removed=\(removed.map(\.name)) total=\(plugins.count)")
+            if wasEmpty {
+                for p in plugins {
+                    DebugLog.log("plugin registry:   \(p.name) at \(pluginDirs[p.name]?.path ?? "?")")
+                }
+            }
+        }
         onChange?()
     }
 

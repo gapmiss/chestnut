@@ -59,6 +59,15 @@ struct Config: Codable, Equatable {
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
+    var debug = false
+
+    private enum CodingKeys: String, CodingKey {
+        case position, size, courierCopyByDefault, opacity
+        case lastCaptureVaultPath, pinnedVaultPath
+        case captureInboxName, captureFormat, captureFolder
+        case petTheme, petPalette, customThemes
+        case noticeDuration, showInFullScreen, hotkeys, debug
+    }
 
     static let opacityRange = 0.1...1.0
     static let defaultInboxName = "Inbox.md"
@@ -95,6 +104,7 @@ struct Config: Codable, Equatable {
         showInFullScreen =
             try c.decodeIfPresent(Bool.self, forKey: .showInFullScreen) ?? true
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
+        debug = try c.decodeIfPresent(Bool.self, forKey: .debug) ?? false
     }
 
     static var fileURL: URL {
@@ -109,10 +119,6 @@ struct Config: Codable, Equatable {
         do {
             return try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            // A hand-edited config with a typo must survive: routine saves
-            // (window drags, size changes) would overwrite it with defaults,
-            // losing UI-less fields like customThemes and petPalette. Park
-            // the unparseable original next door before that can happen.
             let backup = fileURL.appendingPathExtension("bak")
             try? data.write(to: backup, options: .atomic)
             NSLog("Config load failed (%@) — original preserved at %@",
@@ -133,6 +139,26 @@ struct Config: Codable, Equatable {
         } catch {
             NSLog("Config save failed: %@", error.localizedDescription)
         }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(position, forKey: .position)
+        try c.encode(size, forKey: .size)
+        try c.encode(courierCopyByDefault, forKey: .courierCopyByDefault)
+        try c.encode(opacity, forKey: .opacity)
+        try c.encodeIfPresent(lastCaptureVaultPath, forKey: .lastCaptureVaultPath)
+        try c.encodeIfPresent(pinnedVaultPath, forKey: .pinnedVaultPath)
+        try c.encode(captureInboxName, forKey: .captureInboxName)
+        try c.encodeIfPresent(captureFormat, forKey: .captureFormat)
+        try c.encodeIfPresent(captureFolder, forKey: .captureFolder)
+        try c.encode(petTheme, forKey: .petTheme)
+        try c.encodeIfPresent(petPalette, forKey: .petPalette)
+        try c.encodeIfPresent(customThemes, forKey: .customThemes)
+        try c.encode(noticeDuration, forKey: .noticeDuration)
+        try c.encode(showInFullScreen, forKey: .showInFullScreen)
+        try c.encode(hotkeys, forKey: .hotkeys)
+        if debug { try c.encode(true, forKey: .debug) }
     }
 }
 

@@ -206,19 +206,23 @@ final class HotkeyCenter {
         )
         if status != noErr {
             NSLog("HotkeyCenter: could not register %@ hotkey (OSStatus %d)", label, status)
+            DebugLog.log("hotkey: register \(label) FAILED (OSStatus \(status))")
         } else if let ref {
             registeredKeys[id] = ref
+            DebugLog.log("hotkey: registered \(label) (keyCode=\(spec.keyCode), mods=\(spec.modifiers))")
         }
     }
 
     private func dispatch(_ id: EventHotKeyID) {
         guard id.signature == Self.signature else { return }
+        let label: String
         switch id.id {
-        case Self.captureID: onCapture?()
-        case Self.hopperID: onHopper?()
-        case Self.noticeID: onNotice?()
-        case Self.pasteID: onPaste?()
-        default: break
+        case Self.captureID: label = "capture"; onCapture?()
+        case Self.hopperID: label = "hopper"; onHopper?()
+        case Self.noticeID: label = "notice"; onNotice?()
+        case Self.pasteID: label = "paste"; onPaste?()
+        default: return
         }
+        DebugLog.log("hotkey: dispatched \(label)")
     }
 }
