@@ -223,7 +223,7 @@ plugins in different languages, covering every input type and output mode:
 | [`img-info`](Examples/plugins/img-info/) | Bash | `image` | `notify` | Show image dimensions and file size |
 | [`url-bookmark`](Examples/plugins/url-bookmark/) | Python | `url` | `structured` (save) | Bookmark note with page title and description |
 | [`code-snippet`](Examples/plugins/code-snippet/) | Ruby | `text` | `structured` (save) | Auto-detect language, save fenced code note |
-| [`pdf-extract`](Examples/plugins/pdf-extract/) | Python | `pdf` | `structured` (save) | Extract text from PDF via `textutil` |
+| [`pdf-extract`](Examples/plugins/pdf-extract/) | Swift | `pdf` | `structured` (save) | Extract text from PDF via `textutil` |
 | [`word-count`](Examples/plugins/word-count/) | Perl | `text` | `notify` | Word count and reading time bubble |
 | [`clipboard-clean`](Examples/plugins/clipboard-clean/) | Zsh | `text` | `clipboard` | Strip smart quotes and whitespace |
 

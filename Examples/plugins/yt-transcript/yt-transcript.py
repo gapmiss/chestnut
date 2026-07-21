@@ -140,7 +140,11 @@ def fetch_transcript(url, video_id):
 
 
 def parse_srt(srt_text):
-    """Parse SRT into deduplicated (timestamp_str, total_seconds, text) triples."""
+    """Parse SRT into deduplicated (timestamp_str, total_seconds, text) triples.
+
+    Auto-generated subs have two lines per cue: line 1 repeats from the
+    previous cue, line 2 is new. Take only the last line to avoid overlap.
+    """
     blocks = re.split(r"\n\n+", srt_text.strip())
     result = []
     seen = set()
@@ -162,8 +166,7 @@ def parse_srt(srt_text):
         total_seconds = hours * 3600 + mins * 60 + secs
         ts_str = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
 
-        text = " ".join(lines[2:])
-        text = re.sub(r"<[^>]+>", "", text).strip()
+        text = re.sub(r"<[^>]+>", "", lines[-1]).strip()
 
         if not text or text in seen:
             continue

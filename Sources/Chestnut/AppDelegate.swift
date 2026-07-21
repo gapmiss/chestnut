@@ -285,6 +285,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             petWindow?.petScene.celebrateDelivery()
             controller.noteInteraction()
+            guard !op.transfers.isEmpty else {
+                showNotice("Already in \(vault.name)", "File already exists, skipped")
+                return
+            }
             let note = op.transfers.first { $0.to.hasSuffix(".md") }?.to
             let subtitle = op.transfers.count == 1
                 ? (op.transfers[0].to as NSString).lastPathComponent
@@ -295,7 +299,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if op.transfers.count == 1 {
                     ObsidianBridge.presentFile(path: op.transfers[0].to, vaultPath: vault.path)
                 } else {
-                    // Several attachments land in one folder — reveal that.
                     let folder = (op.transfers[0].to as NSString).deletingLastPathComponent
                     ObsidianBridge.presentFile(path: folder, vaultPath: vault.path)
                 }
@@ -595,16 +598,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 )
                 return
             }
-            presentPalette(
-                VaultPalettePanel(
-                    vaults: vaults,
-                    placeholder: "Save to vault\u{2026}",
-                    pinnedPath: config.pinnedVaultPath,
-                    onPinChange: { [weak self] path in
-                        self?.setPinnedVault(path)
-                    }
-                ) { vault in save(to: vault) }
-            )
+            var saved = false
+            let panel = VaultPalettePanel(
+                vaults: vaults,
+                placeholder: "Save to vault\u{2026}",
+                pinnedPath: config.pinnedVaultPath,
+                onPinChange: { [weak self] path in
+                    self?.setPinnedVault(path)
+                }
+            ) { vault in
+                saved = true
+                save(to: vault)
+            }
+            presentPalette(panel)
+            let oldClose = panel.onClose
+            panel.onClose = { [weak self] in
+                oldClose?()
+                guard !saved else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(content, forType: .string)
+                self?.showNotice(
+                    "Copied to clipboard",
+                    "Plugin output saved to clipboard"
+                )
+            }
         } else if hint == "pinned" {
             let vault = registry.vaults.first {
                 $0.path == config.pinnedVaultPath
