@@ -649,6 +649,12 @@ final class PetView: SKView {
         return []
     }
 
+    private func hasObsidianURL(from sender: NSDraggingInfo) -> Bool {
+        guard let raw = sender.draggingPasteboard.string(forType: .URL),
+              let url = URL(string: raw) else { return false }
+        return url.scheme == "obsidian" && url.host == "open"
+    }
+
     private func obsidianFileURL(from sender: NSDraggingInfo) -> URL? {
         guard let raw = sender.draggingPasteboard.string(forType: .URL),
               let url = URL(string: raw),
@@ -664,13 +670,19 @@ final class PetView: SKView {
             return nil
         }
         let full = (vault as NSString).appendingPathComponent(filePath)
-        let withExt = full.hasSuffix(".md") ? full : full + ".md"
-        guard FileManager.default.fileExists(atPath: withExt) else {
-            DebugLog.log("obsidian:// — resolved path not found: \(withExt)")
-            return nil
+        if FileManager.default.fileExists(atPath: full) {
+            DebugLog.log("obsidian:// — resolved to \(full)")
+            return URL(fileURLWithPath: full)
         }
-        DebugLog.log("obsidian:// — resolved to \(withExt)")
-        return URL(fileURLWithPath: withExt)
+        if !full.hasSuffix(".md") {
+            let withMD = full + ".md"
+            if FileManager.default.fileExists(atPath: withMD) {
+                DebugLog.log("obsidian:// — resolved to \(withMD)")
+                return URL(fileURLWithPath: withMD)
+            }
+        }
+        DebugLog.log("obsidian:// — resolved path not found: \(full)")
+        return nil
     }
 
     private func allMDFiles(_ sender: NSDraggingInfo) -> Bool {
@@ -689,8 +701,9 @@ final class PetView: SKView {
             DebugLog.log("drag entered — source app: \(source), pasteboard types: \(types)")
         }
         let urls = fileURLs(from: sender)
+        let hasObsidian = hasObsidianURL(from: sender)
         let hasDraggable = !urls.isEmpty
-            || obsidianFileURL(from: sender) != nil
+            || hasObsidian
             || pb.string(forType: .string) != nil
             || pb.data(forType: .tiff) != nil
             || pb.data(forType: .png) != nil
@@ -699,7 +712,7 @@ final class PetView: SKView {
             return []
         }
         petScene?.setOpenWide(true)
-        if !urls.isEmpty || obsidianFileURL(from: sender) != nil {
+        if !urls.isEmpty || hasObsidian {
             return petWindow.courierDragOperation
         }
         return .copy
@@ -708,7 +721,7 @@ final class PetView: SKView {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
         let urls = fileURLs(from: sender)
-        if !urls.isEmpty || obsidianFileURL(from: sender) != nil {
+        if !urls.isEmpty || hasObsidianURL(from: sender) {
             return petWindow.courierDragOperation
         }
         return .copy
