@@ -23,6 +23,8 @@ final class PetWindow: NSPanel {
     var onFilesDropped: (([URL], Bool) -> Void)?
     /// Non-.md content dropped on the pet, classified for plugin dispatch.
     var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
+    /// Resolve a vault name (from an obsidian:// URL) to a vault path.
+    var resolveVaultByName: ((String) -> String?)?
     var onUndoDelivery: (() -> Void)?
     var canUndoDelivery: (() -> Bool)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
@@ -634,9 +636,33 @@ final class PetView: SKView {
     // only when files hover the chest itself.
 
     private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
-        (sender.draggingPasteboard.readObjects(
+        let native = (sender.draggingPasteboard.readObjects(
             forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
         ) as? [URL]) ?? []
+        if !native.isEmpty { return native }
+        // Electron apps put file:// URLs on public.url instead of
+        // public.file-url — urlReadingFileURLsOnly skips them.
+        if let raw = sender.draggingPasteboard.string(forType: .URL),
+           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
+            return [url]
+        }
+        return []
+    }
+
+    private func obsidianFileURL(from sender: NSDraggingInfo) -> URL? {
+        guard let raw = sender.draggingPasteboard.string(forType: .URL),
+              let url = URL(string: raw),
+              url.scheme == "obsidian",
+              url.host == "open",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let vaultName = components.queryItems?.first(where: { $0.name == "vault" })?.value,
+              let filePath = components.queryItems?.first(where: { $0.name == "file" })?.value
+        else { return nil }
+        guard let vault = petWindow?.resolveVaultByName?(vaultName) else { return nil }
+        let full = (vault as NSString).appendingPathComponent(filePath)
+        let withExt = full.hasSuffix(".md") ? full : full + ".md"
+        guard FileManager.default.fileExists(atPath: withExt) else { return nil }
+        return URL(fileURLWithPath: withExt)
     }
 
     private func allMDFiles(_ sender: NSDraggingInfo) -> Bool {
@@ -650,19 +676,24 @@ final class PetView: SKView {
         guard let petWindow else { return [] }
         let urls = fileURLs(from: sender)
         let hasDraggable = !urls.isEmpty
+            || obsidianFileURL(from: sender) != nil
             || sender.draggingPasteboard.string(forType: .string) != nil
             || sender.draggingPasteboard.data(forType: .tiff) != nil
             || sender.draggingPasteboard.data(forType: .png) != nil
         guard hasDraggable else { return [] }
         petScene?.setOpenWide(true)
-        return allMDFiles(sender)
-            ? petWindow.courierDragOperation : .copy
+        if allMDFiles(sender) || obsidianFileURL(from: sender) != nil {
+            return petWindow.courierDragOperation
+        }
+        return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
-        return allMDFiles(sender)
-            ? petWindow.courierDragOperation : .copy
+        if allMDFiles(sender) || obsidianFileURL(from: sender) != nil {
+            return petWindow.courierDragOperation
+        }
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -675,6 +706,12 @@ final class PetView: SKView {
         let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
         if !mdURLs.isEmpty, mdURLs.count == urls.count {
             petWindow?.filesDropped(urls)
+            return true
+        }
+
+        // obsidian://open URLs → resolve to .md file, route to courier.
+        if let resolved = obsidianFileURL(from: sender) {
+            petWindow?.filesDropped([resolved])
             return true
         }
 

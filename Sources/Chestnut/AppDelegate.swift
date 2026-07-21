@@ -94,6 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onToggleHopper = { [weak self] in
             self?.toggleHopper()
         }
+        window.resolveVaultByName = { [weak self] name in
+            self?.registry.vaults.first(where: { $0.name == name })?.path
+        }
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
         }
