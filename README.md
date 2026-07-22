@@ -27,13 +27,9 @@ modified.
   Formatting toolbar, ⌘B/⌘I/⌘K shortcuts, ⌘1-⌘9 to pick the vault. Drafts
   survive dismiss/reopen.
 - **Plugins** let you extend drag-and-drop and a paste hotkey with shell
-  scripts. Drop a URL, image, file, or folder onto Chestnut and a plugin transforms
-  it into a vault note. Plugins can narrow to specific file extensions (e.g.
-  only `.txt`); unmatched files fall through to the courier. Enable/disable
-  individual plugins from the right-click menu → Plugins (persisted in
-  config). See [PLUGINS.md](PLUGINS.md) for the full guide and
-  [`Examples/plugins/`](Examples/plugins/) for ready-made examples (OCR,
-  PDF extraction, bookmarks, code snippets, and more).
+  scripts. See the [User Guide](https://gapmiss.github.io/chestnut/guide.html#plugins)
+  for the full reference, [PLUGINS.md](PLUGINS.md) for architecture details,
+  and [`Examples/plugins/`](Examples/plugins/) for ready-made examples.
 - After a capture or delivery, a speech bubble tells you where your text
   went. Click it to open the note in Obsidian (uses the `obsidian` CLI when
   available, falls back to opening the vault).
@@ -110,132 +106,10 @@ Sources/Chestnut/
 Settings live in `~/Library/Application Support/Chestnut/config.json`, created
 on first run. Hand-editable; changes take effect on next launch.
 
-### Hotkeys
-
-| Action | Default | Description |
-|--------|---------|-------------|
-| Quick Capture | `control+option+space` | Toggle the capture panel |
-| Vault Hopper | `control+option+v` | Toggle the vault palette |
-| Plugin Paste | `control+option+c` | Run plugins on clipboard content |
-| Open notice | `control+option+o` | Act on the speech bubble; only active while one is showing |
-
-Override in the config file:
-
-```json
-{
-  "hotkeys": {
-    "capture": "control+option+space",
-    "hopper": "control+option+v",
-    "paste": "control+option+c",
-    "notice": "control+option+o"
-  }
-}
-```
-
-Keys: `a`-`z`, `0`-`9`, `space`, `tab`, `return`, `escape`, `delete`, `f1`-`f12`.
-Modifiers: `control`/`ctrl`, `option`/`alt`, `command`/`cmd`, `shift`.
-Set a binding to `""` or `"none"` to disable it.
-
-### Notice duration
-
-Control how long the speech bubble stays visible (in seconds, minimum 1):
-
-```json
-{
-  "noticeDuration": 8
-}
-```
-
-Default: `5`.
-
-### Quick Capture destination
-
-Captures append to a note in the selected vault. The target is resolved in
-order:
-
-1. Obsidian daily note, if the daily-notes core plugin is enabled (the
-   default). Uses the vault's configured format and folder; creates the note
-   if it doesn't exist.
-2. Chestnut daily note, if you've set `captureFormat` in the config. Same
-   Moment.js token subset (`YYYY`, `YY`, `MM`, `M`, `DD`, `D`, `[literal]`).
-3. Static inbox (`Inbox.md` at the vault root by default).
-
-```json
-{
-  "captureFormat": "YYYY-MM-DD",
-  "captureFolder": "captures",
-  "captureInboxName": "Inbox.md"
-}
-```
-
-With the above config and Obsidian's daily notes off, a capture on 2026-07-15
-appends to `captures/2026-07-15.md`. Omit `captureFolder` for vault root,
-omit `captureFormat` for the static inbox.
-
-⌘⏎ in the Vault Hopper opens the same resolved note, so "where capture
-writes" and "where ⌘⏎ takes you" always agree.
-
-### Pinned vault
-
-Toggle from the UI (pin icon or ⌘P) or set directly:
-
-```json
-{
-  "pinnedVaultPath": "/Users/you/Vaults/main"
-}
-```
-
-The pinned vault sorts first everywhere and wins the capture panel's default,
-unless an unfinished draft is targeting another vault. Without a pin, capture
-defaults to the vault that last received one. A pin pointing at a vault no
-longer in Obsidian's list is ignored.
-
-### Custom themes
-
-Four built-in themes: Obsidian Night (default), Classic Wood, Brushed Steel,
-and Sunbleached. Define your own in the config file:
-
-```json
-{
-  "customThemes": [
-    {
-      "id": "dracula",
-      "title": "Dracula",
-      "palette": {
-        "s": "#44475A",
-        "S": "#6272A4",
-        "d": "#282A36",
-        "m": "#BD93F9",
-        "o": "#191A21"
-      }
-    }
-  ]
-}
-```
-
-Required roles (hex `#RRGGBB` or `#RRGGBBAA`):
-
-| Role | Key | Description |
-|------|-----|-------------|
-| Shell | `s` | Main body color |
-| Highlight | `S` | Rivets, raised edges |
-| Shadow | `d` | Recessed areas, dial face |
-| Trim | `m` | Metal fittings, dial ring |
-| Outline | `o` | Border pixels |
-
-Optional: `p`/`P` (gem / gem glint), `k` (mouth interior), `t` (tongue),
-`e` (eye white), `b` (pupil), `z` (sleep pixels). These have shared defaults
-and can be overridden per-theme.
-
-For single-color tweaks, `petPalette` overrides individual roles on top of
-the active theme:
-
-```json
-{
-  "petTheme": "classic-wood",
-  "petPalette": { "m": "#C0C0C0" }
-}
-```
+Configurable: hotkeys, capture destination, notice duration, custom sprite
+themes, pinned vault, disabled plugins. See the
+[User Guide](https://gapmiss.github.io/chestnut/guide.html#configuration)
+for the full reference.
 
 ## Design Principles
 
