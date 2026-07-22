@@ -536,6 +536,16 @@ struct Check {
             check(false, "valid manifest should load as .ok")
         }
 
+        // Folder type in accepts.
+        let folderDir = writePlugin("folder-test", manifest: """
+        {"api":1,"name":"folder-test","accepts":["folder"],"output":"structured","script":"run.sh"}
+        """, script: "#!/bin/bash\necho '{}'")
+        if case .ok(let m) = PluginManifest.load(from: folderDir) {
+            check(m.accepts == [.folder], "folder accept type parses")
+        } else {
+            check(false, "manifest with folder accept should load as .ok")
+        }
+
         // Unknown accepts aliases are silently filtered.
         let unknownDir = writePlugin("unknown-type", manifest: """
         {"api":1,"name":"unknown-type","accepts":["text","video","hologram"],"output":"notify","script":"run.sh"}
@@ -949,6 +959,22 @@ struct Check {
         check(PluginDispatch.extensionToType("docx") == .file, "docx → .file")
         check(PluginDispatch.extensionToType("txt") == .file, "txt → .file")
         check(PluginDispatch.extensionToType("") == .file, "empty extension → .file")
+
+        check(PluginInputType(rawValue: "folder") == .folder, "folder raw value round-trips")
+
+        let fm = FileManager.default
+        let tmpDir = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-folder-\(ProcessInfo.processInfo.processIdentifier)")
+        defer { try? fm.removeItem(at: tmpDir) }
+        try! fm.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+        check(tmpDir.isExistingDirectory, "temp dir detected as directory")
+
+        let tmpFile = tmpDir.appendingPathComponent("test.txt")
+        try! "hello".write(to: tmpFile, atomically: true, encoding: .utf8)
+        check(!tmpFile.isExistingDirectory, "regular file not detected as directory")
+
+        let missing = URL(fileURLWithPath: NSTemporaryDirectory() + "nonexistent-\(UUID())")
+        check(!missing.isExistingDirectory, "nonexistent path not detected as directory")
     }
 
     // MARK: - Courier / Journal

@@ -21,6 +21,14 @@ extension NSPasteboard {
     }
 }
 
+extension URL {
+    var isExistingDirectory: Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+            && isDir.boolValue
+    }
+}
+
 enum PluginDispatch {
     nonisolated static func extensionToType(_ ext: String) -> PluginInputType {
         let lower = ext.lowercased()
@@ -37,6 +45,15 @@ enum PluginDispatch {
 
         let fileURLs = pasteboard.fileURLs()
         if !fileURLs.isEmpty {
+            if let dir = fileURLs.first(where: { $0.isExistingDirectory }) {
+                DebugLog.log("plugin dispatch: classified as folder, path=\(dir.path)")
+                return (.folder, PluginRunner.Input(
+                    type: .folder,
+                    text: nil,
+                    filePath: dir.path,
+                    sourceApp: sourceApp
+                ))
+            }
             let nonMD = fileURLs.filter {
                 $0.pathExtension.lowercased() != "md"
             }

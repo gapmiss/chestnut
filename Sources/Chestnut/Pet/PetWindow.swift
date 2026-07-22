@@ -706,6 +706,13 @@ final class PetView: SKView {
         }
         let urls = fileURLs(from: sender)
         let hasObsidian = obsidianLink(from: sender) != nil
+
+        if urls.contains(where: { $0.isExistingDirectory }),
+           petWindow.hasPluginForType?(.folder) == true {
+            petScene?.setOpenWide(true)
+            return .copy
+        }
+
         if !urls.isEmpty || hasObsidian {
             petScene?.setOpenWide(true)
             return petWindow.courierDragOperation
@@ -736,6 +743,10 @@ final class PetView: SKView {
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
         let urls = fileURLs(from: sender)
+        if urls.contains(where: { $0.isExistingDirectory }),
+           petWindow.hasPluginForType?(.folder) == true {
+            return .copy
+        }
         if !urls.isEmpty || obsidianLink(from: sender) != nil {
             return petWindow.courierDragOperation
         }
@@ -756,6 +767,20 @@ final class PetView: SKView {
         }
 
         if !urls.isEmpty {
+            if let dir = urls.first(where: { $0.isExistingDirectory }),
+               petWindow?.hasPluginForType?(.folder) == true {
+                DebugLog.log("drop: folder → plugin dispatch, path=\(dir.path)")
+                petWindow?.onPluginDrop?(.folder, PluginRunner.Input(
+                    type: .folder, text: nil,
+                    filePath: dir.path, sourceApp: nil
+                ))
+                let rest = urls.filter { !$0.isExistingDirectory }
+                if !rest.isEmpty {
+                    petWindow?.filesDropped(rest)
+                }
+                return true
+            }
+
             let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
             let nonMD = urls.filter { $0.pathExtension.lowercased() != "md" }
             if let first = nonMD.first {

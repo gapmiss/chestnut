@@ -27,7 +27,7 @@ modified.
   Formatting toolbar, ⌘B/⌘I/⌘K shortcuts, ⌘1-⌘9 to pick the vault. Drafts
   survive dismiss/reopen.
 - **Plugins** let you extend drag-and-drop and a paste hotkey with shell
-  scripts. Drop a URL, image, or file onto Chestnut and a plugin transforms
+  scripts. Drop a URL, image, file, or folder onto Chestnut and a plugin transforms
   it into a vault note. Plugins can narrow to specific file extensions (e.g.
   only `.txt`); unmatched files fall through to the courier. Enable/disable
   individual plugins from the right-click menu → Plugins (persisted in

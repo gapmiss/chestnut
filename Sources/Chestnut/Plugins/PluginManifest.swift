@@ -1,7 +1,7 @@
 import Foundation
 
 enum PluginInputType: String, Codable, Sendable {
-    case text, url, image, file, pdf, any
+    case text, url, image, file, pdf, folder, any
 }
 
 enum PluginOutputMode: String, Codable, Sendable {

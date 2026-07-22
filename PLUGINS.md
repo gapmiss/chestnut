@@ -51,7 +51,7 @@ output.
   "api": 1,
   "name": "my-plugin",
   "description": "What this plugin does",
-  "accepts": ["text", "url", "image", "file", "pdf"],
+  "accepts": ["text", "url", "image", "file", "pdf", "folder"],
   "output": "capture",
   "script": "my-script.sh",
   "timeout": 10
@@ -77,6 +77,7 @@ output.
 | `image` | Image drop or paste (png, jpg, gif, heic, webp, tiff, svg) | File path in `CHESTNUT_FILE_PATH` |
 | `file` | Non-markdown file drop | File path in `CHESTNUT_FILE_PATH` |
 | `pdf` | PDF file drop | File path in `CHESTNUT_FILE_PATH` |
+| `folder` | Directory drop or paste | Directory path in `CHESTNUT_FILE_PATH` |
 | `any` | Matches all of the above | Depends on actual content |
 
 Unknown type names in `accepts` are silently ignored (forward-compat). At least
@@ -107,8 +108,8 @@ Scripts receive context through environment variables:
 
 | Variable | Description |
 |----------|-------------|
-| `CHESTNUT_INPUT_TYPE` | The matched type: `text`, `url`, `image`, `file`, or `pdf` |
-| `CHESTNUT_FILE_PATH` | Absolute path for `image`/`file`/`pdf` inputs; empty for `text`/`url` |
+| `CHESTNUT_INPUT_TYPE` | The matched type: `text`, `url`, `image`, `file`, `pdf`, or `folder` |
+| `CHESTNUT_FILE_PATH` | Absolute path for `image`/`file`/`pdf`/`folder` inputs; empty for `text`/`url` |
 | `CHESTNUT_SOURCE_APP` | Bundle identifier of the frontmost app (e.g. `com.apple.Safari`) |
 | `CHESTNUT_TIMESTAMP` | ISO 8601 timestamp of the drop/paste event |
 | `CHESTNUT_PLUGIN_DIR` | Absolute path to the plugin's directory |
@@ -208,10 +209,12 @@ or modifying a plugin directory is detected automatically. No restart needed.
 
 The drag-and-drop flow with plugins installed:
 
-1. **All `.md` files** go to the courier (existing behavior, unchanged).
-2. **Other content** (non-.md files, URLs, images, text) is classified and
+1. **Folders** are routed to a `folder` plugin if one exists; otherwise they
+   fall through to the courier (which copies/moves the directory as-is).
+2. **All `.md` files** go to the courier (existing behavior, unchanged).
+3. **Other content** (non-.md files, URLs, images, text) is classified and
    matched against installed plugins.
-3. **No matching plugin** for non-.md file drops falls back to the courier.
+4. **No matching plugin** for non-.md file drops falls back to the courier.
 
 While a plugin runs, Chestnut shows a chewing animation. On success, it
 performs the gulp.
@@ -244,6 +247,7 @@ plugins in different languages, covering every input type and output mode:
 | [`pdf-extract`](Examples/plugins/pdf-extract/) | Swift | `pdf` | `structured` (save) | Extract text from PDF via `textutil` |
 | [`word-count`](Examples/plugins/word-count/) | Perl | `text` | `notify` | Word count and reading time bubble |
 | [`clipboard-clean`](Examples/plugins/clipboard-clean/) | Zsh | `text` | `clipboard` | Strip smart quotes and whitespace |
+| [`folder-index`](Examples/plugins/folder-index/) | Bash | `folder` | `structured` (save + attachments) | Index note with all files as attachments |
 
 To install any example:
 
