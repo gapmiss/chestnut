@@ -390,6 +390,20 @@ chipCapture.addEventListener("click", toggleCapture);
 window.addEventListener("keydown", (ev) => {
   if (ev.ctrlKey && ev.altKey && ev.code === "KeyV") { ev.preventDefault(); toggleHopper(); }
   if (ev.ctrlKey && ev.altKey && ev.code === "Space") { ev.preventDefault(); toggleCapture(); }
+  if (ev.ctrlKey && ev.altKey && ev.code === "KeyC") {
+    ev.preventDefault();
+    closePanels();
+    showNotice("Paste → plugin", "Sent clipboard to a matching plugin",
+      "Demo only, no real plugin ran");
+  }
+  if (ev.ctrlKey && ev.altKey && ev.code === "KeyO") {
+    ev.preventDefault();
+    if (!noticeEl.hidden) {
+      clearTimeout(noticeTimer);
+      noticeEl.hidden = true;
+      if (!pet.gesture) pet.gesture = { type: "hop", start: performance.now() / 1000 };
+    }
+  }
   if (ev.key === "Escape") closePanels();
 });
 
@@ -942,6 +956,17 @@ function renderMenu() {
     check: menuState.showInFullScreen,
     action() { menuState.showInFullScreen = !menuState.showInFullScreen; closeMenu(); },
   }));
+
+  const pluginsSub = submenuOf([
+    menuItem({ label: "Bookmark", check: true }),
+    menuItem({ label: "Code Snippet", check: true }),
+    menuSeparator(),
+    menuItem({
+      label: "Open Plugins Folder",
+      action: closeMenu,
+    }),
+  ]);
+  menuEl.appendChild(menuItem({ label: "Plugins", submenu: pluginsSub }));
 
   menuEl.appendChild(menuSeparator());
   menuEl.appendChild(menuItem({

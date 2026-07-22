@@ -636,6 +636,73 @@ section h2::after {
 
 .px-icon { display: block; }
 
+/* Plugins section */
+
+.plugins-intro {
+  max-width: 620px;
+  color: var(--text-secondary);
+  margin: 0 0 28px;
+}
+
+.plugins-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.plugins-detail h3,
+.plugins-examples h3 { font-size: 15px; margin: 0 0 10px; }
+
+.plugins-detail p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.plugins-file {
+  margin-bottom: 12px;
+}
+
+.plugins-filename {
+  display: inline-block;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.plugins-file pre {
+  margin: 0;
+  font-size: 12px;
+}
+
+.plugins-modes {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.plugins-link {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 28px;
+}
+
+.customize-note {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px 14px;
+  box-shadow: 4px 4px 0 var(--shadow-accent);
+}
+.customize-note h3 { font-size: 15px; margin: 0 0 6px; }
+.customize-note p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
 .privacy-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -743,7 +810,7 @@ footer .legal {
 /* ---------- Small screens ---------- */
 
 @media (max-width: 700px) {
-  .features-grid, .privacy-grid { grid-template-columns: 1fr; }
+  .features-grid, .privacy-grid, .plugins-grid { grid-template-columns: 1fr; }
   .panel.capture, .panel.hopper { max-width: 92vw; }
   .stage { height: 400px; }
   .mode-toggle { top: 12px; right: 12px; }
