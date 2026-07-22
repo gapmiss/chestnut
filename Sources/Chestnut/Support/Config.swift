@@ -60,6 +60,7 @@ struct Config: Codable, Equatable {
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
     var debug = false
+    var disabledPlugins: Set<String> = []
 
     private enum CodingKeys: String, CodingKey {
         case position, size, courierCopyByDefault, opacity
@@ -67,6 +68,7 @@ struct Config: Codable, Equatable {
         case captureInboxName, captureFormat, captureFolder
         case petTheme, petPalette, customThemes
         case noticeDuration, showInFullScreen, hotkeys, debug
+        case disabledPlugins
     }
 
     static let opacityRange = 0.1...1.0
@@ -105,6 +107,9 @@ struct Config: Codable, Equatable {
             try c.decodeIfPresent(Bool.self, forKey: .showInFullScreen) ?? true
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
         debug = try c.decodeIfPresent(Bool.self, forKey: .debug) ?? false
+        disabledPlugins = Set(
+            try c.decodeIfPresent([String].self, forKey: .disabledPlugins) ?? []
+        )
     }
 
     static var fileURL: URL {
@@ -159,6 +164,9 @@ struct Config: Codable, Equatable {
         try c.encode(showInFullScreen, forKey: .showInFullScreen)
         try c.encode(hotkeys, forKey: .hotkeys)
         if debug { try c.encode(true, forKey: .debug) }
+        if !disabledPlugins.isEmpty {
+            try c.encode(disabledPlugins.sorted(), forKey: .disabledPlugins)
+        }
     }
 }
 

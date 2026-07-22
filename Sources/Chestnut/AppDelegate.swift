@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "This version of Chestnut supports api \(PluginManifest.maxAPI)"
             )
         }
+        pluginRegistry.disabled = config.disabledPlugins
         pluginRegistry.start()
     }
 
@@ -99,7 +100,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.toggleHopper()
         }
         window.resolveVaultByName = { [weak self] name in
-            self?.registry.vaults.first(where: { $0.name == name })?.path
+            guard let vaults = self?.registry.vaults else { return nil }
+            let matches = vaults.filter { $0.name == name }
+            guard matches.count == 1 else { return nil }
+            return matches[0].path
+        }
+        window.hasPluginForFileExt = { [weak self] type, ext in
+            !(self?.pluginRegistry.pluginsAccepting(type, ext: ext).isEmpty ?? true)
         }
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
@@ -124,6 +131,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.installedPlugins = { [weak self] in
             self?.pluginRegistry.plugins ?? []
+        }
+        window.isPluginEnabled = { [weak self] name in
+            !(self?.config.disabledPlugins.contains(name) ?? false)
+        }
+        window.togglePlugin = { [weak self] name in
+            guard let self else { return }
+            if self.config.disabledPlugins.contains(name) {
+                self.config.disabledPlugins.remove(name)
+            } else {
+                self.config.disabledPlugins.insert(name)
+            }
+            self.pluginRegistry.disabled = self.config.disabledPlugins
+            self.config.save()
         }
         window.onOpenPluginsFolder = {
             let dir = PluginRegistry.pluginsDirectory
@@ -451,7 +471,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handlePluginInput(
         type: PluginInputType, input: PluginRunner.Input
     ) {
-        let matches = pluginRegistry.pluginsAccepting(type)
+        let matches: [(PluginManifest, URL)]
+        if let path = input.filePath {
+            let ext = URL(fileURLWithPath: path).pathExtension
+            matches = pluginRegistry.pluginsAccepting(type, ext: ext)
+        } else {
+            matches = pluginRegistry.pluginsAccepting(type)
+        }
         DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name))")
         switch matches.count {
         case 0:
@@ -545,21 +571,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let folder, !folder.isEmpty {
                 dir = dir.appendingPathComponent(folder)
             }
-            let vaultStd = URL(fileURLWithPath: vault.path).standardizedFileURL
-            guard dir.standardizedFileURL.path.hasPrefix(vaultStd.path)
-            else {
-                presentAlert(
-                    "Plugin save failed",
-                    "Target folder would escape the vault root."
-                )
-                return
+            let noteURL = dir.appendingPathComponent(filename)
+            let allURLs = [noteURL] + attachments.map {
+                dir.appendingPathComponent($0.filename)
+            }
+            for url in allURLs {
+                guard Courier.isContained(url, inVault: vault.path) else {
+                    presentAlert(
+                        "Plugin save failed",
+                        "Target path would escape the vault root or write inside .obsidian/."
+                    )
+                    return
+                }
             }
             do {
                 try FileManager.default.createDirectory(
                     at: dir, withIntermediateDirectories: true
                 )
-                let desired = dir.appendingPathComponent(filename)
-                let url = Courier.availableURL(for: desired)
+                let url = Courier.availableURL(for: noteURL)
                 try content.write(
                     to: url, atomically: true, encoding: .utf8
                 )

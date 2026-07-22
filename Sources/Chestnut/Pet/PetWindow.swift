@@ -25,6 +25,7 @@ final class PetWindow: NSPanel {
     var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
     /// Resolve a vault name (from an obsidian:// URL) to a vault path.
     var resolveVaultByName: ((String) -> String?)?
+    var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
     var onUndoDelivery: (() -> Void)?
     var canUndoDelivery: (() -> Bool)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
@@ -32,6 +33,8 @@ final class PetWindow: NSPanel {
     var onUndoCapture: (() -> Void)?
     var canUndoCapture: (() -> Bool)?
     var installedPlugins: (() -> [PluginManifest])?
+    var isPluginEnabled: ((String) -> Bool)?
+    var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
 
     private var config: Config
@@ -288,6 +291,7 @@ final class PetWindow: NSPanel {
         menu.addItem(fullScreenItem)
 
         let pluginsMenu = NSMenu()
+        pluginsMenu.autoenablesItems = false
         let plugins = installedPlugins?() ?? []
         if plugins.isEmpty {
             let noneItem = NSMenuItem(
@@ -297,8 +301,15 @@ final class PetWindow: NSPanel {
             pluginsMenu.addItem(noneItem)
         } else {
             for plugin in plugins.sorted(by: { $0.name < $1.name }) {
-                let item = NSMenuItem(title: plugin.name, action: nil, keyEquivalent: "")
-                item.isEnabled = false
+                let item = NSMenuItem(
+                    title: plugin.name,
+                    action: #selector(togglePluginAction(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = plugin.name
+                let enabled = isPluginEnabled?(plugin.name) ?? true
+                item.state = enabled ? .on : .off
                 if !plugin.description.isEmpty {
                     let title = NSMutableAttributedString(
                         string: plugin.name,
@@ -503,6 +514,11 @@ final class PetWindow: NSPanel {
         NSMenuItemBadge(string: "↗")
     }
 
+    @objc private func togglePluginAction(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        togglePlugin?(name)
+    }
+
     @objc private func openPluginsFolder() { onOpenPluginsFolder?() }
 
     @objc private func openReleases() { NSWorkspace.shared.open(AppInfo.releasesURL) }
@@ -669,19 +685,24 @@ final class PetView: SKView {
             DebugLog.log("obsidian:// — vault \"\(vaultName)\" not found in registry")
             return nil
         }
-        let full = (vault as NSString).appendingPathComponent(filePath)
-        if FileManager.default.fileExists(atPath: full) {
-            DebugLog.log("obsidian:// — resolved to \(full)")
-            return URL(fileURLWithPath: full)
+        let fullURL = URL(fileURLWithPath:
+            (vault as NSString).appendingPathComponent(filePath))
+        guard Courier.isContained(fullURL, inVault: vault) else {
+            DebugLog.log("obsidian:// — file path escapes vault root")
+            return nil
         }
-        if !full.hasSuffix(".md") {
-            let withMD = full + ".md"
-            if FileManager.default.fileExists(atPath: withMD) {
-                DebugLog.log("obsidian:// — resolved to \(withMD)")
-                return URL(fileURLWithPath: withMD)
+        if FileManager.default.fileExists(atPath: fullURL.path) {
+            DebugLog.log("obsidian:// — resolved to \(fullURL.path)")
+            return fullURL
+        }
+        if !fullURL.path.hasSuffix(".md") {
+            let withMD = URL(fileURLWithPath: fullURL.path + ".md")
+            if FileManager.default.fileExists(atPath: withMD.path) {
+                DebugLog.log("obsidian:// — resolved to \(withMD.path)")
+                return withMD
             }
         }
-        DebugLog.log("obsidian:// — resolved path not found: \(full)")
+        DebugLog.log("obsidian:// — resolved path not found: \(fullURL.path)")
         return nil
     }
 
@@ -740,10 +761,24 @@ final class PetView: SKView {
             return true
         }
 
-        // All file URL drags → courier (.md to vault root, others to
-        // attachment folder). Plugin dispatch handles non-file pasteboard
-        // content below (image data, text, web URLs).
         if !urls.isEmpty {
+            let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
+            let nonMD = urls.filter { $0.pathExtension.lowercased() != "md" }
+            if let first = nonMD.first {
+                let type = PluginDispatch.extensionToType(first.pathExtension)
+                let ext = first.pathExtension.lowercased()
+                if petWindow?.hasPluginForFileExt?(type, ext) == true {
+                    DebugLog.log("drop: non-.md file → plugin dispatch, type=\(type.rawValue) ext=\(ext)")
+                    petWindow?.onPluginDrop?(type, PluginRunner.Input(
+                        type: type, text: nil,
+                        filePath: first.path, sourceApp: nil
+                    ))
+                    if !mdURLs.isEmpty {
+                        petWindow?.filesDropped(mdURLs)
+                    }
+                    return true
+                }
+            }
             DebugLog.log("drop: \(urls.count) file(s) → courier")
             petWindow?.filesDropped(urls)
             return true

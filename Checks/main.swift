@@ -702,7 +702,7 @@ struct Check {
 
         // Interpret: non-zero exit.
         let failResult = PluginRunner.RawResult(exitCode: 1, stdout: "", stderr: "bad input\nsecond line")
-        let failManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let failManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
         do {
             _ = try PluginRunner.interpret(result: failResult, manifest: failManifest)
             check(false, "non-zero exit should throw")
@@ -718,7 +718,7 @@ struct Check {
 
         // Interpret: capture mode.
         let captureResult = PluginRunner.RawResult(exitCode: 0, stdout: "captured text", stderr: "")
-        let captureManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let captureManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
         if let interp = try? PluginRunner.interpret(result: captureResult, manifest: captureManifest) {
             check(interp.action == .capture, "capture mode action is .capture")
             check(interp.content == "captured text", "capture mode content is stdout")
@@ -733,7 +733,7 @@ struct Check {
             stdout: #"{"action":"save","content":"hello","filename":"test.md","vault":"ask"}"#,
             stderr: ""
         )
-        let structuredManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], output: .structured, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let structuredManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .structured, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
         if let interp = try? PluginRunner.interpret(result: structuredResult, manifest: structuredManifest) {
             check(interp.action == .save, "structured envelope action is .save")
             check(interp.content == "hello", "structured envelope content parses")

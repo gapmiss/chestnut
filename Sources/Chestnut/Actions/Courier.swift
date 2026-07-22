@@ -371,4 +371,11 @@ struct Courier {
         let ups = Array(repeating: "..", count: dirComponents.count - common)
         return (ups + fileComponents[common...]).joined(separator: "/")
     }
+
+    static func isContained(_ url: URL, inVault vaultPath: String) -> Bool {
+        let vaultStd = URL(fileURLWithPath: vaultPath).standardizedFileURL
+        let fileStd = url.standardizedFileURL
+        return fileStd.path.hasPrefix(vaultStd.path + "/")
+            && !fileStd.pathComponents.contains(".obsidian")
+    }
 }

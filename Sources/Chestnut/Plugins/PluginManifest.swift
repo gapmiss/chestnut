@@ -15,10 +15,19 @@ struct PluginManifest: Sendable {
     let name: String
     let description: String
     let accepts: [PluginInputType]
+    let extensions: Set<String>
     let output: PluginOutputMode
     let script: String
     let timeout: TimeInterval
     let scriptURL: URL
+
+    func matchesFile(type: PluginInputType, ext: String) -> Bool {
+        guard accepts.contains(type) || accepts.contains(.any) else {
+            return false
+        }
+        if extensions.isEmpty { return true }
+        return extensions.contains(ext.lowercased())
+    }
 }
 
 enum ManifestLoadResult: Sendable {
@@ -33,6 +42,7 @@ extension PluginManifest {
         let name: String
         let description: String?
         let accepts: [String]
+        let extensions: [String]?
         let output: String
         let script: String
         let timeout: Double?
@@ -60,11 +70,14 @@ extension PluginManifest {
             return .invalid
         }
 
+        let exts = Set((raw.extensions ?? []).map { $0.lowercased() })
+
         return .ok(PluginManifest(
             api: raw.api,
             name: raw.name,
             description: raw.description ?? "",
             accepts: accepts,
+            extensions: exts,
             output: outputMode,
             script: raw.script,
             timeout: raw.timeout ?? 10,

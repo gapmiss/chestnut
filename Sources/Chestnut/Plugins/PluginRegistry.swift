@@ -35,10 +35,24 @@ final class PluginRegistry {
         self.stream = nil
     }
 
+    var disabled: Set<String> = []
+
     func pluginsAccepting(_ type: PluginInputType) -> [(PluginManifest, URL)] {
         plugins.compactMap { manifest in
+            guard !disabled.contains(manifest.name) else { return nil }
             guard manifest.accepts.contains(type) || manifest.accepts.contains(.any)
             else { return nil }
+            guard let dir = pluginDirs[manifest.name] else { return nil }
+            return (manifest, dir)
+        }
+    }
+
+    func pluginsAccepting(
+        _ type: PluginInputType, ext: String
+    ) -> [(PluginManifest, URL)] {
+        plugins.compactMap { manifest in
+            guard !disabled.contains(manifest.name) else { return nil }
+            guard manifest.matchesFile(type: type, ext: ext) else { return nil }
             guard let dir = pluginDirs[manifest.name] else { return nil }
             return (manifest, dir)
         }

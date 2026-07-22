@@ -81,14 +81,15 @@ enum PluginRunner {
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
 
-            if let text = stdinText,
+            let stdinPipe: Pipe?
+            if stdinText != nil,
                (stdinType == .text || stdinType == .url) {
-                let stdinPipe = Pipe()
-                process.standardInput = stdinPipe
-                stdinPipe.fileHandleForWriting.write(Data(text.utf8))
-                stdinPipe.fileHandleForWriting.closeFile()
+                let pipe = Pipe()
+                process.standardInput = pipe
+                stdinPipe = pipe
             } else {
                 process.standardInput = FileHandle.nullDevice
+                stdinPipe = nil
             }
 
             // Drain pipes continuously so the process never blocks on a
@@ -149,6 +150,15 @@ enum PluginRunner {
                     continuation.resume(throwing: PluginError.scriptNotFound)
                 }
                 return
+            }
+
+            if let pipe = stdinPipe, let text = stdinText {
+                let data = Data(text.utf8)
+                let handle = pipe.fileHandleForWriting
+                DispatchQueue.global().async {
+                    handle.write(data)
+                    handle.closeFile()
+                }
             }
 
             DispatchQueue.global().asyncAfter(
