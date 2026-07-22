@@ -136,7 +136,9 @@ struct Check {
         pluginManifestChecks()
         await pluginRegistryChecks()
         pluginRunnerChecks()
+        await pluginRunnerEndToEndChecks()
         pluginDispatchChecks()
+        obsidianLinkChecks()
 
         print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
         exit(failures == 0 ? 0 : 1)
@@ -574,6 +576,16 @@ struct Check {
             check(false, "manifest with missing script should be .invalid")
         }
 
+        // Script path escaping plugin directory → invalid.
+        let escapeDir = writePlugin("escape", manifest: """
+        {"api":1,"name":"escape","accepts":["text"],"output":"capture","script":"../../etc/passwd"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .invalid = PluginManifest.load(from: escapeDir) {
+            check(true, "script escaping plugin dir → .invalid")
+        } else {
+            check(false, "manifest with escaping script path should be .invalid")
+        }
+
         // Default timeout.
         let noTimeoutDir = writePlugin("no-timeout", manifest: """
         {"api":1,"name":"no-timeout","accepts":["text"],"output":"notify","script":"run.sh"}
@@ -652,31 +664,31 @@ struct Check {
         try! #"{"api":1,"name":"invalid","accepts":["text"],"output":"notify","script":"missing.sh"}"#
             .write(to: invalidDir.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
 
-        // Scan the temp dir directly (not using the real plugins dir).
-        let entries = try! fm.contentsOfDirectory(at: base, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-        var scanned: [PluginManifest] = []
-        var dirs: [String: URL] = [:]
-        for entry in entries {
-            let isDir = (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory ?? false
-            guard isDir else { continue }
-            if case .ok(let m) = PluginManifest.load(from: entry), dirs[m.name] == nil {
-                scanned.append(m)
-                dirs[m.name] = entry
-            }
-        }
+        let registry = PluginRegistry(directory: base)
+        registry.rescan()
 
-        check(scanned.count == 2, "registry discovers 2 valid plugins (got \(scanned.count))")
+        check(registry.plugins.count == 2, "registry discovers 2 valid plugins (got \(registry.plugins.count))")
 
-        let textPlugins = scanned.filter { $0.accepts.contains(.text) }
-        check(textPlugins.count == 1 && textPlugins.first?.name == "alpha",
+        let textPlugins = registry.pluginsAccepting(.text)
+        check(textPlugins.count == 1 && textPlugins.first?.0.name == "alpha",
               "pluginsAccepting(.text) returns alpha only")
 
-        let imagePlugins = scanned.filter { $0.accepts.contains(.image) }
-        check(imagePlugins.count == 1 && imagePlugins.first?.name == "beta",
+        let imagePlugins = registry.pluginsAccepting(.image)
+        check(imagePlugins.count == 1 && imagePlugins.first?.0.name == "beta",
               "pluginsAccepting(.image) returns beta only")
 
-        let pdfPlugins = scanned.filter { $0.accepts.contains(.pdf) }
-        check(pdfPlugins.isEmpty, "pluginsAccepting(.pdf) returns nothing")
+        check(registry.pluginsAccepting(.pdf).isEmpty, "pluginsAccepting(.pdf) returns nothing")
+
+        // Disable a plugin and verify filtering.
+        registry.disabled = ["alpha"]
+        check(registry.pluginsAccepting(.text).isEmpty, "disabled plugin excluded from matching")
+        check(registry.pluginsAccepting(.image).count == 1, "non-disabled plugin still matches")
+
+        // Rescan after removing a plugin directory.
+        try? fm.removeItem(at: base.appendingPathComponent("beta"))
+        registry.rescan()
+        check(registry.plugins.count == 1 && registry.plugins.first?.name == "alpha",
+              "rescan reflects removed plugin")
     }
 
     // MARK: - Plugin runner
@@ -727,6 +739,59 @@ struct Check {
             check(false, "capture interpret should succeed")
         }
 
+        // Interpret: save mode extracts filename from first line.
+        let saveManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+
+        let saveResult = PluginRunner.RawResult(exitCode: 0, stdout: "My Note Title\nBody here", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: saveResult, manifest: saveManifest) {
+            check(interp.filename == "My Note Title.md", "save mode filename from first line")
+            check(interp.content == "Body here", "save mode content is remainder")
+        } else {
+            check(false, "save interpret should succeed")
+        }
+
+        // Save mode: first line already has .md extension.
+        let saveMdResult = PluginRunner.RawResult(exitCode: 0, stdout: "Already.md\nStuff", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: saveMdResult, manifest: saveManifest) {
+            check(interp.filename == "Already.md", "save mode does not double .md suffix")
+        } else {
+            check(false, "save interpret .md suffix should succeed")
+        }
+
+        // Save mode: slashes and backslashes replaced.
+        let saveSlashResult = PluginRunner.RawResult(exitCode: 0, stdout: "a/b\\c:d\nBody", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: saveSlashResult, manifest: saveManifest) {
+            check(interp.filename == "a-b-c-d.md", "save mode sanitizes path separators")
+        } else {
+            check(false, "save interpret slash sanitize should succeed")
+        }
+
+        // Save mode: blank first line falls back to nil (caller uses Untitled.md).
+        let saveBlankResult = PluginRunner.RawResult(exitCode: 0, stdout: "\nBody only", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: saveBlankResult, manifest: saveManifest) {
+            check(interp.filename == nil, "save mode blank first line yields nil filename")
+            check(interp.content == "Body only", "save mode blank first line keeps body")
+        } else {
+            check(false, "save interpret blank line should succeed")
+        }
+
+        // Save mode: empty stdout.
+        let saveEmptyResult = PluginRunner.RawResult(exitCode: 0, stdout: "", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: saveEmptyResult, manifest: saveManifest) {
+            check(interp.filename == nil, "save mode empty stdout yields nil filename")
+        } else {
+            check(false, "save interpret empty should succeed")
+        }
+
+        // Non-save mode (capture) does NOT extract filename.
+        let captureMultiline = PluginRunner.RawResult(exitCode: 0, stdout: "First Line\nSecond Line", stderr: "")
+        if let interp = try? PluginRunner.interpret(result: captureMultiline, manifest: captureManifest) {
+            check(interp.filename == nil, "capture mode does not extract filename")
+            check(interp.content == "First Line\nSecond Line", "capture mode preserves full stdout")
+        } else {
+            check(false, "capture multiline interpret should succeed")
+        }
+
         // Interpret: structured envelope.
         let structuredResult = PluginRunner.RawResult(
             exitCode: 0,
@@ -756,6 +821,113 @@ struct Check {
             }
         } catch {
             check(false, "unexpected error type for bad structured")
+        }
+
+        // Interpret: envelope with action "structured" is rejected.
+        let metaStructured = PluginRunner.RawResult(
+            exitCode: 0,
+            stdout: #"{"action":"structured","content":"hello"}"#,
+            stderr: ""
+        )
+        do {
+            _ = try PluginRunner.interpret(result: metaStructured, manifest: structuredManifest)
+            check(false, "action 'structured' in envelope should throw")
+        } catch let e as PluginError {
+            if case .badStructuredOutput = e {
+                check(true, "action 'structured' in envelope throws .badStructuredOutput")
+            } else {
+                check(false, "expected badStructuredOutput for meta-structured")
+            }
+        } catch {
+            check(false, "unexpected error type for meta-structured")
+        }
+    }
+
+    // MARK: - PluginRunner end-to-end
+
+    static func pluginRunnerEndToEndChecks() async {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-runner-\(ProcessInfo.processInfo.processIdentifier)")
+        try! fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        func writeScript(_ name: String, _ body: String) -> PluginManifest {
+            let dir = base.appendingPathComponent(name)
+            try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let scriptURL = dir.appendingPathComponent("run.sh")
+            try! ("#!/bin/sh\n" + body).write(to: scriptURL, atomically: true, encoding: .utf8)
+            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            return PluginManifest(
+                api: 1, name: name, description: "", accepts: [.text],
+                extensions: [], output: .capture, script: "run.sh",
+                timeout: 3, scriptURL: scriptURL
+            )
+        }
+
+        let input = PluginRunner.Input(type: .text, text: "hello", filePath: nil, sourceApp: nil)
+
+        // Basic: echo stdout.
+        let echo = writeScript("echo", "echo 'got it'")
+        do {
+            let raw = try await PluginRunner.run(manifest: echo, pluginDir: base.appendingPathComponent("echo"), input: input)
+            check(raw.exitCode == 0, "runner: echo exits 0")
+            check(raw.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "got it", "runner: echo stdout")
+        } catch {
+            check(false, "runner: echo should not throw (\(error))")
+        }
+
+        // Stdin delivery.
+        let cat = writeScript("cat", "cat")
+        do {
+            let raw = try await PluginRunner.run(manifest: cat, pluginDir: base.appendingPathComponent("cat"), input: input)
+            check(raw.stdout == "hello", "runner: stdin delivered via cat")
+        } catch {
+            check(false, "runner: cat should not throw (\(error))")
+        }
+
+        // Non-zero exit.
+        let fail = writeScript("fail", "echo 'bad' >&2; exit 1")
+        do {
+            let raw = try await PluginRunner.run(manifest: fail, pluginDir: base.appendingPathComponent("fail"), input: input)
+            check(raw.exitCode == 1, "runner: non-zero exit code")
+            check(raw.stderr.contains("bad"), "runner: stderr captured")
+        } catch {
+            check(false, "runner: non-zero exit should not throw (\(error))")
+        }
+
+        // Timeout.
+        let hang = PluginManifest(
+            api: 1, name: "hang", description: "", accepts: [.text],
+            extensions: [], output: .capture, script: "run.sh",
+            timeout: 1, scriptURL: base.appendingPathComponent("hang/run.sh")
+        )
+        let hangDir = base.appendingPathComponent("hang")
+        try! fm.createDirectory(at: hangDir, withIntermediateDirectories: true)
+        let hangScript = hangDir.appendingPathComponent("run.sh")
+        try! "#!/bin/sh\nsleep 30".write(to: hangScript, atomically: true, encoding: .utf8)
+        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hangScript.path)
+        do {
+            _ = try await PluginRunner.run(manifest: hang, pluginDir: hangDir, input: input)
+            check(false, "runner: timeout should throw")
+        } catch let e as PluginError {
+            if case .timeout = e {
+                check(true, "runner: timeout throws .timeout")
+            } else {
+                check(false, "runner: expected .timeout, got \(e)")
+            }
+        } catch {
+            check(false, "runner: unexpected error type for timeout")
+        }
+
+        // Large stdout (>64 KB) drains without deadlock.
+        let big = writeScript("big", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'A'")
+        do {
+            let raw = try await PluginRunner.run(manifest: big, pluginDir: base.appendingPathComponent("big"), input: input)
+            check(raw.exitCode == 0, "runner: large stdout exits 0")
+            check(raw.stdout.count >= 128 * 1024, "runner: large stdout fully drained (\(raw.stdout.count) bytes)")
+        } catch {
+            check(false, "runner: large stdout should not throw (\(error))")
         }
     }
 
@@ -967,5 +1139,51 @@ struct Check {
             check(resolved.standardizedFileURL == expectedURL.standardizedFileURL,
                   "attachmentFolderPath \(setting) → \(expected.isEmpty ? "vault root" : expected)")
         }
+    }
+
+    // MARK: - Obsidian link parsing
+
+    static func obsidianLinkChecks() {
+        // Valid link.
+        if let link = ObsidianOpenLink("obsidian://open?vault=MyVault&file=notes/hello") {
+            check(link.vaultName == "MyVault", "obsidian link: vault name parses")
+            check(link.filePath == "notes/hello", "obsidian link: file path parses")
+        } else {
+            check(false, "valid obsidian link should parse")
+        }
+
+        // Percent-encoded vault name.
+        if let link = ObsidianOpenLink("obsidian://open?vault=My%20Vault&file=test") {
+            check(link.vaultName == "My Vault", "obsidian link: percent-encoded vault name")
+        } else {
+            check(false, "percent-encoded obsidian link should parse")
+        }
+
+        // Missing vault → nil.
+        check(ObsidianOpenLink("obsidian://open?file=notes/hello") == nil,
+              "obsidian link: missing vault → nil")
+
+        // Missing file → nil.
+        check(ObsidianOpenLink("obsidian://open?vault=V") == nil,
+              "obsidian link: missing file → nil")
+
+        // Wrong scheme → nil.
+        check(ObsidianOpenLink("https://open?vault=V&file=f") == nil,
+              "obsidian link: wrong scheme → nil")
+
+        // Wrong host → nil.
+        check(ObsidianOpenLink("obsidian://vault?vault=V&file=f") == nil,
+              "obsidian link: wrong host → nil")
+
+        // Traversal in file path parses (containment is checked by caller).
+        if let link = ObsidianOpenLink("obsidian://open?vault=V&file=../../../etc/passwd") {
+            check(link.filePath == "../../../etc/passwd",
+                  "obsidian link: traversal path parses (containment is caller's job)")
+        } else {
+            check(false, "traversal obsidian link should still parse")
+        }
+
+        // Not a URL → nil.
+        check(ObsidianOpenLink("not a url") == nil, "obsidian link: garbage → nil")
     }
 }

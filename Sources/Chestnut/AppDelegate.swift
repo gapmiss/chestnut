@@ -108,6 +108,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.hasPluginForFileExt = { [weak self] type, ext in
             !(self?.pluginRegistry.pluginsAccepting(type, ext: ext).isEmpty ?? true)
         }
+        window.hasPluginForType = { [weak self] type in
+            !(self?.pluginRegistry.pluginsAccepting(type).isEmpty ?? true)
+        }
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
         }
@@ -481,7 +484,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name))")
         switch matches.count {
         case 0:
+            if let tempPath = input.filePath,
+               tempPath.hasPrefix(
+                   NSTemporaryDirectory() + "chestnut-plugins/") {
+                try? FileManager.default.removeItem(atPath: tempPath)
+            }
             petWindow?.petScene.setOpenWide(false)
+            showNotice("No plugin handles this", type.rawValue + " input")
         case 1:
             runPlugin(
                 manifest: matches[0].0, dir: matches[0].1, input: input
@@ -539,7 +548,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch result.action {
         case .capture:
             captureDraft = result.content
-            toggleCapture()
+            if let open = palette as? CapturePanel {
+                open.setDraft(result.content)
+            } else {
+                toggleCapture()
+            }
         case .save:
             savePluginOutput(result)
         case .clipboard:
@@ -561,7 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func savePluginOutput(_ result: PluginRunner.InterpretedResult) {
-        let filename = result.filename ?? "untitled.md"
+        let filename = result.filename ?? "Untitled.md"
         let content = result.content
         let folder = result.folder
         let attachments = result.attachments ?? []
@@ -618,7 +631,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let hint = result.vaultHint
-        if hint == "ask" || hint == nil {
+        var resolved: Vault? = nil
+
+        if hint == "pinned" {
+            resolved = registry.vaults.first { $0.path == config.pinnedVaultPath }
+        } else if hint == "last" {
+            resolved = registry.vaults.first { $0.path == config.lastCaptureVaultPath }
+        } else if let hint, hint != "ask" {
+            if let vault = registry.vaults.first(where: { $0.path == hint }) {
+                resolved = vault
+            } else {
+                presentAlert(
+                    "Unknown vault",
+                    "No vault found at: \(hint)"
+                )
+                return
+            }
+        }
+
+        if let resolved {
+            save(to: resolved)
+        } else {
             let vaults = pinnedFirst(registry.vaults)
             guard !vaults.isEmpty else {
                 presentAlert(
@@ -649,27 +682,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showNotice(
                     "Copied to clipboard",
                     "Plugin output saved to clipboard"
-                )
-            }
-        } else if hint == "pinned" {
-            let vault = registry.vaults.first {
-                $0.path == config.pinnedVaultPath
-            } ?? registry.vaults.first
-            if let vault { save(to: vault) }
-        } else if hint == "last" {
-            let vault = registry.vaults.first {
-                $0.path == config.lastCaptureVaultPath
-            } ?? registry.vaults.first
-            if let vault { save(to: vault) }
-        } else if let hint {
-            if let vault = registry.vaults.first(where: {
-                $0.path == hint
-            }) {
-                save(to: vault)
-            } else {
-                presentAlert(
-                    "Unknown vault",
-                    "No vault found at: \(hint)"
                 )
             }
         }

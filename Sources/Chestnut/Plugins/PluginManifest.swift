@@ -66,7 +66,11 @@ extension PluginManifest {
         guard !accepts.isEmpty else { return .invalid }
 
         let scriptURL = directory.appendingPathComponent(raw.script)
-        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+            .standardized
+        let dirPrefix = directory.standardized.path + "/"
+        guard scriptURL.path.hasPrefix(dirPrefix),
+              FileManager.default.isExecutableFile(atPath: scriptURL.path)
+        else {
             return .invalid
         }
 
@@ -99,17 +103,4 @@ struct PluginEnvelope: Codable, Sendable {
     let folder: String?
     let notify: String?
     let attachments: [PluginAttachment]?
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        action = try c.decode(String.self, forKey: .action)
-        content = try c.decodeIfPresent(String.self, forKey: .content)
-        filename = try c.decodeIfPresent(String.self, forKey: .filename)
-        vault = try c.decodeIfPresent(String.self, forKey: .vault)
-        folder = try c.decodeIfPresent(String.self, forKey: .folder)
-        notify = try c.decodeIfPresent(String.self, forKey: .notify)
-        attachments = try c.decodeIfPresent(
-            [PluginAttachment].self, forKey: .attachments
-        )
-    }
 }

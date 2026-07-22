@@ -87,10 +87,19 @@ one recognized type is required.
 | Mode | Behavior |
 |------|----------|
 | `capture` | Opens the capture panel pre-filled with stdout as draft text. |
-| `save` | Saves stdout as a file to a vault (filename from the first line or "untitled.md"). |
+| `save` | Saves stdout as a file to a vault (filename from the first line or "Untitled.md"). |
 | `clipboard` | Copies stdout to the system clipboard. |
 | `notify` | Shows stdout as a notice bubble above the pet. |
 | `structured` | Parses stdout as a JSON envelope for full control (see below). |
+
+### Limits
+
+- **Stdout** is capped at **1 MB**. Output beyond that is silently truncated.
+  For `structured` mode, truncation breaks the JSON — the error message will
+  note that stdout was truncated.
+- **Timeout** defaults to 10 seconds (configurable via `timeout` in the
+  manifest). On timeout the plugin and any child processes are terminated
+  (SIGTERM, then SIGKILL after 1 s).
 
 ## Environment variables
 
@@ -129,7 +138,7 @@ with full control over what Chestnut does:
 |-------|----------|-------------|
 | `action` | yes | One of `capture`, `save`, `clipboard`, `notify` |
 | `content` | no | The text content (note body, clipboard text, or notice title) |
-| `filename` | no | Filename for `save` action (default: `untitled.md`) |
+| `filename` | no | Filename for `save` action (default: `Untitled.md`) |
 | `vault` | no | Vault hint for `save`: `"ask"` (picker), `"pinned"`, `"last"`, or a vault path |
 | `folder` | no | Subfolder within the vault for `save` (created if needed) |
 | `notify` | no | Subtitle text for the notice bubble |
@@ -168,6 +177,15 @@ Name conflicts get Obsidian-style suffixes, same as notes.
 - **Bad structured output** (invalid JSON or missing `action`) shows an error.
 
 Errors never trigger the gulp animation.
+
+## Debugging
+
+Set `"debug": true` in `~/Library/Application Support/Chestnut/config.json`
+to enable a session log at `~/Library/Logs/Chestnut/chestnut.log`. The log
+records plugin dispatch decisions, input classification, and run results.
+
+**Privacy note:** with debug enabled, clipboard text and dropped-file paths
+are written to the log. Disable it when you're done troubleshooting.
 
 ## Multiple plugins
 
@@ -235,3 +253,7 @@ cp -r Examples/plugins/<name> ~/.config/chestnut/plugins/
 
 `yt-transcript` requires `yt-dlp` (`brew install yt-dlp`). All others use
 only macOS built-in tools.
+
+**Note:** Chestnut itself makes no network calls, but plugins run as
+independent processes and may fetch data (e.g. `url-bookmark` and
+`yt-transcript` download web content).

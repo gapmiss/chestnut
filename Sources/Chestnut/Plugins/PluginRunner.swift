@@ -3,14 +3,17 @@ import Foundation
 enum PluginError: LocalizedError {
     case timeout
     case nonZeroExit(String)
-    case badStructuredOutput
+    case badStructuredOutput(truncated: Bool)
     case scriptNotFound
 
     var errorDescription: String? {
         switch self {
         case .timeout: "Plugin timed out."
         case .nonZeroExit(let msg): "Plugin failed: \(msg)"
-        case .badStructuredOutput: "Plugin returned invalid structured output."
+        case .badStructuredOutput(true):
+            "Plugin returned invalid structured output (stdout exceeded 1 MB and was truncated)."
+        case .badStructuredOutput(false):
+            "Plugin returned invalid structured output."
         case .scriptNotFound: "Plugin script not found or not executable."
         }
     }
@@ -28,6 +31,7 @@ enum PluginRunner {
         let exitCode: Int32
         let stdout: String
         let stderr: String
+        var stdoutTruncated: Bool = false
     }
 
     struct InterpretedResult: Sendable {
@@ -47,7 +51,7 @@ enum PluginRunner {
         env["CHESTNUT_INPUT_TYPE"] = input.type.rawValue
         env["CHESTNUT_SOURCE_APP"] = input.sourceApp ?? ""
         env["CHESTNUT_FILE_PATH"] = input.filePath ?? ""
-        env["CHESTNUT_TIMESTAMP"] = ISO8601DateFormatter().string(from: Date())
+        env["CHESTNUT_TIMESTAMP"] = iso8601.string(from: Date())
         env["CHESTNUT_PLUGIN_DIR"] = pluginDir.path
         let basePath = ProcessInfo.processInfo.environment["PATH"]
             ?? "/usr/bin:/bin"
@@ -117,10 +121,9 @@ enum PluginRunner {
                 }
             }
 
+            let timedOut = OnceFlag()
+
             process.terminationHandler = { proc in
-                // Handlers may still fire after termination; give GCD a
-                // moment to deliver the final chunks then read anything
-                // left in the pipe.
                 DispatchQueue.global().asyncAfter(
                     deadline: .now() + 0.1
                 ) {
@@ -132,17 +135,23 @@ enum PluginRunner {
                         stderrPipe.fileHandleForReading.availableData)
 
                     if once.tryFire() {
-                        continuation.resume(returning: RawResult(
-                            exitCode: proc.terminationStatus,
-                            stdout: stdoutBuf.string,
-                            stderr: stderrBuf.string
-                        ))
+                        if timedOut.hasFired {
+                            continuation.resume(throwing: PluginError.timeout)
+                        } else {
+                            continuation.resume(returning: RawResult(
+                                exitCode: proc.terminationStatus,
+                                stdout: stdoutBuf.string,
+                                stderr: stderrBuf.string,
+                                stdoutTruncated: stdoutBuf.truncated
+                            ))
+                        }
                     }
                 }
             }
 
             do {
                 try process.run()
+                setpgid(process.processIdentifier, process.processIdentifier)
             } catch {
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
@@ -164,11 +173,18 @@ enum PluginRunner {
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + timeout
             ) {
-                if process.isRunning { process.terminate() }
-                if once.tryFire() {
-                    stdoutPipe.fileHandleForReading.readabilityHandler = nil
-                    stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    continuation.resume(throwing: PluginError.timeout)
+                guard process.isRunning else { return }
+                let pid = process.processIdentifier
+                _ = timedOut.tryFire()
+                kill(-pid, SIGTERM)
+                process.terminate()
+
+                DispatchQueue.global().asyncAfter(
+                    deadline: .now() + 1
+                ) {
+                    if process.isRunning {
+                        kill(-pid, SIGKILL)
+                    }
                 }
             }
         }
@@ -188,9 +204,10 @@ enum PluginRunner {
                   let envelope = try? JSONDecoder().decode(
                       PluginEnvelope.self, from: data
                   ),
-                  let action = PluginOutputMode(rawValue: envelope.action)
+                  let action = PluginOutputMode(rawValue: envelope.action),
+                  action != .structured
             else {
-                throw PluginError.badStructuredOutput
+                throw PluginError.badStructuredOutput(truncated: result.stdoutTruncated)
             }
             return InterpretedResult(
                 action: action,
@@ -203,10 +220,32 @@ enum PluginRunner {
             )
         }
 
+        var content = result.stdout
+        var filename: String? = nil
+
+        if manifest.output == .save {
+            let lines = content.split(
+                separator: "\n", maxSplits: 1, omittingEmptySubsequences: false
+            )
+            if let first = lines.first {
+                var name = String(first)
+                for c: Character in ["/", "\\", ":"] {
+                    name = name.replacingOccurrences(of: String(c), with: "-")
+                }
+                name = String(name.prefix(200))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    if !name.hasSuffix(".md") { name += ".md" }
+                    filename = name
+                }
+                content = lines.count > 1 ? String(lines[1]) : ""
+            }
+        }
+
         return InterpretedResult(
             action: manifest.output,
-            content: result.stdout,
-            filename: nil,
+            content: content,
+            filename: filename,
             vaultHint: nil,
             folder: nil,
             notifyText: nil,
@@ -218,6 +257,12 @@ enum PluginRunner {
 private final class OnceFlag: @unchecked Sendable {
     private var fired = false
     private let lock = NSLock()
+
+    var hasFired: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return fired
+    }
 
     func tryFire() -> Bool {
         lock.lock()
@@ -232,6 +277,7 @@ private final class PipeBuffer: @unchecked Sendable {
     private var data = Data()
     private let lock = NSLock()
     private let limit: Int
+    private var _truncated = false
 
     init(limit: Int) { self.limit = limit }
 
@@ -239,8 +285,19 @@ private final class PipeBuffer: @unchecked Sendable {
         guard !chunk.isEmpty else { return }
         lock.lock()
         let room = limit - data.count
-        if room > 0 { data.append(chunk.prefix(room)) }
+        if room > 0 {
+            data.append(chunk.prefix(room))
+            if chunk.count > room { _truncated = true }
+        } else {
+            _truncated = true
+        }
         lock.unlock()
+    }
+
+    var truncated: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _truncated
     }
 
     var string: String {

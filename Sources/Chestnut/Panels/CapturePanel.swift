@@ -446,6 +446,7 @@ struct CaptureView: View {
 /// Panel hosting the capture bubble (chrome and dismissal live in PetPanel).
 @MainActor
 final class CapturePanel: PetPanel {
+    func setDraft(_ text: String) { model.draft = text }
     private let model: CaptureModel
     private let onDraftChange: (String) -> Void
     private let onTargetChange: (Vault) -> Void

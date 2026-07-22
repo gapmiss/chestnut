@@ -10,6 +10,7 @@ final class PluginRegistry {
     private(set) var pluginDirs: [String: URL] = [:]
 
     private var stream: FSEventStreamRef?
+    private let directory: URL
 
     static var pluginsDirectory: URL {
         let config = FileManager.default.homeDirectoryForCurrentUser
@@ -17,8 +18,12 @@ final class PluginRegistry {
         return config
     }
 
+    init(directory: URL? = nil) {
+        self.directory = directory ?? Self.pluginsDirectory
+    }
+
     func start() {
-        let dir = Self.pluginsDirectory
+        let dir = directory
         try? FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true
         )
@@ -59,7 +64,7 @@ final class PluginRegistry {
     }
 
     func rescan() {
-        let dir = Self.pluginsDirectory
+        let dir = directory
         let fm = FileManager.default
         guard let entries = try? fm.contentsOfDirectory(
             at: dir, includingPropertiesForKeys: [.isDirectoryKey],
@@ -80,7 +85,9 @@ final class PluginRegistry {
 
             switch PluginManifest.load(from: entry) {
             case .ok(let manifest):
-                if newDirs[manifest.name] == nil {
+                if let existing = newDirs[manifest.name] {
+                    NSLog("PluginRegistry: skipping duplicate plugin \"\(manifest.name)\" at \(entry.path) (already loaded from \(existing.path))")
+                } else {
                     newPlugins.append(manifest)
                     newDirs[manifest.name] = entry
                 }

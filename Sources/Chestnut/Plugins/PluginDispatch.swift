@@ -6,6 +6,21 @@ private let pluginImageExtensions: Set<String> = [
     "tif", "svg",
 ]
 
+extension NSPasteboard {
+    func fileURLs() -> [URL] {
+        let native = (readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL]) ?? []
+        if !native.isEmpty { return native }
+        if let raw = string(forType: .URL),
+           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
+            return [url]
+        }
+        return []
+    }
+}
+
 enum PluginDispatch {
     nonisolated static func extensionToType(_ ext: String) -> PluginInputType {
         let lower = ext.lowercased()
@@ -20,18 +35,7 @@ enum PluginDispatch {
         let sourceApp = NSWorkspace.shared.frontmostApplication?
             .bundleIdentifier
 
-        // File URLs (skip if all .md).
-        var fileURLs = (pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL]) ?? []
-        // Electron apps put file:// URLs on public.url instead of
-        // public.file-url — urlReadingFileURLsOnly skips them.
-        if fileURLs.isEmpty,
-           let raw = pasteboard.string(forType: .URL),
-           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
-            fileURLs = [url]
-        }
+        let fileURLs = pasteboard.fileURLs()
         if !fileURLs.isEmpty {
             let nonMD = fileURLs.filter {
                 $0.pathExtension.lowercased() != "md"
@@ -70,7 +74,7 @@ enum PluginDispatch {
                 atPath: tempDir, withIntermediateDirectories: true
             )
             let ext = pasteboard.data(forType: .png) != nil ? "png" : "tiff"
-            let tempFile = tempDir + "/paste-\(ProcessInfo.processInfo.processIdentifier)-\(Int(Date().timeIntervalSince1970)).\(ext)"
+            let tempFile = tempDir + "/paste-\(UUID().uuidString).\(ext)"
             if FileManager.default.createFile(
                 atPath: tempFile, contents: imageData
             ) {
@@ -104,17 +108,7 @@ enum PluginDispatch {
         _ sender: NSDraggingInfo
     ) -> (PluginInputType, PluginRunner.Input)? {
         let pb = sender.draggingPasteboard
-        // Guard: if all dragged items are .md file URLs, return nil so
-        // the caller falls through to the courier.
-        var urls = (pb.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL]) ?? []
-        if urls.isEmpty,
-           let raw = pb.string(forType: .URL),
-           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
-            urls = [url]
-        }
+        let urls = pb.fileURLs()
         if !urls.isEmpty {
             let allMD = urls.allSatisfy {
                 $0.pathExtension.lowercased() == "md"

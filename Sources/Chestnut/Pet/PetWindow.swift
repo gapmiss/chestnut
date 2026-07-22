@@ -26,6 +26,7 @@ final class PetWindow: NSPanel {
     /// Resolve a vault name (from an obsidian:// URL) to a vault path.
     var resolveVaultByName: ((String) -> String?)?
     var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
+    var hasPluginForType: ((PluginInputType) -> Bool)?
     var onUndoDelivery: (() -> Void)?
     var canUndoDelivery: (() -> Bool)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
@@ -652,41 +653,23 @@ final class PetView: SKView {
     // only when files hover the chest itself.
 
     private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
-        let native = (sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL]) ?? []
-        if !native.isEmpty { return native }
-        // Electron apps put file:// URLs on public.url instead of
-        // public.file-url — urlReadingFileURLsOnly skips them.
-        if let raw = sender.draggingPasteboard.string(forType: .URL),
-           let url = URL(string: raw), url.scheme == "file", url.isFileURL {
-            return [url]
-        }
-        return []
+        sender.draggingPasteboard.fileURLs()
     }
 
-    private func hasObsidianURL(from sender: NSDraggingInfo) -> Bool {
-        guard let raw = sender.draggingPasteboard.string(forType: .URL),
-              let url = URL(string: raw) else { return false }
-        return url.scheme == "obsidian" && url.host == "open"
+    private func obsidianLink(from sender: NSDraggingInfo) -> ObsidianOpenLink? {
+        guard let raw = sender.draggingPasteboard.string(forType: .URL) else { return nil }
+        return ObsidianOpenLink(raw)
     }
 
     private func obsidianFileURL(from sender: NSDraggingInfo) -> URL? {
-        guard let raw = sender.draggingPasteboard.string(forType: .URL),
-              let url = URL(string: raw),
-              url.scheme == "obsidian",
-              url.host == "open",
-              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
-              let vaultName = components.queryItems?.first(where: { $0.name == "vault" })?.value,
-              let filePath = components.queryItems?.first(where: { $0.name == "file" })?.value
-        else { return nil }
-        DebugLog.log("obsidian:// URL — vault=\(vaultName) file=\(filePath)")
-        guard let vault = petWindow?.resolveVaultByName?(vaultName) else {
-            DebugLog.log("obsidian:// — vault \"\(vaultName)\" not found in registry")
+        guard let link = obsidianLink(from: sender) else { return nil }
+        DebugLog.log("obsidian:// URL — vault=\(link.vaultName) file=\(link.filePath)")
+        guard let vault = petWindow?.resolveVaultByName?(link.vaultName) else {
+            DebugLog.log("obsidian:// — vault \"\(link.vaultName)\" not found in registry")
             return nil
         }
         let fullURL = URL(fileURLWithPath:
-            (vault as NSString).appendingPathComponent(filePath))
+            (vault as NSString).appendingPathComponent(link.filePath))
         guard Courier.isContained(fullURL, inVault: vault) else {
             DebugLog.log("obsidian:// — file path escapes vault root")
             return nil
@@ -722,27 +705,38 @@ final class PetView: SKView {
             DebugLog.log("drag entered — source app: \(source), pasteboard types: \(types)")
         }
         let urls = fileURLs(from: sender)
-        let hasObsidian = hasObsidianURL(from: sender)
-        let hasDraggable = !urls.isEmpty
-            || hasObsidian
-            || pb.string(forType: .string) != nil
-            || pb.data(forType: .tiff) != nil
-            || pb.data(forType: .png) != nil
-        guard hasDraggable else {
+        let hasObsidian = obsidianLink(from: sender) != nil
+        if !urls.isEmpty || hasObsidian {
+            petScene?.setOpenWide(true)
+            return petWindow.courierDragOperation
+        }
+        let hasPlugin: Bool
+        if pb.data(forType: .tiff) != nil || pb.data(forType: .png) != nil {
+            hasPlugin = petWindow.hasPluginForType?(.image) ?? false
+        } else if let text = pb.string(forType: .string),
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let url = URL(string: text),
+               url.scheme == "http" || url.scheme == "https" {
+                hasPlugin = petWindow.hasPluginForType?(.url) ?? false
+            } else {
+                hasPlugin = petWindow.hasPluginForType?(.text) ?? false
+            }
+        } else {
             DebugLog.log("drag entered — nothing draggable, rejecting")
             return []
         }
-        petScene?.setOpenWide(true)
-        if !urls.isEmpty || hasObsidian {
-            return petWindow.courierDragOperation
+        guard hasPlugin else {
+            DebugLog.log("drag entered — no plugin handles this type, rejecting")
+            return []
         }
+        petScene?.setOpenWide(true)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
         let urls = fileURLs(from: sender)
-        if !urls.isEmpty || hasObsidianURL(from: sender) {
+        if !urls.isEmpty || obsidianLink(from: sender) != nil {
             return petWindow.courierDragOperation
         }
         return .copy

@@ -1,5 +1,10 @@
 import Foundation
 
+nonisolated(unsafe) let iso8601: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    return f
+}()
+
 @MainActor
 enum DebugLog {
     private(set) static var enabled = false
@@ -24,7 +29,9 @@ enum DebugLog {
             try? fm.moveItem(at: logURL, to: prevURL)
         }
 
-        fm.createFile(atPath: logURL.path, contents: nil)
+        if !fm.fileExists(atPath: logURL.path) {
+            fm.createFile(atPath: logURL.path, contents: nil)
+        }
         handle = try? FileHandle(forWritingTo: logURL)
         handle?.seekToEndOfFile()
 
@@ -34,7 +41,7 @@ enum DebugLog {
 
     static func log(_ message: String) {
         guard enabled, let handle else { return }
-        let ts = ISO8601DateFormatter().string(from: Date())
+        let ts = iso8601.string(from: Date())
         let line = "\(ts) \(message)\n"
         handle.write(Data(line.utf8))
     }
