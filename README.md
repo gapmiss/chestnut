@@ -4,13 +4,16 @@
   <a href="https://gapmiss.github.io/chestnut"><img src="docs/hero.gif" alt="Chestnut, a pixel-art treasure chest creature" width="192"></a>
 </p>
 
-A native macOS desktop companion for multi-vault Obsidian users.
+A native macOS desktop companion for Obsidian users.
 [gapmiss.github.io/chestnut](https://gapmiss.github.io/chestnut)
 
 Chestnut is an always-on-top pixel-art treasure-chest creature that reacts to
 your writing activity and acts as a control surface across all your vaults. It
 watches the filesystem directly, no Obsidian plugin required, no settings
 modified.
+
+Native Swift and SpriteKit: ~1 MB download, under 2 MB installed, ~2% idle
+CPU. No Electron, no bundled browser, no network calls.
 
 ## Features
 

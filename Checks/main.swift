@@ -49,6 +49,26 @@ struct Check {
                   "pinnedFirst ignores a pin that left the registry")
         }
 
+        // --- VaultRegistry.parse: single-vault and empty registries ---
+        let singleFixture = """
+        {"vaults":{"a":{"path":"/tmp/only-vault","ts":1000,"open":true}}}
+        """.data(using: .utf8)!
+        do {
+            let vaults = try VaultRegistry.parse(singleFixture)
+            check(vaults.count == 1 && vaults.first?.path == "/tmp/only-vault",
+                  "single-vault registry parses to one vault")
+            check(VaultRegistry.pinnedFirst(vaults, pinnedPath: "/tmp/only-vault") == vaults,
+                  "pinnedFirst with the only vault pinned is a no-op")
+        } catch {
+            check(false, "single-vault fixture parse threw: \(error)")
+        }
+        do {
+            let vaults = try VaultRegistry.parse(Data(#"{"vaults":{}}"#.utf8))
+            check(vaults.isEmpty, "empty registry parses to zero vaults (guards alert, no crash)")
+        } catch {
+            check(false, "empty registry fixture parse threw: \(error)")
+        }
+
         // --- VaultRegistry.parse: the real obsidian.json on this machine ---
         if let data = try? Data(contentsOf: VaultRegistry.defaultFileURL) {
             let vaults = (try? VaultRegistry.parse(data)) ?? []

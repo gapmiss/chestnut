@@ -1,6 +1,6 @@
 # Chestnut — partner for Obsidian
 
-Native macOS desktop companion for multi-vault Obsidian users. An always-on-top
+Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top
 pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity
 and acts as a control surface across vaults. Shipped as v0.1.0 — free app with
 a Ko-fi tip jar, no license mechanism, no paywall, no network calls.
