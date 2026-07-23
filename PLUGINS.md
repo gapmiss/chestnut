@@ -96,7 +96,7 @@ one recognized type is required.
 ### Limits
 
 - **Stdout** is capped at **1 MB**. Output beyond that is silently truncated.
-  For `structured` mode, truncation breaks the JSON — the error message will
+  For `structured` mode, truncation breaks the JSON; the error message will
   note that stdout was truncated.
 - **Timeout** defaults to 10 seconds (configurable via `timeout` in the
   manifest). On timeout the plugin and any child processes are terminated
@@ -149,8 +149,8 @@ Unknown fields are ignored (forward-compat).
 
 ### Attachments
 
-When `action` is `"save"`, the `attachments` array lets a plugin save
-additional files (images, PDFs, etc.) into the same vault folder as the note:
+When `action` is `"save"` or `"capture"`, the `attachments` array lets a
+plugin save additional files (images, PDFs, etc.) into the vault:
 
 ```json
 {
@@ -168,8 +168,9 @@ additional files (images, PDFs, etc.) into the same vault folder as the note:
 | `source` | Absolute path to the file to copy |
 | `filename` | Destination filename inside the vault folder |
 
-Each attachment is copied (not moved) into the same directory as the note.
-Name conflicts get Obsidian-style suffixes, same as notes.
+For `save`, attachments land in the same directory as the note. For `capture`,
+attachments are copied to the vault root when the user submits. Name conflicts
+get Obsidian-style suffixes in both cases.
 
 ## Error handling
 
@@ -248,6 +249,8 @@ plugins in different languages, covering every input type and output mode:
 | [`word-count`](Examples/plugins/word-count/) | Perl | `text` | `notify` | Word count and reading time bubble |
 | [`clipboard-clean`](Examples/plugins/clipboard-clean/) | Zsh | `text` | `clipboard` | Strip smart quotes and whitespace |
 | [`folder-index`](Examples/plugins/folder-index/) | Bash | `folder` | `structured` (save + attachments) | Index note with all files as attachments |
+| [`img-clip-daily`](Examples/plugins/img-clip-daily/) | Bash | `image` | `structured` (capture + attachment) | Save clipboard image to today's daily note |
+| [`img-clip-note`](Examples/plugins/img-clip-note/) | Bash | `image` | `structured` (save + attachment) | Save clipboard image as a new note |
 
 To install any example:
 

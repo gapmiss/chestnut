@@ -19,6 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notice: NoticePanel?
     /// Draft text survives capture panel dismiss/reopen; cleared on submit.
     private var captureDraft = ""
+    /// Attachments queued by a plugin's structured capture; copied on submit.
+    private var captureAttachments: [PluginAttachment] = []
     /// Vault picked in the capture panel survives dismiss/reopen too
     /// (session-only; a successful capture persists it via the config).
     private var captureTargetPath: String?
@@ -376,7 +378,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 vaults: vaults, initialTarget: target, draft: captureDraft,
                 onSubmit: { [weak self] text, vault in
                     self?.captureDraft = ""
-                    self?.completeCapture(text, to: vault)
+                    let attachments = self?.captureAttachments ?? []
+                    self?.captureAttachments = []
+                    self?.completeCapture(text, to: vault, attachments: attachments)
                 },
                 onDraftChange: { [weak self] draft in
                     self?.captureDraft = draft
@@ -388,10 +392,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    private func completeCapture(_ text: String, to vault: Vault) {
-        DebugLog.log("capture: to \(vault.name) (\(vault.path)), \(text.count) chars")
+    private func completeCapture(
+        _ text: String, to vault: Vault,
+        attachments: [PluginAttachment] = []
+    ) {
+        DebugLog.log("capture: to \(vault.name) (\(vault.path)), \(text.count) chars, attachments=\(attachments.count)")
         config.lastCaptureVaultPath = vault.path
         config.save()
+
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        if !attachments.isEmpty {
+            let vaultURL = URL(fileURLWithPath: vault.path)
+            let attDir = Courier().attachmentFolder(of: vaultURL)
+            try? FileManager.default.createDirectory(
+                at: attDir, withIntermediateDirectories: true
+            )
+            for att in attachments {
+                let dest = Courier.availableURL(
+                    for: attDir.appendingPathComponent(att.filename)
+                )
+                guard Courier.isContained(dest, inVault: vault.path) else {
+                    presentAlert(
+                        "Attachment save failed",
+                        "Target path would escape the vault root or write inside .obsidian/."
+                    )
+                    return
+                }
+                do {
+                    let src = URL(fileURLWithPath: att.source).standardizedFileURL
+                    try FileManager.default.copyItem(at: src, to: dest)
+                    if att.source.hasPrefix(tempPrefix) {
+                        try? FileManager.default.removeItem(at: src)
+                    }
+                } catch {
+                    presentAlert("Attachment save failed", error.localizedDescription)
+                    return
+                }
+            }
+        }
+
         let capture = self.capture
         let vaultURL = URL(fileURLWithPath: vault.path)
         let cliVaultName = cliName(for: vault)
@@ -513,12 +552,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         palette?.dismiss()
         petWindow?.petScene.setChewing(true)
         let tempPath = input.filePath
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
         Task { [weak self] in
-            defer {
-                if let tempPath,
-                    tempPath.hasPrefix(
-                        NSTemporaryDirectory() + "chestnut-plugins/")
-                {
+            func cleanupTemp() {
+                if let tempPath, tempPath.hasPrefix(tempPrefix) {
                     try? FileManager.default.removeItem(atPath: tempPath)
                 }
             }
@@ -531,12 +568,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     result: raw, manifest: manifest
                 )
                 DebugLog.log("plugin result: action=\(result.action.rawValue), content=\(result.content.count) bytes, attachments=\(result.attachments?.count ?? 0)")
+                let captureWithAttachments = result.action == .capture
+                    && !(result.attachments ?? []).isEmpty
                 self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginResult(result)
+                if !captureWithAttachments { cleanupTemp() }
             } catch let error as PluginError {
+                cleanupTemp()
                 self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(error)
             } catch {
+                cleanupTemp()
                 self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(
                     .nonZeroExit(error.localizedDescription))
@@ -548,6 +590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switch result.action {
         case .capture:
             captureDraft = result.content
+            captureAttachments = result.attachments ?? []
             if let open = palette as? CapturePanel {
                 open.setDraft(result.content)
             } else {
@@ -580,13 +623,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let attachments = result.attachments ?? []
 
         func save(to vault: Vault) {
-            var dir = URL(fileURLWithPath: vault.path)
+            let vaultURL = URL(fileURLWithPath: vault.path)
+            var dir = vaultURL
             if let folder, !folder.isEmpty {
                 dir = dir.appendingPathComponent(folder)
             }
+            let attDir = Courier().attachmentFolder(of: vaultURL)
             let noteURL = dir.appendingPathComponent(filename)
             let allURLs = [noteURL] + attachments.map {
-                dir.appendingPathComponent($0.filename)
+                attDir.appendingPathComponent($0.filename)
             }
             for url in allURLs {
                 guard Courier.isContained(url, inVault: vault.path) else {
@@ -601,6 +646,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try FileManager.default.createDirectory(
                     at: dir, withIntermediateDirectories: true
                 )
+                if !attachments.isEmpty {
+                    try FileManager.default.createDirectory(
+                        at: attDir, withIntermediateDirectories: true
+                    )
+                }
                 let url = Courier.availableURL(for: noteURL)
                 try content.write(
                     to: url, atomically: true, encoding: .utf8
@@ -609,7 +659,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let src = URL(fileURLWithPath: att.source)
                         .standardizedFileURL
                     let dest = Courier.availableURL(
-                        for: dir.appendingPathComponent(att.filename)
+                        for: attDir.appendingPathComponent(att.filename)
                     )
                     try FileManager.default.copyItem(at: src, to: dest)
                 }

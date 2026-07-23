@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "name": "img-clip-daily",
+  "description": "Save clipboard image to today's daily note",
+  "accepts": ["image"],
+  "output": "structured",
+  "script": "img-clip-daily.sh"
+}

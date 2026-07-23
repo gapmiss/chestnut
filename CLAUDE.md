@@ -125,7 +125,9 @@ Checks/
   Plugins receive input via env vars + stdin, produce output on stdout. Output
   modes: capture (pre-fill), save (to vault), clipboard, notify, or structured
   JSON envelope for runtime control. Structured envelope supports `attachments`
-  array for saving additional files (images, PDFs) alongside a note. Scripts are
+  array for saving additional files (images, PDFs) alongside a note; attachments
+  work with both `save` and `capture` actions (capture copies them to the vault
+  root when the user submits the capture panel). Scripts are
   exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
