@@ -390,6 +390,20 @@ chipCapture.addEventListener("click", toggleCapture);
 window.addEventListener("keydown", (ev) => {
   if (ev.ctrlKey && ev.altKey && ev.code === "KeyV") { ev.preventDefault(); toggleHopper(); }
   if (ev.ctrlKey && ev.altKey && ev.code === "Space") { ev.preventDefault(); toggleCapture(); }
+  if (ev.ctrlKey && ev.altKey && ev.code === "KeyC") {
+    ev.preventDefault();
+    closePanels();
+    showNotice("Paste → plugin", "Sent clipboard to a matching plugin",
+      "Demo only, no real plugin ran");
+  }
+  if (ev.ctrlKey && ev.altKey && ev.code === "KeyO") {
+    ev.preventDefault();
+    if (!noticeEl.hidden) {
+      clearTimeout(noticeTimer);
+      noticeEl.hidden = true;
+      if (!pet.gesture) pet.gesture = { type: "hop", start: performance.now() / 1000 };
+    }
+  }
   if (ev.key === "Escape") closePanels();
 });
 
@@ -817,6 +831,7 @@ const menuState = {
   copyOnDrop: true,
   showInFullScreen: true,
   launchAtLogin: true,
+  plugins: {},
 };
 
 // Outline heart, like the app's SF Symbol on Support Chestnut.
@@ -942,6 +957,36 @@ function renderMenu() {
     check: menuState.showInFullScreen,
     action() { menuState.showInFullScreen = !menuState.showInFullScreen; closeMenu(); },
   }));
+
+  const pluginItems = [
+    { name: "Bookmark", desc: "Save a URL as a markdown note" },
+    { name: "Code Snippet", desc: "Capture code from the clipboard" },
+  ];
+  const pluginsSub = submenuOf([
+    ...pluginItems.map((p) => {
+      const enabled = menuState.plugins[p.name] !== false;
+      const item = menuItem({
+        label: p.name,
+        check: enabled,
+        action() {
+          menuState.plugins[p.name] = !enabled;
+          closeMenu();
+        },
+      });
+      const desc = document.createElement("span");
+      desc.className = "menu-desc";
+      desc.textContent = p.desc;
+      item.querySelector(".menu-label").appendChild(desc);
+      if (!enabled) item.classList.add("plugin-off");
+      return item;
+    }),
+    menuSeparator(),
+    menuItem({
+      label: "Open Plugins Folder",
+      action: closeMenu,
+    }),
+  ]);
+  menuEl.appendChild(menuItem({ label: "Plugins", submenu: pluginsSub }));
 
   menuEl.appendChild(menuSeparator());
   menuEl.appendChild(menuItem({

@@ -6,6 +6,7 @@ import AppKit
 @MainActor
 class PetPanel: NSPanel {
     var onClose: (() -> Void)?
+    var dismissesOnResignKey = false
     private var isClosing = false
 
     init() {
@@ -76,7 +77,7 @@ class PetPanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        dismiss()
+        if dismissesOnResignKey { dismiss() }
     }
 
     override func cancelOperation(_ sender: Any?) {

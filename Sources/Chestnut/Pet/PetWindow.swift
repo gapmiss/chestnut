@@ -21,12 +21,22 @@ final class PetWindow: NSPanel {
     /// Files dropped on the pet; second argument is the effective copy flag
     /// (persisted default already XOR-ed with ⌥).
     var onFilesDropped: (([URL], Bool) -> Void)?
+    /// Non-.md content dropped on the pet, classified for plugin dispatch.
+    var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
+    /// Resolve a vault name (from an obsidian:// URL) to a vault path.
+    var resolveVaultByName: ((String) -> String?)?
+    var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
+    var hasPluginForType: ((PluginInputType) -> Bool)?
     var onUndoDelivery: (() -> Void)?
     var canUndoDelivery: (() -> Bool)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
     var onCapture: (() -> Void)?
     var onUndoCapture: (() -> Void)?
     var canUndoCapture: (() -> Bool)?
+    var installedPlugins: (() -> [PluginManifest])?
+    var isPluginEnabled: ((String) -> Bool)?
+    var togglePlugin: ((String) -> Void)?
+    var onOpenPluginsFolder: (() -> Void)?
 
     private var config: Config
 
@@ -137,7 +147,7 @@ final class PetWindow: NSPanel {
         let view = PetView(frame: NSRect(origin: .zero, size: size))
         view.allowsTransparency = true
         view.presentScene(petScene)
-        view.registerForDraggedTypes([.fileURL])
+        view.registerForDraggedTypes([.fileURL, .string, .URL, .tiff, .png])
         contentView = view
 
         acceptsMouseMovedEvents = true
@@ -280,6 +290,53 @@ final class PetWindow: NSPanel {
         fullScreenItem.target = self
         fullScreenItem.state = config.showInFullScreen ? .on : .off
         menu.addItem(fullScreenItem)
+
+        let pluginsMenu = NSMenu()
+        pluginsMenu.autoenablesItems = false
+        let plugins = installedPlugins?() ?? []
+        if plugins.isEmpty {
+            let noneItem = NSMenuItem(
+                title: "No plugins installed", action: nil, keyEquivalent: ""
+            )
+            noneItem.isEnabled = false
+            pluginsMenu.addItem(noneItem)
+        } else {
+            for plugin in plugins.sorted(by: { $0.name < $1.name }) {
+                let item = NSMenuItem(
+                    title: plugin.name,
+                    action: #selector(togglePluginAction(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = plugin.name
+                let enabled = isPluginEnabled?(plugin.name) ?? true
+                item.state = enabled ? .on : .off
+                if !plugin.description.isEmpty {
+                    let title = NSMutableAttributedString(
+                        string: plugin.name,
+                        attributes: [.font: NSFont.menuFont(ofSize: 0)]
+                    )
+                    title.append(NSAttributedString(
+                        string: "\n\(plugin.description)",
+                        attributes: [
+                            .font: NSFont.menuFont(ofSize: NSFont.smallSystemFontSize),
+                            .foregroundColor: NSColor.secondaryLabelColor,
+                        ]
+                    ))
+                    item.attributedTitle = title
+                }
+                pluginsMenu.addItem(item)
+            }
+        }
+        pluginsMenu.addItem(.separator())
+        let openFolderItem = NSMenuItem(
+            title: "Open Plugins Folder", action: #selector(openPluginsFolder), keyEquivalent: ""
+        )
+        openFolderItem.target = self
+        pluginsMenu.addItem(openFolderItem)
+        let pluginsItem = NSMenuItem(title: "Plugins", action: nil, keyEquivalent: "")
+        pluginsItem.submenu = pluginsMenu
+        menu.addItem(pluginsItem)
 
         menu.addItem(.separator())
         // No action/target: stays disabled, a plain "what version am I on" line.
@@ -458,6 +515,13 @@ final class PetWindow: NSPanel {
         NSMenuItemBadge(string: "↗")
     }
 
+    @objc private func togglePluginAction(_ sender: NSMenuItem) {
+        guard let name = sender.representedObject as? String else { return }
+        togglePlugin?(name)
+    }
+
+    @objc private func openPluginsFolder() { onOpenPluginsFolder?() }
+
     @objc private func openReleases() { NSWorkspace.shared.open(AppInfo.releasesURL) }
 
     @objc private func openSupport() { NSWorkspace.shared.open(AppInfo.supportURL) }
@@ -589,19 +653,104 @@ final class PetView: SKView {
     // only when files hover the chest itself.
 
     private func fileURLs(from sender: NSDraggingInfo) -> [URL] {
-        (sender.draggingPasteboard.readObjects(
-            forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL]) ?? []
+        sender.draggingPasteboard.fileURLs()
+    }
+
+    private func obsidianLink(from sender: NSDraggingInfo) -> ObsidianOpenLink? {
+        guard let raw = sender.draggingPasteboard.string(forType: .URL) else { return nil }
+        return ObsidianOpenLink(raw)
+    }
+
+    private func obsidianFileURL(from sender: NSDraggingInfo) -> URL? {
+        guard let link = obsidianLink(from: sender) else { return nil }
+        DebugLog.log("obsidian:// URL — vault=\(link.vaultName) file=\(link.filePath)")
+        guard let vault = petWindow?.resolveVaultByName?(link.vaultName) else {
+            DebugLog.log("obsidian:// — vault \"\(link.vaultName)\" not found in registry")
+            return nil
+        }
+        let fullURL = URL(fileURLWithPath:
+            (vault as NSString).appendingPathComponent(link.filePath))
+        guard Courier.isContained(fullURL, inVault: vault) else {
+            DebugLog.log("obsidian:// — file path escapes vault root")
+            return nil
+        }
+        if FileManager.default.fileExists(atPath: fullURL.path) {
+            DebugLog.log("obsidian:// — resolved to \(fullURL.path)")
+            return fullURL
+        }
+        if !fullURL.path.hasSuffix(".md") {
+            let withMD = URL(fileURLWithPath: fullURL.path + ".md")
+            if FileManager.default.fileExists(atPath: withMD.path) {
+                DebugLog.log("obsidian:// — resolved to \(withMD.path)")
+                return withMD
+            }
+        }
+        DebugLog.log("obsidian:// — resolved path not found: \(fullURL.path)")
+        return nil
+    }
+
+    private func allMDFiles(_ sender: NSDraggingInfo) -> Bool {
+        let urls = fileURLs(from: sender)
+        return !urls.isEmpty && urls.allSatisfy {
+            $0.pathExtension.lowercased() == "md"
+        }
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard let petWindow, !fileURLs(from: sender).isEmpty else { return [] }
-        petScene?.setOpenWide(true)  // mouth open, ready to chomp
-        return petWindow.courierDragOperation
+        guard let petWindow else { return [] }
+        let pb = sender.draggingPasteboard
+        if DebugLog.enabled {
+            let types = pb.types?.map(\.rawValue) ?? []
+            let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+            DebugLog.log("drag entered — source app: \(source), pasteboard types: \(types)")
+        }
+        let urls = fileURLs(from: sender)
+        let hasObsidian = obsidianLink(from: sender) != nil
+
+        if urls.contains(where: { $0.isExistingDirectory }),
+           petWindow.hasPluginForType?(.folder) == true {
+            petScene?.setOpenWide(true)
+            return .copy
+        }
+
+        if !urls.isEmpty || hasObsidian {
+            petScene?.setOpenWide(true)
+            return petWindow.courierDragOperation
+        }
+        let hasPlugin: Bool
+        if pb.data(forType: .tiff) != nil || pb.data(forType: .png) != nil {
+            hasPlugin = petWindow.hasPluginForType?(.image) ?? false
+        } else if let text = pb.string(forType: .string),
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if let url = URL(string: text),
+               url.scheme == "http" || url.scheme == "https" {
+                hasPlugin = petWindow.hasPluginForType?(.url) ?? false
+            } else {
+                hasPlugin = petWindow.hasPluginForType?(.text) ?? false
+            }
+        } else {
+            DebugLog.log("drag entered — nothing draggable, rejecting")
+            return []
+        }
+        guard hasPlugin else {
+            DebugLog.log("drag entered — no plugin handles this type, rejecting")
+            return []
+        }
+        petScene?.setOpenWide(true)
+        return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        petWindow?.courierDragOperation ?? []
+        guard let petWindow else { return [] }
+        let urls = fileURLs(from: sender)
+        if urls.contains(where: { $0.isExistingDirectory }),
+           petWindow.hasPluginForType?(.folder) == true {
+            return .copy
+        }
+        if !urls.isEmpty || obsidianLink(from: sender) != nil {
+            return petWindow.courierDragOperation
+        }
+        return .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -610,12 +759,58 @@ final class PetView: SKView {
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender)
-        guard !urls.isEmpty else {
-            petScene?.setOpenWide(false)
-            return false
+
+        if let resolved = obsidianFileURL(from: sender) {
+            DebugLog.log("drop: obsidian:// URL resolved to \(resolved.path) → courier")
+            petWindow?.filesDropped([resolved])
+            return true
         }
-        // Pose stays open: the delegate anchors the destination palette to it.
-        petWindow?.filesDropped(urls)
-        return true
+
+        if !urls.isEmpty {
+            if let dir = urls.first(where: { $0.isExistingDirectory }),
+               petWindow?.hasPluginForType?(.folder) == true {
+                DebugLog.log("drop: folder → plugin dispatch, path=\(dir.path)")
+                petWindow?.onPluginDrop?(.folder, PluginRunner.Input(
+                    type: .folder, text: nil,
+                    filePath: dir.path, sourceApp: nil
+                ))
+                let rest = urls.filter { !$0.isExistingDirectory }
+                if !rest.isEmpty {
+                    petWindow?.filesDropped(rest)
+                }
+                return true
+            }
+
+            let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
+            let nonMD = urls.filter { $0.pathExtension.lowercased() != "md" }
+            if let first = nonMD.first {
+                let type = PluginDispatch.extensionToType(first.pathExtension)
+                let ext = first.pathExtension.lowercased()
+                if petWindow?.hasPluginForFileExt?(type, ext) == true {
+                    DebugLog.log("drop: non-.md file → plugin dispatch, type=\(type.rawValue) ext=\(ext)")
+                    petWindow?.onPluginDrop?(type, PluginRunner.Input(
+                        type: type, text: nil,
+                        filePath: first.path, sourceApp: nil
+                    ))
+                    if !mdURLs.isEmpty {
+                        petWindow?.filesDropped(mdURLs)
+                    }
+                    return true
+                }
+            }
+            DebugLog.log("drop: \(urls.count) file(s) → courier")
+            petWindow?.filesDropped(urls)
+            return true
+        }
+
+        if let (type, input) = PluginDispatch.classifyDrag(sender) {
+            DebugLog.log("drop: plugin dispatch, type=\(type.rawValue)")
+            petWindow?.onPluginDrop?(type, input)
+            return true
+        }
+
+        DebugLog.log("drop: unhandled, rejecting")
+        petScene?.setOpenWide(false)
+        return false
     }
 }

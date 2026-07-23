@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let journal: Journal<CourierOperation> = .deliveries
     private let captureJournal: Journal<CaptureRecord> = .captures
     private let hotkeys = HotkeyCenter()
+    private let pluginRegistry = PluginRegistry()
     private var petWindow: PetWindow?
     /// The one panel on screen (Vault Hopper, courier destination picker,
     /// or capture bubble).
@@ -32,11 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DebugLog.configure(enabled: config.debug)
+        DebugLog.log("config loaded from \(Config.fileURL.path)")
         UserDefaults.standard.set(300, forKey: "NSInitialToolTipDelay")
         if let custom = config.customThemes {
             SpriteTheme.registerCustomThemes(custom)
+            DebugLog.log("config: registered \(custom.count) custom theme(s): \(custom.map(\.id))")
         }
         if SpriteTheme.theme(id: config.petTheme).id != config.petTheme {
+            DebugLog.log("config: theme \"\(config.petTheme)\" invalid, falling back to default")
             config.petTheme = SpriteTheme.defaultID
         }
         openPetWindow()
@@ -59,11 +64,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onNotice = { [weak self] in
             self?.notice?.performAction()
         }
+        hotkeys.onPaste = { [weak self] in
+            self?.handlePasteHotkey()
+        }
         hotkeys.start(config: config.hotkeys)
+
+        pluginRegistry.onAPINotice = { [weak self] name, api in
+            self?.showNotice(
+                "Plugin \u{201C}\(name)\u{201D} requires api \(api)",
+                "This version of Chestnut supports api \(PluginManifest.maxAPI)"
+            )
+        }
+        pluginRegistry.disabled = config.disabledPlugins
+        pluginRegistry.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         hotkeys.stop()
+        pluginRegistry.stop()
     }
 
     private func openPetWindow() {
@@ -81,8 +99,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onToggleHopper = { [weak self] in
             self?.toggleHopper()
         }
+        window.resolveVaultByName = { [weak self] name in
+            guard let vaults = self?.registry.vaults else { return nil }
+            let matches = vaults.filter { $0.name == name }
+            guard matches.count == 1 else { return nil }
+            return matches[0].path
+        }
+        window.hasPluginForFileExt = { [weak self] type, ext in
+            !(self?.pluginRegistry.pluginsAccepting(type, ext: ext).isEmpty ?? true)
+        }
+        window.hasPluginForType = { [weak self] type in
+            !(self?.pluginRegistry.pluginsAccepting(type).isEmpty ?? true)
+        }
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
+        }
+        window.onPluginDrop = { [weak self] type, input in
+            self?.handlePluginInput(type: type, input: input)
         }
         window.canUndoDelivery = { [weak self] in
             self?.journal.last() != nil
@@ -98,6 +131,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.onUndoCapture = { [weak self] in
             self?.undoLastCapture()
+        }
+        window.installedPlugins = { [weak self] in
+            self?.pluginRegistry.plugins ?? []
+        }
+        window.isPluginEnabled = { [weak self] name in
+            !(self?.config.disabledPlugins.contains(name) ?? false)
+        }
+        window.togglePlugin = { [weak self] name in
+            guard let self else { return }
+            if self.config.disabledPlugins.contains(name) {
+                self.config.disabledPlugins.remove(name)
+            } else {
+                self.config.disabledPlugins.insert(name)
+            }
+            self.pluginRegistry.disabled = self.config.disabledPlugins
+            self.config.save()
+        }
+        window.onOpenPluginsFolder = {
+            let dir = PluginRegistry.pluginsDirectory
+            let fm = FileManager.default
+            if !fm.fileExists(atPath: dir.path) {
+                try? fm.createDirectory(
+                    at: dir, withIntermediateDirectories: true
+                )
+            }
+            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dir.path)
         }
         controller.onStateChange = { [weak window] state in
             window?.petScene.play(state)
@@ -148,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             palette?.dismiss()
             return
         }
+        DebugLog.log("hopper: opening with \(registry.vaults.count) vault(s)")
         presentPalette(
             VaultPalettePanel(
                 vaults: pinnedFirst(registry.vaults),
@@ -227,7 +287,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func completeDelivery(of files: [URL], to vault: Vault, from source: Vault?, copy: Bool) {
-        palette?.dismiss()  // close first so the gulp isn't stomped by the pose reset
+        palette?.dismiss()
+        DebugLog.log("courier: delivering \(files.count) file(s) to \(vault.name) (\(vault.path))")
         do {
             let op = try courier.deliver(
                 files: files,
@@ -240,8 +301,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 NSLog("Journal append failed (delivery succeeded): %@", error.localizedDescription)
             }
+            if DebugLog.enabled {
+                for t in op.transfers {
+                    DebugLog.log("courier:   \(t.from) → \(t.to)\(t.dedup ? " (dedup)" : "")")
+                }
+            }
             petWindow?.petScene.celebrateDelivery()
             controller.noteInteraction()
+            guard !op.transfers.isEmpty else {
+                showNotice("Already in \(vault.name)", "File already exists, skipped")
+                return
+            }
             let note = op.transfers.first { $0.to.hasSuffix(".md") }?.to
             let subtitle = op.transfers.count == 1
                 ? (op.transfers[0].to as NSString).lastPathComponent
@@ -252,7 +322,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else if op.transfers.count == 1 {
                     ObsidianBridge.presentFile(path: op.transfers[0].to, vaultPath: vault.path)
                 } else {
-                    // Several attachments land in one folder — reveal that.
                     let folder = (op.transfers[0].to as NSString).deletingLastPathComponent
                     ObsidianBridge.presentFile(path: folder, vaultPath: vault.path)
                 }
@@ -320,11 +389,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func completeCapture(_ text: String, to vault: Vault) {
+        DebugLog.log("capture: to \(vault.name) (\(vault.path)), \(text.count) chars")
         config.lastCaptureVaultPath = vault.path
         config.save()
-        // The CLI path blocks on the live Obsidian app (hard 3s timeouts,
-        // twice) — run it off the main actor so the pet, panels, and hotkeys
-        // stay responsive, then hop back for the journal and feedback.
         let capture = self.capture
         let vaultURL = URL(fileURLWithPath: vault.path)
         let cliVaultName = cliName(for: vault)
@@ -335,6 +402,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self else { return }
             switch result {
             case .success(let record):
+                DebugLog.log("capture: success → \(record.notePath), created=\(record.createdFile)")
                 do {
                     try self.captureJournal.append(record)
                 } catch {
@@ -391,9 +459,236 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
         }
-        panel.show(aboveSprite: petWindow.spriteFrame)
+        panel.show(aboveSprite: petWindow.spriteFrame, for: config.noticeDuration)
         notice = panel
         if onClick != nil { hotkeys.setNoticeHotkeyEnabled(true) }
+    }
+
+    // MARK: - Plugins
+
+    private func handlePasteHotkey() {
+        guard let classified = PluginDispatch.classify(.general) else { return }
+        handlePluginInput(type: classified.0, input: classified.1)
+    }
+
+    private func handlePluginInput(
+        type: PluginInputType, input: PluginRunner.Input
+    ) {
+        let matches: [(PluginManifest, URL)]
+        if let path = input.filePath {
+            let ext = URL(fileURLWithPath: path).pathExtension
+            matches = pluginRegistry.pluginsAccepting(type, ext: ext)
+        } else {
+            matches = pluginRegistry.pluginsAccepting(type)
+        }
+        DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name))")
+        switch matches.count {
+        case 0:
+            if let tempPath = input.filePath,
+               tempPath.hasPrefix(
+                   NSTemporaryDirectory() + "chestnut-plugins/") {
+                try? FileManager.default.removeItem(atPath: tempPath)
+            }
+            petWindow?.petScene.setOpenWide(false)
+            showNotice("No plugin handles this", type.rawValue + " input")
+        case 1:
+            runPlugin(
+                manifest: matches[0].0, dir: matches[0].1, input: input
+            )
+        default:
+            presentPalette(
+                PluginPalettePanel(plugins: matches) { [weak self] manifest, dir in
+                    self?.runPlugin(
+                        manifest: manifest, dir: dir, input: input
+                    )
+                }
+            )
+        }
+    }
+
+    private func runPlugin(
+        manifest: PluginManifest, dir: URL, input: PluginRunner.Input
+    ) {
+        DebugLog.log("plugin run: \(manifest.name) at \(dir.path)")
+        palette?.dismiss()
+        petWindow?.petScene.setChewing(true)
+        let tempPath = input.filePath
+        Task { [weak self] in
+            defer {
+                if let tempPath,
+                    tempPath.hasPrefix(
+                        NSTemporaryDirectory() + "chestnut-plugins/")
+                {
+                    try? FileManager.default.removeItem(atPath: tempPath)
+                }
+            }
+            do {
+                let raw = try await PluginRunner.run(
+                    manifest: manifest, pluginDir: dir, input: input
+                )
+                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, stderr=\(raw.stderr.prefix(200))")
+                let result = try PluginRunner.interpret(
+                    result: raw, manifest: manifest
+                )
+                DebugLog.log("plugin result: action=\(result.action.rawValue), content=\(result.content.count) bytes, attachments=\(result.attachments?.count ?? 0)")
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginResult(result)
+            } catch let error as PluginError {
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginError(error)
+            } catch {
+                self?.petWindow?.petScene.setChewing(false)
+                self?.handlePluginError(
+                    .nonZeroExit(error.localizedDescription))
+            }
+        }
+    }
+
+    private func handlePluginResult(_ result: PluginRunner.InterpretedResult) {
+        switch result.action {
+        case .capture:
+            captureDraft = result.content
+            if let open = palette as? CapturePanel {
+                open.setDraft(result.content)
+            } else {
+                toggleCapture()
+            }
+        case .save:
+            savePluginOutput(result)
+        case .clipboard:
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(result.content, forType: .string)
+            petWindow?.petScene.celebrateDelivery()
+            controller.noteInteraction()
+            showNotice("Copied to clipboard", result.notifyText ?? "")
+        case .notify:
+            petWindow?.petScene.celebrateDelivery()
+            controller.noteInteraction()
+            showNotice(
+                result.content.isEmpty ? "Plugin completed" : result.content,
+                result.notifyText ?? ""
+            )
+        case .structured:
+            break
+        }
+    }
+
+    private func savePluginOutput(_ result: PluginRunner.InterpretedResult) {
+        let filename = result.filename ?? "Untitled.md"
+        let content = result.content
+        let folder = result.folder
+        let attachments = result.attachments ?? []
+
+        func save(to vault: Vault) {
+            var dir = URL(fileURLWithPath: vault.path)
+            if let folder, !folder.isEmpty {
+                dir = dir.appendingPathComponent(folder)
+            }
+            let noteURL = dir.appendingPathComponent(filename)
+            let allURLs = [noteURL] + attachments.map {
+                dir.appendingPathComponent($0.filename)
+            }
+            for url in allURLs {
+                guard Courier.isContained(url, inVault: vault.path) else {
+                    presentAlert(
+                        "Plugin save failed",
+                        "Target path would escape the vault root or write inside .obsidian/."
+                    )
+                    return
+                }
+            }
+            do {
+                try FileManager.default.createDirectory(
+                    at: dir, withIntermediateDirectories: true
+                )
+                let url = Courier.availableURL(for: noteURL)
+                try content.write(
+                    to: url, atomically: true, encoding: .utf8
+                )
+                for att in attachments {
+                    let src = URL(fileURLWithPath: att.source)
+                        .standardizedFileURL
+                    let dest = Courier.availableURL(
+                        for: dir.appendingPathComponent(att.filename)
+                    )
+                    try FileManager.default.copyItem(at: src, to: dest)
+                }
+                petWindow?.petScene.celebrateDelivery()
+                controller.noteInteraction()
+                showNotice(
+                    "Saved to \(vault.name)",
+                    url.lastPathComponent
+                ) {
+                    ObsidianBridge.openNote(
+                        path: url.path, vaultPath: vault.path
+                    )
+                }
+            } catch {
+                presentAlert(
+                    "Plugin save failed", error.localizedDescription
+                )
+            }
+        }
+
+        let hint = result.vaultHint
+        var resolved: Vault? = nil
+
+        if hint == "pinned" {
+            resolved = registry.vaults.first { $0.path == config.pinnedVaultPath }
+        } else if hint == "last" {
+            resolved = registry.vaults.first { $0.path == config.lastCaptureVaultPath }
+        } else if let hint, hint != "ask" {
+            if let vault = registry.vaults.first(where: { $0.path == hint }) {
+                resolved = vault
+            } else {
+                presentAlert(
+                    "Unknown vault",
+                    "No vault found at: \(hint)"
+                )
+                return
+            }
+        }
+
+        if let resolved {
+            save(to: resolved)
+        } else {
+            let vaults = pinnedFirst(registry.vaults)
+            guard !vaults.isEmpty else {
+                presentAlert(
+                    "Nowhere to save",
+                    "No vaults found in Obsidian's vault list."
+                )
+                return
+            }
+            var saved = false
+            let panel = VaultPalettePanel(
+                vaults: vaults,
+                placeholder: "Save to vault\u{2026}",
+                pinnedPath: config.pinnedVaultPath,
+                onPinChange: { [weak self] path in
+                    self?.setPinnedVault(path)
+                }
+            ) { vault in
+                saved = true
+                save(to: vault)
+            }
+            presentPalette(panel)
+            let oldClose = panel.onClose
+            panel.onClose = { [weak self] in
+                oldClose?()
+                guard !saved else { return }
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(content, forType: .string)
+                self?.showNotice(
+                    "Copied to clipboard",
+                    "Plugin output saved to clipboard"
+                )
+            }
+        }
+    }
+
+    private func handlePluginError(_ error: PluginError) {
+        showNotice("Plugin error", error.localizedDescription)
     }
 
     private func presentAlert(_ title: String, _ message: String) {

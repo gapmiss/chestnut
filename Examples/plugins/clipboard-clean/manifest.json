@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "name": "clipboard-clean",
+  "description": "Clean up smart quotes and whitespace",
+  "accepts": ["text"],
+  "output": "clipboard",
+  "script": "clipboard-clean.zsh"
+}

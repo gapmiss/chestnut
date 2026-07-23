@@ -51,6 +51,8 @@ final class PetScene: SKScene {
     private let pet: SKSpriteNode
     private var currentState: PetState = .idle
     private var openWide = false
+    private var chewing = false
+    private var poseLocked: Bool { openWide || chewing }
 
     init(size: CGSize, pixelScale: CGFloat, palette: [Character: SpriteTheme.RGBA]) {
         self.pixelScale = pixelScale
@@ -91,7 +93,7 @@ final class PetScene: SKScene {
     func play(_ state: PetState) {
         currentState = state
         applyStateFrameRate()  // before the guard: also ends a stuck gesture boost
-        guard !openWide else { return }  // pose resumes when the palette closes
+        guard !poseLocked else { return }  // pose resumes when the palette closes
         pet.removeAction(forKey: ActionKey.stateLoop)
         pet.removeAction(forKey: ActionKey.eyePeek)
         pet.removeAction(forKey: ActionKey.breathe)
@@ -141,9 +143,42 @@ final class PetScene: SKScene {
             pet.setScale(1)
             pet.texture = tex.chatterOpen
             applyStateFrameRate()
+        } else if chewing {
+            startChewPose()
         } else {
             play(currentState)
         }
+    }
+
+    /// Plugin-running pose: continuous gentle chewing with a slow breathing
+    /// sway, distinct from the static open-wide and the brief writing chatter.
+    func setChewing(_ flag: Bool) {
+        guard chewing != flag else { return }
+        chewing = flag
+        if flag {
+            startChewPose()
+        } else if openWide {
+            pet.removeAction(forKey: ActionKey.stateLoop)
+            pet.removeAction(forKey: ActionKey.breathe)
+            pet.setScale(1)
+            pet.texture = tex.chatterOpen
+        } else {
+            play(currentState)
+        }
+    }
+
+    private func startChewPose() {
+        pet.removeAction(forKey: ActionKey.stateLoop)
+        pet.removeAction(forKey: ActionKey.eyePeek)
+        pet.removeAction(forKey: ActionKey.breathe)
+        removeAction(forKey: ActionKey.zSpawner)
+        pet.setScale(1)
+        let chew = SKAction.animate(
+            with: [tex.chatterOpen, tex.glint, tex.base, tex.glint],
+            timePerFrame: 0.3
+        )
+        pet.run(.repeatForever(chew), withKey: ActionKey.stateLoop)
+        startBreathing(period: 3.0, amount: 1.02)
     }
 
     /// Delivery complete: gulp, satisfied squash, gem sparkle, back to state.

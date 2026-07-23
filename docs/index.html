@@ -31,6 +31,8 @@
       A tiny always-on-top companion for your Obsidian vaults.
       It keeps you company while you write, hops between vaults,
       delivers notes, and swallows quick captures.
+      Native Swift, ~1MB download, tiny on your disk,
+      not just your screen.
     </p>
 
     <div class="stage" id="stage">
@@ -89,10 +91,17 @@
       </div>
     </div>
     <p class="chips-hint">
-      interactive re-creations, not screenshots<br>
-      <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>V</kbd></span>,
-      <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></span>,
-      and right-click work here too
+      interactive re-creations, not screenshots
+      <span class="hotkey-tip" tabindex="0" aria-label="Keyboard shortcuts">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="1" y="3" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2"/><rect x="3" y="5.5" width="2" height="1.8" rx=".4" fill="currentColor"/><rect x="6" y="5.5" width="2" height="1.8" rx=".4" fill="currentColor"/><rect x="9" y="5.5" width="2" height="1.8" rx=".4" fill="currentColor"/><rect x="12" y="5.5" width="1.5" height="1.8" rx=".4" fill="currentColor"/><rect x="3" y="8.5" width="1.5" height="1.8" rx=".4" fill="currentColor"/><rect x="5.5" y="8.5" width="5" height="1.8" rx=".4" fill="currentColor"/><rect x="11.5" y="8.5" width="2" height="1.8" rx=".4" fill="currentColor"/></svg>
+        <span class="hotkey-tooltip">
+          <span><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>V</kbd></span> Vault Hopper</span>
+          <span><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>Space</kbd></span> Quick Capture</span>
+          <span><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>C</kbd></span> Paste to plugin</span>
+          <span><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>O</kbd></span> Notice action</span>
+          <span class="hotkey-tooltip-hint">These work on this page too</span>
+        </span>
+      </span>
     </p>
 
     <div class="cta">
@@ -101,7 +110,8 @@
       </a>
       <p class="fineprint">
         macOS 14+ · free &amp; open source ·
-        <a href="#install">first-launch steps</a>
+        <a href="#install">first-launch steps</a> ·
+        <a href="guide.html">user guide</a>
       </p>
     </div>
   </header>
@@ -129,6 +139,8 @@
           Drop a note onto Chestnut to move or copy it into another vault.
           Attachments travel with it, name conflicts get Obsidian-style suffixes,
           nothing is ever overwritten, and every delivery is journaled for undo.
+          Non-markdown files and folders route to a matching plugin when one
+          exists; <code>.md</code> drops always go to the courier.
         </p>
       </div>
       <div class="card">
@@ -142,6 +154,92 @@
           gulp when the thought lands.
         </p>
       </div>
+    </div>
+  </section>
+
+  <section class="plugins">
+    <p class="kicker">Plugins</p>
+    <h2>Teach it new tricks</h2>
+    <p class="plugins-intro">
+      Plugins are shell scripts that turn clipboard content, dropped files,
+      and URLs into vault notes. Drop a bookmark, paste a code snippet,
+      feed it a PDF. If there's a plugin for it, Chestnut knows what to do.
+    </p>
+
+    <div class="plugins-grid">
+      <div class="plugins-detail">
+        <h3>How it works</h3>
+        <p>
+          A plugin is a folder in
+          <code>~/.config/chestnut/plugins/&lt;name&gt;/</code> containing a
+          <code>manifest.json</code> and a script. The manifest declares what
+          the plugin accepts (<code>text</code>, <code>url</code>,
+          <code>image</code>, <code>file</code>, <code>folder</code>) and how
+          output is handled (<code>capture</code>, <code>save</code>,
+          <code>clipboard</code>, <code>notify</code>). Input arrives via
+          environment variables and stdin; output goes to stdout.
+        </p>
+        <p>
+          When you drop a non-markdown file onto Chestnut or press
+          <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>C</kbd></span>
+          to paste, Chestnut classifies the content and routes it to a matching
+          plugin. If several plugins match, a picker lets you choose. Markdown
+          files always go to the courier. Plugins can also narrow to specific
+          file extensions (e.g. only <code>.csv</code> or <code>.txt</code>).
+        </p>
+        <p>
+          Manifests are hot-reloaded: edit one and Chestnut picks up the
+          change live. Enable or disable individual plugins from the
+          right-click menu.
+        </p>
+      </div>
+
+      <div class="plugins-examples">
+        <h3>Minimal example</h3>
+        <div class="plugins-file">
+          <span class="plugins-filename">manifest.json</span>
+          <pre><code>{
+  "api": 1,
+  "name": "Bookmark",
+  "description": "Save a URL as a markdown note",
+  "command": "./save-bookmark.sh",
+  "accepts": ["url"],
+  "output": "save"
+}</code></pre>
+        </div>
+        <div class="plugins-file">
+          <span class="plugins-filename">save-bookmark.sh</span>
+          <pre><code>#!/bin/bash
+echo "# $CHESTNUT_TITLE"
+echo ""
+echo "[$CHESTNUT_URL]($CHESTNUT_URL)"
+echo ""
+echo "Saved on $(date +%Y-%m-%d)."</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <p class="plugins-modes">
+      <strong>Output modes:</strong>
+      <code>capture</code> pre-fills the capture panel,
+      <code>save</code> writes directly to the vault,
+      <code>clipboard</code> copies the result, and
+      <code>notify</code> shows it in a speech bubble. Scripts can also
+      return a JSON envelope with attachments for more control.
+    </p>
+    <p class="plugins-link">
+      Full plugin reference, environment variables, and more examples in the
+      <a href="guide.html#plugins">User Guide</a>.
+    </p>
+
+    <div class="customize-note">
+      <h3>Customize</h3>
+      <p>
+        Hotkeys, sprite color themes, capture defaults, notice duration, and
+        the disabled-plugins list are all configurable in
+        <code>~/Library/Application&nbsp;Support/Chestnut/config.json</code>.
+        Details in the <a href="guide.html#configuration">User Guide</a>.
+      </p>
     </div>
   </section>
 
@@ -190,7 +288,9 @@
       </li>
       <li>
         Chestnut appears in the corner of your screen. Right-click it for
-        everything: vaults, themes, capture, launch&nbsp;at&nbsp;login.
+        everything: vaults, themes, plugins, capture, launch&nbsp;at&nbsp;login.
+        Four global hotkeys let you reach it from any app (see the
+        <a href="guide.html#hotkeys">hotkey reference</a>).
       </li>
     </ol>
     <p class="build-note">
@@ -219,6 +319,10 @@
     <a href="https://github.com/gapmiss/chestnut/releases">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M2 2h5.6c.4 0 .78.16 1.06.44l5.9 5.9a1.5 1.5 0 0 1 0 2.12l-4.1 4.1a1.5 1.5 0 0 1-2.12 0l-5.9-5.9A1.5 1.5 0 0 1 2 7.6V2zm3.25 4.5a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5z"/></svg>
       Releases
+    </a>
+    <a href="guide.html">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 2.5A1.5 1.5 0 0 1 2.5 1h3.38a1.5 1.5 0 0 1 1.06.44l.56.56a1.5 1.5 0 0 0 1.06.44H13.5A1.5 1.5 0 0 1 15 3.94V5H1zM1 6h14v7.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 13.5z"/></svg>
+      Guide
     </a>
   </nav>
   <p class="legal">

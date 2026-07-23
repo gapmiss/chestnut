@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "name": "url-bookmark",
+  "description": "Save a URL as a bookmark note with metadata",
+  "accepts": ["url"],
+  "output": "structured",
+  "script": "url-bookmark.py",
+  "timeout": 15
+}

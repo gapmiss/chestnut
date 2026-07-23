@@ -174,6 +174,7 @@ pre code { background: none; padding: 0; }
   max-width: 560px;
   margin: 0 auto;
   color: var(--text-secondary);
+  text-wrap: balance;
 }
 
 /* The stage: chestnut at the bottom center, panels appear above it the way
@@ -511,6 +512,20 @@ pre code { background: none; padding: 0; }
 }
 .menu-item:hover .menu-badge { background: rgba(255, 255, 255, 0.22); color: #fff; }
 
+.menu-label { flex: 1; min-width: 0; }
+
+.menu-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: normal;
+  line-height: 1.3;
+}
+.menu-item:hover .menu-desc { color: rgba(255, 255, 255, 0.65); }
+.menu-item.plugin-off .menu-label { color: var(--text-tertiary); }
+.menu-item.plugin-off .menu-desc { opacity: 0.5; }
+.menu-item.plugin-off:hover .menu-label { color: #fff; }
+
 .menu-sep { height: 1px; background: var(--border); margin: 5px 10px; }
 
 .submenu {
@@ -565,10 +580,60 @@ pre code { background: none; padding: 0; }
 
 .chips-hint {
   font-size: 12px;
-  line-height: 2.1; /* air between the two lines' keycaps */
   color: var(--text-tertiary);
-  margin: 32px 0 0; /* clears the hint hanging under the demo-note pill */
+  margin: 56px 0 0;
 }
+
+.hotkey-tip {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.hotkey-tip svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  vertical-align: -3px;
+  transition: color 0.15s;
+}
+.hotkey-tip:hover svg,
+.hotkey-tip:focus svg { color: var(--accent-bright); }
+
+.hotkey-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel-bg);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  white-space: nowrap;
+  z-index: 8;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+.hotkey-tooltip > span {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 0;
+}
+.hotkey-tooltip .keys { margin-right: 8px; }
+.hotkey-tooltip-hint {
+  font-size: 11px;
+  color: var(--text-tertiary) !important;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.hotkey-tip:hover .hotkey-tooltip,
+.hotkey-tip:focus .hotkey-tooltip { display: block; }
 
 .cta { margin: 36px 0 24px; }
 
@@ -635,6 +700,73 @@ section h2::after {
 .card p { font-size: 14px; color: var(--text-secondary); margin: 0 0 4px; }
 
 .px-icon { display: block; }
+
+/* Plugins section */
+
+.plugins-intro {
+  max-width: 620px;
+  color: var(--text-secondary);
+  margin: 0 0 28px;
+}
+
+.plugins-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+.plugins-detail h3,
+.plugins-examples h3 { font-size: 15px; margin: 0 0 10px; }
+
+.plugins-detail p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+}
+
+.plugins-file {
+  margin-bottom: 12px;
+}
+
+.plugins-filename {
+  display: inline-block;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-bottom: 4px;
+}
+
+.plugins-file pre {
+  margin: 0;
+  font-size: 12px;
+}
+
+.plugins-modes {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.plugins-link {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 28px;
+}
+
+.customize-note {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 20px 14px;
+  box-shadow: 4px 4px 0 var(--shadow-accent);
+}
+.customize-note h3 { font-size: 15px; margin: 0 0 6px; }
+.customize-note p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
 
 .privacy-grid {
   display: grid;
@@ -743,7 +875,7 @@ footer .legal {
 /* ---------- Small screens ---------- */
 
 @media (max-width: 700px) {
-  .features-grid, .privacy-grid { grid-template-columns: 1fr; }
+  .features-grid, .privacy-grid, .plugins-grid { grid-template-columns: 1fr; }
   .panel.capture, .panel.hopper { max-width: 92vw; }
   .stage { height: 400px; }
   .mode-toggle { top: 12px; right: 12px; }

@@ -337,7 +337,9 @@ struct Courier {
     }
 
     /// First non-existing variant of `desired`: `name.ext`, `name 1.ext`, …
-    private func availableURL(for desired: URL) -> URL {
+    static func availableURL(
+        for desired: URL, using fm: FileManager = .default
+    ) -> URL {
         guard fm.fileExists(atPath: desired.path) else { return desired }
         let dir = desired.deletingLastPathComponent()
         let ext = desired.pathExtension
@@ -348,6 +350,10 @@ struct Courier {
             if !fm.fileExists(atPath: candidate.path) { return candidate }
         }
         fatalError("unreachable")
+    }
+
+    private func availableURL(for desired: URL) -> URL {
+        Self.availableURL(for: desired, using: fm)
     }
 
     private func contentsEqual(_ a: URL, _ b: URL) -> Bool {
@@ -364,5 +370,12 @@ struct Courier {
         }
         let ups = Array(repeating: "..", count: dirComponents.count - common)
         return (ups + fileComponents[common...]).joined(separator: "/")
+    }
+
+    static func isContained(_ url: URL, inVault vaultPath: String) -> Bool {
+        let vaultStd = URL(fileURLWithPath: vaultPath).standardizedFileURL
+        let fileStd = url.standardizedFileURL
+        return fileStd.path.hasPrefix(vaultStd.path + "/")
+            && !fileStd.pathComponents.contains(".obsidian")
     }
 }

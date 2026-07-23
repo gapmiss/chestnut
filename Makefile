@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.1.0
+VERSION := 0.2.0
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
@@ -22,10 +22,15 @@ check: site-gen
 		Sources/$(APP)/Actions/Capture.swift \
 		Sources/$(APP)/Support/Journal.swift \
 		Sources/$(APP)/Support/Config.swift \
+		Sources/$(APP)/Support/DebugLog.swift \
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \
-		Sources/$(APP)/Pet/SpriteTheme.swift
+		Sources/$(APP)/Pet/SpriteTheme.swift \
+		Sources/$(APP)/Plugins/PluginManifest.swift \
+		Sources/$(APP)/Plugins/PluginRegistry.swift \
+		Sources/$(APP)/Plugins/PluginRunner.swift \
+		Sources/$(APP)/Plugins/PluginDispatch.swift
 	$(BUILD)/chestnut-check
 	@$(SITE_GEN) $(BUILD)/sprites-drift.js $(VERSION)
 	@diff -u docs/sprites.js $(BUILD)/sprites-drift.js \

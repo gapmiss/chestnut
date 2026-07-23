@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "name": "folder-index",
+  "description": "Import a folder as an index note with attachments",
+  "accepts": ["folder"],
+  "output": "structured",
+  "script": "folder-index.sh",
+  "timeout": 30
+}

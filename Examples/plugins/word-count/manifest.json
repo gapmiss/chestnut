@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "name": "word-count",
+  "description": "Word count and reading time stats",
+  "accepts": ["text"],
+  "output": "notify",
+  "script": "word-count.pl"
+}

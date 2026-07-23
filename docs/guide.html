@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chestnut User Guide</title>
+  <meta name="description"
+        content="User guide for Chestnut, a desktop companion for Obsidian. Configuration, plugins, hotkeys, and troubleshooting.">
+  <script>
+    try {
+      var mode = localStorage.getItem("chestnut-mode");
+      if (mode === "light" || mode === "dark") {
+        document.documentElement.dataset.theme = mode;
+      }
+    } catch (e) {}
+  </script>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+<button class="mode-toggle" id="mode-toggle" aria-label="Toggle light/dark mode"></button>
+<main class="guide">
+
+  <header class="guide-header">
+    <a href="./" class="guide-back">&larr; Chestnut</a>
+    <h1>User Guide</h1>
+    <p class="tagline">Everything you need to know after the install.</p>
+    <nav class="guide-nav">
+      <a href="#getting-started">Getting started</a>
+      <a href="#features">Features</a>
+      <a href="#plugins">Plugins</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#hotkeys">Hotkeys</a>
+      <a href="#menu">Menu reference</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+    </nav>
+  </header>
+
+  <!-- ================================================================== -->
+  <section id="getting-started">
+    <p class="kicker">Setup</p>
+    <h2>Getting started</h2>
+
+    <h3>Install</h3>
+    <p>
+      Download
+      <a href="https://github.com/gapmiss/chestnut/releases/latest/download/Chestnut.dmg">Chestnut.dmg</a>,
+      open it, and drag Chestnut into Applications. Or use Homebrew:
+    </p>
+    <pre><code>brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
+
+    <h3>First launch (Gatekeeper)</h3>
+    <p>
+      Chestnut is free and open source but not notarized, so macOS will block
+      the first launch. Pick whichever unblock method you prefer:
+    </p>
+    <ul>
+      <li>
+        <strong>macOS 15+:</strong> open the app once (macOS will decline),
+        then System Settings &rarr; Privacy &amp; Security &rarr;
+        <em>Open Anyway</em>.
+      </li>
+      <li>
+        <strong>macOS 14:</strong> right-click the app &rarr; Open &rarr; Open.
+      </li>
+      <li>
+        <strong>Terminal:</strong>
+        <code>xattr -dr com.apple.quarantine /Applications/Chestnut.app</code>
+      </li>
+    </ul>
+
+    <h3>Accessibility permission</h3>
+    <p>
+      Global hotkeys need the Accessibility permission. macOS usually prompts
+      on first use. If the hotkeys don't work, check System Settings &rarr;
+      Privacy &amp; Security &rarr; Accessibility and make sure Chestnut
+      is listed and enabled.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="features">
+    <p class="kicker">Core</p>
+    <h2>Features</h2>
+
+    <h3 id="vault-hopper">Vault Hopper
+      <span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>V</kbd></span>
+    </h3>
+    <p>
+      Opens a palette listing every vault Obsidian knows about. Type to
+      filter, arrow keys to move, <kbd>&#x23CE;</kbd> to open.
+    </p>
+    <ul>
+      <li><span class="keys"><kbd>&#x2318;</kbd><kbd>&#x23CE;</kbd></span> opens today's daily note in the selected vault.</li>
+      <li><span class="keys"><kbd>&#x2325;</kbd><kbd>&#x23CE;</kbd></span> reveals the vault in Finder.</li>
+      <li><span class="keys"><kbd>&#x2318;</kbd><kbd>P</kbd></span> pins the selected vault as your home vault (or unpins it). The pinned vault sorts first everywhere.</li>
+    </ul>
+    <p>
+      The palette also doubles as the courier's destination picker. When you
+      drop a file onto Chestnut, the same list opens with the source vault
+      excluded.
+    </p>
+
+    <h3 id="quick-capture">Quick Capture
+      <span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>Space</kbd></span>
+    </h3>
+    <p>
+      A floating panel for jotting markdown. Pick a target vault, type your
+      thought, hit <span class="keys"><kbd>&#x2318;</kbd><kbd>&#x23CE;</kbd></span>
+      and it's appended to today's daily note (or an inbox file if daily
+      notes aren't configured).
+    </p>
+    <ul>
+      <li>Markdown toolbar: bold, italic, strikethrough, inline code,
+          code block, heading, task, link. Keyboard shortcuts
+          <span class="keys"><kbd>&#x2318;</kbd><kbd>B</kbd></span>,
+          <span class="keys"><kbd>&#x2318;</kbd><kbd>I</kbd></span>,
+          <span class="keys"><kbd>&#x2318;</kbd><kbd>K</kbd></span> work too.</li>
+      <li>Drafts survive dismissing and reopening the panel.</li>
+      <li><span class="keys"><kbd>&#x2318;</kbd><kbd>1</kbd></span>&ndash;<span class="keys"><kbd>&#x2318;</kbd><kbd>9</kbd></span> picks a vault by position.</li>
+    </ul>
+    <p>
+      See <a href="#capture-config">Capture settings</a> for inbox path,
+      date format, and folder options.
+    </p>
+
+    <h3 id="note-courier">Note Courier</h3>
+    <p>
+      Drag a <code>.md</code> file (from Finder or another app) onto Chestnut
+      to move or copy it into another vault. A destination picker appears;
+      choose a vault and Chestnut delivers the note.
+    </p>
+    <ul>
+      <li>Embedded attachments (<code>![[...]]</code>, <code>![]()</code>)
+          are resolved and carried along. References are rewritten to match
+          the destination layout.</li>
+      <li>Name conflicts get Obsidian-style suffixes (<code>Note 1.md</code>).
+          Nothing is ever overwritten.</li>
+      <li>Every delivery is journaled. Undo from the right-click menu.</li>
+      <li>Hold <kbd>&#x2325;</kbd> during the drop to flip between
+          move and copy (the default is set in the menu).</li>
+    </ul>
+    <p>
+      Non-markdown files and folders route to a matching
+      <a href="#plugins">plugin</a> first. If no plugin matches, the courier
+      handles them as plain file copies.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="plugins">
+    <p class="kicker">Extend</p>
+    <h2>Plugins</h2>
+
+    <h3>Overview</h3>
+    <p>
+      Plugins are shell scripts that teach Chestnut new tricks. They live in
+      <code>~/.config/chestnut/plugins/&lt;name&gt;/</code>, each containing
+      a <code>manifest.json</code> and one or more scripts. Chestnut feeds
+      them input (a URL, a file path, clipboard text) and they produce
+      output (a note to save, text to capture, a notification).
+    </p>
+
+    <h3>Directory structure</h3>
+    <pre><code>~/.config/chestnut/plugins/
+  bookmark/
+    manifest.json
+    save-bookmark.sh
+  ocr/
+    manifest.json
+    ocr.py</code></pre>
+
+    <h3>manifest.json reference</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>api</code></td><td>number</td><td>Always <code>1</code>.</td></tr>
+          <tr><td><code>name</code></td><td>string</td><td>Display name (shown in menus and the picker).</td></tr>
+          <tr><td><code>description</code></td><td>string</td><td>Short description (shown under the name in the Plugins menu).</td></tr>
+          <tr><td><code>command</code></td><td>string</td><td>Path to the script, relative to the plugin folder. Must be executable (shebang + <code>chmod +x</code>).</td></tr>
+          <tr><td><code>accepts</code></td><td>string[]</td><td>Input types this plugin handles. See <a href="#input-types">input types</a>.</td></tr>
+          <tr><td><code>extensions</code></td><td>string[]</td><td>Optional. Narrows <code>file</code> matching to specific extensions (e.g. <code>["csv", "txt"]</code>). Omit to accept all files.</td></tr>
+          <tr><td><code>output</code></td><td>string</td><td>Output mode. See <a href="#output-modes">output modes</a>.</td></tr>
+          <tr><td><code>timeout</code></td><td>number</td><td>Optional. Max seconds before the script is killed. Default: <code>10</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 id="input-types">Input types</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Type</th><th>When it matches</th></tr></thead>
+        <tbody>
+          <tr><td><code>text</code></td><td>Plain text on the clipboard.</td></tr>
+          <tr><td><code>url</code></td><td>A URL on the clipboard or dropped as a web location.</td></tr>
+          <tr><td><code>image</code></td><td>An image on the clipboard (TIFF/PNG data) or an image file drop.</td></tr>
+          <tr><td><code>file</code></td><td>A non-markdown file drop. Narrow with <code>extensions</code>.</td></tr>
+          <tr><td><code>folder</code></td><td>A folder drop.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h4 id="output-modes">Output modes</h4>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Mode</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><code>capture</code></td><td>Pre-fills the Quick Capture panel with the script's stdout.</td></tr>
+          <tr><td><code>save</code></td><td>Writes stdout directly to the active vault. First line = filename, rest = content.</td></tr>
+          <tr><td><code>clipboard</code></td><td>Copies stdout to the system clipboard.</td></tr>
+          <tr><td><code>notify</code></td><td>Shows stdout in a speech bubble.</td></tr>
+          <tr><td><code>structured</code></td><td>Expects a <a href="#structured-envelope">JSON envelope</a> on stdout for runtime control.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Environment variables</h3>
+    <p>These are set before your script runs:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td><code>CHESTNUT_INPUT_TYPE</code></td><td>The matched input type (<code>text</code>, <code>url</code>, etc.).</td></tr>
+          <tr><td><code>CHESTNUT_FILE_PATH</code></td><td>Absolute path to the dropped file (empty for clipboard input).</td></tr>
+          <tr><td><code>CHESTNUT_SOURCE_APP</code></td><td>Bundle ID of the app that owns the clipboard (when available).</td></tr>
+          <tr><td><code>CHESTNUT_TIMESTAMP</code></td><td>ISO 8601 timestamp.</td></tr>
+          <tr><td><code>CHESTNUT_PLUGIN_DIR</code></td><td>Absolute path to this plugin's folder.</td></tr>
+          <tr><td><code>HOME</code></td><td>User's home directory.</td></tr>
+          <tr><td><code>PATH</code></td><td>Includes <code>/opt/homebrew/bin</code> and <code>/usr/local/bin</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Stdin</h3>
+    <p>
+      For <code>text</code> and <code>url</code> input types, the clipboard
+      content is piped to the script's stdin. For other types, stdin is
+      <code>/dev/null</code>; use <code>CHESTNUT_FILE_PATH</code> instead.
+    </p>
+
+    <h3 id="structured-envelope">Structured JSON envelope</h3>
+    <p>
+      When a manifest sets <code>"output": "structured"</code>, the script
+      must print a JSON object to stdout:
+    </p>
+    <pre><code>{
+  "action": "save",
+  "content": "# My Note\n\nBody text here.",
+  "filename": "My Note.md",
+  "vault": "Work",
+  "folder": "imported",
+  "notify": "Saved to Work",
+  "attachments": [
+    { "source": "/tmp/image.png", "filename": "image.png" }
+  ]
+}</code></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Field</th><th>Required</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>action</code></td><td>yes</td><td>One of <code>capture</code>, <code>save</code>, <code>clipboard</code>, <code>notify</code>.</td></tr>
+          <tr><td><code>content</code></td><td>no</td><td>The note body or text to output.</td></tr>
+          <tr><td><code>filename</code></td><td>no</td><td>Filename for <code>save</code> (default: first line of content).</td></tr>
+          <tr><td><code>vault</code></td><td>no</td><td>Target vault name hint.</td></tr>
+          <tr><td><code>folder</code></td><td>no</td><td>Subfolder within the vault.</td></tr>
+          <tr><td><code>notify</code></td><td>no</td><td>Speech bubble text shown after the action completes.</td></tr>
+          <tr><td><code>attachments</code></td><td>no</td><td>Array of <code>{ source, filename }</code> objects. Each <code>source</code> is an absolute path to a file; it's copied into the vault alongside the note.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Dispatch flow</h3>
+    <ol>
+      <li>Chestnut classifies the clipboard content (for
+          <span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>C</kbd></span>)
+          or the dropped item.</li>
+      <li>It finds all enabled plugins whose <code>accepts</code> and
+          <code>extensions</code> match.</li>
+      <li>If one matches, it runs. If several match, a picker lets you choose.</li>
+      <li>If none match, the item falls through to the courier (for drops) or
+          nothing happens (for paste).</li>
+    </ol>
+
+    <h3>Drag-and-drop routing</h3>
+    <ul>
+      <li><code>.md</code> files always go to the courier.</li>
+      <li>Non-<code>.md</code> files go to a matching plugin, or fall through to the courier.</li>
+      <li>Folders go to a <code>folder</code> plugin if one exists, otherwise the courier copies/moves them as-is.</li>
+    </ul>
+
+    <h3>Hot-reload</h3>
+    <p>
+      Chestnut watches <code>~/.config/chestnut/plugins/</code> with FSEvents.
+      Adding, editing, or removing a manifest takes effect immediately. No
+      restart needed.
+    </p>
+
+    <h3>Enable/disable</h3>
+    <p>
+      Right-click Chestnut &rarr; Plugins. Each installed plugin is listed
+      with a checkmark. Click to toggle. Disabled plugins are persisted in
+      <a href="#configuration">config.json</a> as <code>disabledPlugins</code>.
+    </p>
+
+    <h3>Example: a bookmark saver</h3>
+    <div class="example-grid">
+      <div>
+        <span class="plugins-filename">manifest.json</span>
+        <pre><code>{
+  "api": 1,
+  "name": "Bookmark",
+  "description": "Save a URL as a markdown note",
+  "command": "./save-bookmark.sh",
+  "accepts": ["url"],
+  "output": "save"
+}</code></pre>
+      </div>
+      <div>
+        <span class="plugins-filename">save-bookmark.sh</span>
+        <pre><code>#!/bin/bash
+title="$CHESTNUT_TITLE"
+url=$(cat)
+echo "${title:-Untitled}.md"
+echo "# ${title:-Untitled}"
+echo ""
+echo "[${url}](${url})"
+echo ""
+echo "Saved on $(date +%Y-%m-%d)."</code></pre>
+      </div>
+    </div>
+    <p>
+      Copy the URL of a page, press
+      <span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>C</kbd></span>,
+      and a note is saved to your vault.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="configuration">
+    <p class="kicker">Settings</p>
+    <h2>Configuration</h2>
+    <p>
+      Settings live in
+      <code>~/Library/Application Support/Chestnut/config.json</code>,
+      created on first run. Hand-editable; changes take effect on next
+      launch.
+    </p>
+    <p>
+      If the file can't be parsed, Chestnut renames it to
+      <code>config.json.bak</code> and starts with defaults. The backup
+      is never overwritten, so you can recover your settings.
+    </p>
+
+    <h3 id="hotkey-config">Hotkeys</h3>
+    <pre><code>{
+  "hotkeys": {
+    "capture": "control+option+space",
+    "hopper": "control+option+v",
+    "paste": "control+option+c",
+    "notice": "control+option+o"
+  }
+}</code></pre>
+    <p>
+      Keys: <code>a</code>&ndash;<code>z</code>, <code>0</code>&ndash;<code>9</code>,
+      <code>space</code>, <code>tab</code>, <code>return</code>,
+      <code>escape</code>, <code>delete</code>,
+      <code>f1</code>&ndash;<code>f12</code>.
+      Modifiers: <code>control</code>/<code>ctrl</code>,
+      <code>option</code>/<code>alt</code>,
+      <code>command</code>/<code>cmd</code>, <code>shift</code>.
+      Set a binding to <code>""</code> or <code>"none"</code> to disable it.
+    </p>
+
+    <h3>Custom themes</h3>
+    <p>
+      Four built-in themes: Obsidian Night (default), Classic Wood, Brushed
+      Steel, and Sunbleached. Add your own:
+    </p>
+    <pre><code>{
+  "customThemes": [
+    {
+      "id": "dracula",
+      "title": "Dracula",
+      "palette": {
+        "s": "#44475A",
+        "S": "#6272A4",
+        "d": "#282A36",
+        "m": "#BD93F9",
+        "o": "#191A21"
+      }
+    }
+  ]
+}</code></pre>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Role</th><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>Shell</td><td><code>s</code></td><td>Main body color.</td></tr>
+          <tr><td>Highlight</td><td><code>S</code></td><td>Rivets, raised edges.</td></tr>
+          <tr><td>Shadow</td><td><code>d</code></td><td>Recessed areas.</td></tr>
+          <tr><td>Trim</td><td><code>m</code></td><td>Metal fittings.</td></tr>
+          <tr><td>Outline</td><td><code>o</code></td><td>Border pixels.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Optional roles: <code>p</code>/<code>P</code> (gem/gem glint),
+      <code>k</code> (mouth), <code>t</code> (tongue), <code>e</code> (eye
+      white), <code>b</code> (pupil), <code>z</code> (sleep pixels). These
+      have shared defaults and can be overridden per-theme.
+    </p>
+    <p>
+      For single-color tweaks without a whole theme, <code>petPalette</code>
+      overrides individual roles on top of the active theme:
+    </p>
+    <pre><code>{
+  "petTheme": "classic-wood",
+  "petPalette": { "m": "#C0C0C0" }
+}</code></pre>
+
+    <h3 id="capture-config">Capture settings</h3>
+    <p>
+      Captures land on a note in the selected vault. The target is resolved
+      in order:
+    </p>
+    <ol>
+      <li>Obsidian daily note, if the daily-notes core plugin is enabled.
+          Uses the vault's configured format and folder.</li>
+      <li>Chestnut daily note, if you set <code>captureFormat</code>.
+          Same Moment.js token subset:
+          <code>YYYY</code>, <code>YY</code>, <code>MM</code>, <code>M</code>,
+          <code>DD</code>, <code>D</code>, <code>[literal]</code>.</li>
+      <li>Static inbox (<code>Inbox.md</code> at the vault root by default).</li>
+    </ol>
+    <pre><code>{
+  "captureFormat": "YYYY-MM-DD",
+  "captureFolder": "captures",
+  "captureInboxName": "Inbox.md"
+}</code></pre>
+
+    <h3>Notice duration</h3>
+    <pre><code>{
+  "noticeDuration": 8
+}</code></pre>
+    <p>
+      How long the speech bubble stays visible, in seconds. Minimum 1,
+      default 5.
+    </p>
+
+    <h3>Disabled plugins</h3>
+    <pre><code>{
+  "disabledPlugins": ["ocr", "code-snippet"]
+}</code></pre>
+    <p>
+      Plugins toggled off in the right-click menu are stored here. You can
+      also edit it by hand.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="hotkeys">
+    <p class="kicker">Shortcuts</p>
+    <h2>Hotkey reference</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Shortcut</th><th>Action</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>Space</kbd></span></td>
+            <td>Quick Capture</td>
+            <td>Toggle the capture panel.</td>
+          </tr>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>V</kbd></span></td>
+            <td>Vault Hopper</td>
+            <td>Toggle the vault palette.</td>
+          </tr>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>C</kbd></span></td>
+            <td>Paste</td>
+            <td>Classify the clipboard and dispatch to a matching plugin.</td>
+          </tr>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>O</kbd></span></td>
+            <td>Notice action</td>
+            <td>Follow through on the active speech bubble (e.g. open the note in Obsidian). Only registered while a bubble is visible.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      All four are configurable in
+      <a href="#hotkey-config">config.json</a>.
+    </p>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="menu">
+    <p class="kicker">Interface</p>
+    <h2>Right-click menu reference</h2>
+    <p>Right-click Chestnut to open its context menu.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Item</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td>Size</td><td>Small, Medium (default), or Large sprite.</td></tr>
+          <tr><td>Theme</td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
+          <tr><td>Opacity</td><td>Slider from 10% to 100%.</td></tr>
+          <tr><td>Reset Position</td><td>Moves the pet back to the default corner.</td></tr>
+          <tr><td>Vaults&hellip;</td><td>Opens the Vault Hopper palette.</td></tr>
+          <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
+          <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy).</td></tr>
+          <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append.</td></tr>
+          <tr><td>Copy on Drop</td><td>Toggle default behavior: copy files instead of moving them.</td></tr>
+          <tr><td>Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
+          <tr><td><strong>Plugins &rarr;</strong></td><td>Lists installed plugins with checkmarks. Toggle to enable/disable.</td></tr>
+          <tr><td>Plugins &rarr; Open Plugins Folder</td><td>Opens <code>~/.config/chestnut/plugins/</code> in Finder.</td></tr>
+          <tr><td>Chestnut <em>version</em></td><td>Shows the current version (not clickable).</td></tr>
+          <tr><td>Check for Updates&hellip;</td><td>Opens the GitHub releases page in your browser.</td></tr>
+          <tr><td>Support Chestnut</td><td>Opens the GitHub Sponsors page.</td></tr>
+          <tr><td>Launch at Login</td><td>Toggle auto-start at login (uses SMAppService).</td></tr>
+          <tr><td>Quit Chestnut</td><td>Quits the app.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ================================================================== -->
+  <section id="troubleshooting">
+    <p class="kicker">Help</p>
+    <h2>Troubleshooting</h2>
+
+    <h3>Gatekeeper blocks the app</h3>
+    <p>
+      See <a href="#getting-started">Getting started</a>. The quickest fix is
+      the <code>xattr</code> command. Homebrew's <code>--no-quarantine</code>
+      flag avoids this entirely.
+    </p>
+
+    <h3>Hotkeys don't work</h3>
+    <p>
+      Chestnut needs the Accessibility permission. Check System Settings
+      &rarr; Privacy &amp; Security &rarr; Accessibility. If Chestnut is
+      listed but greyed out, remove it and re-add it (toggle the switch
+      off then on). A restart of the app may be needed after granting
+      the permission.
+    </p>
+
+    <h3>obsidian CLI not found</h3>
+    <p>
+      Chestnut looks for the <code>obsidian</code> CLI in
+      <code>/opt/homebrew/bin</code> and <code>/usr/local/bin</code> only.
+      It does not search <code>$PATH</code>. If you installed the CLI
+      elsewhere, symlink it into one of those directories. The CLI is
+      optional: every feature has a direct-filesystem fallback.
+    </p>
+
+    <h3>Corrupt config</h3>
+    <p>
+      If <code>config.json</code> can't be parsed, Chestnut renames it to
+      <code>config.json.bak</code> and loads defaults. Your old settings
+      are preserved in the backup. Fix the JSON syntax and rename it back.
+    </p>
+    <p>Config location:</p>
+    <pre><code>~/Library/Application Support/Chestnut/config.json</code></pre>
+  </section>
+
+</main>
+
+<footer>
+  <nav class="footer-links">
+    <a href="https://github.com/sponsors/gapmiss">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 14.5C4.5 11.7 1 8.9 1 5.5 1 3.6 2.6 2 4.5 2 5.9 2 7.2 2.8 8 4c.8-1.2 2.1-2 3.5-2C13.4 2 15 3.6 15 5.5c0 3.4-3.5 6.2-7 9z"/></svg>
+      Support Chestnut
+    </a>
+    <a href="https://github.com/gapmiss/chestnut">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      Source on GitHub
+    </a>
+    <a href="./">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8.5 1.5l6 6.5H11v6H6v-6H2.5z"/></svg>
+      Home
+    </a>
+  </nav>
+  <p class="legal">
+    Chestnut is an independent companion app for Obsidian and is not affiliated
+    with or endorsed by Obsidian.md / Dynalist&nbsp;Inc.
+  </p>
+</footer>
+
+<script>
+  // Light/dark toggle (shared behavior with the landing page).
+  const SUN = '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="3.4"/>' +
+    '<path d="M8 .8v2.2M8 13v2.2M.8 8h2.2M13 8h2.2M2.9 2.9l1.6 1.6M11.5 11.5l1.6 1.6' +
+    'M13.1 2.9l-1.6 1.6M4.5 11.5l-1.6 1.6"/></svg>';
+  const MOON = '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+    '<path d="M13.3 9.6A5.8 5.8 0 1 1 6.4 2.7a4.6 4.6 0 0 0 6.9 6.9z"/></svg>';
+  const toggle = document.getElementById("mode-toggle");
+  const mediaLight = window.matchMedia("(prefers-color-scheme: light)");
+  function effectiveMode() {
+    const m = document.documentElement.dataset.theme;
+    return m === "light" || m === "dark" ? m : mediaLight.matches ? "light" : "dark";
+  }
+  function applyMode() {
+    const mode = effectiveMode();
+    toggle.innerHTML = mode === "dark" ? SUN : MOON;
+    toggle.setAttribute("aria-label",
+      mode === "dark" ? "Switch to light mode" : "Switch to dark mode");
+  }
+  toggle.addEventListener("click", () => {
+    const next = effectiveMode() === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem("chestnut-mode", next); } catch (e) {}
+    applyMode();
+  });
+  mediaLight.addEventListener("change", () => {
+    if (!document.documentElement.dataset.theme) applyMode();
+  });
+  applyMode();
+</script>
+</body>
+</html>

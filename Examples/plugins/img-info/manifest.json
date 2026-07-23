@@ -1,0 +1,8 @@
+{
+  "api": 1,
+  "name": "img-info",
+  "description": "Show image dimensions and file size",
+  "accepts": ["image"],
+  "output": "notify",
+  "script": "img-info.sh"
+}

@@ -52,11 +52,24 @@ struct Config: Codable, Equatable {
     var petPalette: [String: String]?
     /// User-defined sprite themes (appear in the right-click Theme menu).
     var customThemes: [CustomThemeConfig]?
+    /// How long notice bubbles stay visible (seconds).
+    var noticeDuration = 5.0
     /// Show the pet window over full-screen apps.
     var showInFullScreen = true
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
+    var debug = false
+    var disabledPlugins: Set<String> = []
+
+    private enum CodingKeys: String, CodingKey {
+        case position, size, courierCopyByDefault, opacity
+        case lastCaptureVaultPath, pinnedVaultPath
+        case captureInboxName, captureFormat, captureFolder
+        case petTheme, petPalette, customThemes
+        case noticeDuration, showInFullScreen, hotkeys, debug
+        case disabledPlugins
+    }
 
     static let opacityRange = 0.1...1.0
     static let defaultInboxName = "Inbox.md"
@@ -88,9 +101,15 @@ struct Config: Codable, Equatable {
         // after registerCustomThemes.
         petTheme = try c.decodeIfPresent(String.self, forKey: .petTheme)
             ?? SpriteTheme.defaultID
+        let rawNotice = try c.decodeIfPresent(Double.self, forKey: .noticeDuration) ?? 5.0
+        noticeDuration = max(rawNotice, 1.0)
         showInFullScreen =
             try c.decodeIfPresent(Bool.self, forKey: .showInFullScreen) ?? true
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
+        debug = try c.decodeIfPresent(Bool.self, forKey: .debug) ?? false
+        disabledPlugins = Set(
+            try c.decodeIfPresent([String].self, forKey: .disabledPlugins) ?? []
+        )
     }
 
     static var fileURL: URL {
@@ -105,10 +124,6 @@ struct Config: Codable, Equatable {
         do {
             return try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            // A hand-edited config with a typo must survive: routine saves
-            // (window drags, size changes) would overwrite it with defaults,
-            // losing UI-less fields like customThemes and petPalette. Park
-            // the unparseable original next door before that can happen.
             let backup = fileURL.appendingPathExtension("bak")
             try? data.write(to: backup, options: .atomic)
             NSLog("Config load failed (%@) — original preserved at %@",
@@ -130,6 +145,29 @@ struct Config: Codable, Equatable {
             NSLog("Config save failed: %@", error.localizedDescription)
         }
     }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(position, forKey: .position)
+        try c.encode(size, forKey: .size)
+        try c.encode(courierCopyByDefault, forKey: .courierCopyByDefault)
+        try c.encode(opacity, forKey: .opacity)
+        try c.encodeIfPresent(lastCaptureVaultPath, forKey: .lastCaptureVaultPath)
+        try c.encodeIfPresent(pinnedVaultPath, forKey: .pinnedVaultPath)
+        try c.encode(captureInboxName, forKey: .captureInboxName)
+        try c.encodeIfPresent(captureFormat, forKey: .captureFormat)
+        try c.encodeIfPresent(captureFolder, forKey: .captureFolder)
+        try c.encode(petTheme, forKey: .petTheme)
+        try c.encodeIfPresent(petPalette, forKey: .petPalette)
+        try c.encodeIfPresent(customThemes, forKey: .customThemes)
+        try c.encode(noticeDuration, forKey: .noticeDuration)
+        try c.encode(showInFullScreen, forKey: .showInFullScreen)
+        try c.encode(hotkeys, forKey: .hotkeys)
+        if debug { try c.encode(true, forKey: .debug) }
+        if !disabledPlugins.isEmpty {
+            try c.encode(disabledPlugins.sorted(), forKey: .disabledPlugins)
+        }
+    }
 }
 
 struct CustomThemeConfig: Codable, Equatable {
@@ -148,6 +186,7 @@ struct HotkeyConfig: Codable, Equatable {
     var capture = "control+option+space"
     var hopper = "control+option+v"
     var notice = "control+option+o"
+    var paste = "control+option+c"
 
     init() {}
 
@@ -156,6 +195,7 @@ struct HotkeyConfig: Codable, Equatable {
         capture = try c.decodeIfPresent(String.self, forKey: .capture) ?? "control+option+space"
         hopper = try c.decodeIfPresent(String.self, forKey: .hopper) ?? "control+option+v"
         notice = try c.decodeIfPresent(String.self, forKey: .notice) ?? "control+option+o"
+        paste = try c.decodeIfPresent(String.self, forKey: .paste) ?? "control+option+c"
     }
 }
 

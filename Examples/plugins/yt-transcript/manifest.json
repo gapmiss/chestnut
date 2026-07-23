@@ -1,0 +1,9 @@
+{
+  "api": 1,
+  "name": "yt-transcript",
+  "description": "YouTube video transcript to vault note",
+  "accepts": ["url"],
+  "output": "structured",
+  "script": "yt-transcript.py",
+  "timeout": 60
+}

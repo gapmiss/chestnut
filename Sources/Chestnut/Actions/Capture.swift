@@ -282,25 +282,6 @@ struct Capture {
     /// hang without it). Returns trimmed stdout on success; nil on failure,
     /// timeout, or an "Error:" reply.
     private func runCLI(_ arguments: [String], timeout: TimeInterval = 3) -> String? {
-        guard let cli = ObsidianCLI.url else { return nil }
-        let process = Process()
-        process.executableURL = cli
-        process.arguments = arguments
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-        let done = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in done.signal() }
-        do { try process.run() } catch { return nil }
-        if done.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            return nil
-        }
-        guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8),
-              !output.hasPrefix("Error")
-        else { return nil }
-        return output
+        ObsidianCLI.run(arguments, timeout: timeout)
     }
 }

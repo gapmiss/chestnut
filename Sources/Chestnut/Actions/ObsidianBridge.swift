@@ -11,6 +11,23 @@ import AppKit
 /// landed and, if not, raises the matching window itself. Without the CLI
 /// the URL open behaves exactly as before (hard invariant: CLI is an
 /// optional enhancement).
+struct ObsidianOpenLink: Sendable {
+    let vaultName: String
+    let filePath: String
+
+    init?(_ urlString: String) {
+        guard let url = URL(string: urlString),
+              url.scheme == "obsidian",
+              url.host == "open",
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let vault = components.queryItems?.first(where: { $0.name == "vault" })?.value,
+              let file = components.queryItems?.first(where: { $0.name == "file" })?.value
+        else { return nil }
+        self.vaultName = vault
+        self.filePath = file
+    }
+}
+
 @MainActor
 enum ObsidianBridge {
     static func openVault(path: String) {
@@ -191,31 +208,9 @@ enum ObsidianBridge {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Run the CLI with a hard timeout (it talks to the live app and can
-    /// hang without it). Returns stdout on success; nil on failure, timeout,
-    /// or an "Error:" reply. Mirrors `Capture.runCLI`.
     nonisolated private static func runCLI(
         _ arguments: [String], timeout: TimeInterval = 3
     ) -> String? {
-        guard let cli = ObsidianCLI.url else { return nil }
-        let process = Process()
-        process.executableURL = cli
-        process.arguments = arguments
-        let stdout = Pipe()
-        process.standardOutput = stdout
-        process.standardError = Pipe()
-        let done = DispatchSemaphore(value: 0)
-        process.terminationHandler = { _ in done.signal() }
-        do { try process.run() } catch { return nil }
-        if done.wait(timeout: .now() + timeout) == .timedOut {
-            process.terminate()
-            return nil
-        }
-        guard process.terminationStatus == 0 else { return nil }
-        let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        guard let output = String(data: data, encoding: .utf8),
-              !output.hasPrefix("Error")
-        else { return nil }
-        return output
+        ObsidianCLI.run(arguments, timeout: timeout)
     }
 }

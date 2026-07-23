@@ -1,0 +1,142 @@
+/* Guide-specific styles — layered on top of style.css. */
+
+.guide {
+  max-width: 740px;
+  padding-bottom: 40px;
+}
+
+.guide-header {
+  padding-top: 48px;
+  margin-bottom: 48px;
+}
+
+.guide-back {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.guide-back:hover { color: var(--accent-bright); }
+
+.guide-header h1 {
+  font-size: 36px;
+  margin: 12px 0 8px;
+}
+
+.guide-header h1::after {
+  content: "";
+  display: block;
+  width: 96px;
+  height: 8px;
+  margin-top: 10px;
+  background: repeating-conic-gradient(var(--accent) 0% 25%, transparent 0% 50%);
+  background-size: 8px 8px;
+}
+
+.guide-header .tagline {
+  margin: 0 0 20px;
+}
+
+.guide-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.guide-nav a {
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  text-decoration: none;
+}
+.guide-nav a:hover {
+  border-color: var(--accent);
+  color: var(--accent-bright);
+}
+
+/* Sections */
+
+.guide section { margin: 56px 0; }
+
+.guide h3 {
+  font-size: 17px;
+  margin: 28px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guide h4 {
+  font-size: 14px;
+  margin: 20px 0 6px;
+}
+
+.guide p, .guide li {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
+.guide ul, .guide ol {
+  padding-left: 24px;
+  margin: 8px 0;
+}
+
+.guide li {
+  margin: 4px 0;
+}
+
+.guide pre {
+  font-size: 13px;
+}
+
+/* Tables */
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 10px 0 18px;
+}
+
+.guide table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.guide th {
+  text-align: left;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  border-bottom: 2px solid var(--border);
+  padding: 6px 10px;
+}
+
+.guide td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 10px;
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+.guide tr:last-child td {
+  border-bottom: none;
+}
+
+/* Example grid (plugin example side-by-side) */
+
+.example-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 10px 0;
+}
+
+@media (max-width: 700px) {
+  .guide-nav { gap: 6px; }
+  .example-grid { grid-template-columns: 1fr; }
+}
