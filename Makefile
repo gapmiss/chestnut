@@ -5,7 +5,7 @@ BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
 DMG     := $(BUILD)/$(APP).dmg
 
-.PHONY: build bundle run check clean dmg icon site site-gen
+.PHONY: build bundle run check clean dmg icon site site-gen release-check
 
 SITE_GEN := $(BUILD)/generate-web-sprites
 
@@ -93,3 +93,24 @@ dmg: bundle
 clean:
 	swift package clean
 	rm -rf $(BUNDLE) $(DMG)
+
+# Release preflight: everything verifiable before the smoke test and the
+# public steps (tag/push/publish — see RELEASING.md). Cheap guards first,
+# then checks, then the release DMG. Prints the sha256 the cask needs.
+release-check:
+	@git diff --quiet && git diff --cached --quiet \
+		|| { echo "FAIL: working tree not clean"; exit 1; }
+	@test "$$(git branch --show-current)" = "main" \
+		|| { echo "FAIL: not on main"; exit 1; }
+	@! git rev-parse -q --verify "v$(VERSION)" >/dev/null \
+		|| { echo "FAIL: v$(VERSION) already tagged"; exit 1; }
+	@grep -q "^## \[$(VERSION)\] — 20" CHANGELOG.md \
+		|| { echo "FAIL: CHANGELOG.md has no dated [$(VERSION)] section"; exit 1; }
+	$(MAKE) check
+	$(MAKE) dmg
+	@test "$$(plutil -extract CFBundleShortVersionString raw \
+		$(BUNDLE)/Contents/Info.plist)" = "$(VERSION)" \
+		|| { echo "FAIL: bundle stamps $$(plutil -extract CFBundleShortVersionString raw $(BUNDLE)/Contents/Info.plist), not $(VERSION)"; exit 1; }
+	@echo "sha256 for the Homebrew cask:"
+	@shasum -a 256 $(DMG)
+	@echo "OK — smoke test the app, then RELEASING.md from 'Merge and tag'."
