@@ -831,6 +831,7 @@ const menuState = {
   copyOnDrop: true,
   showInFullScreen: true,
   launchAtLogin: true,
+  plugins: {},
 };
 
 // Outline heart, like the app's SF Symbol on Support Chestnut.
@@ -957,9 +958,28 @@ function renderMenu() {
     action() { menuState.showInFullScreen = !menuState.showInFullScreen; closeMenu(); },
   }));
 
+  const pluginItems = [
+    { name: "Bookmark", desc: "Save a URL as a markdown note" },
+    { name: "Code Snippet", desc: "Capture code from the clipboard" },
+  ];
   const pluginsSub = submenuOf([
-    menuItem({ label: "Bookmark", check: true }),
-    menuItem({ label: "Code Snippet", check: true }),
+    ...pluginItems.map((p) => {
+      const enabled = menuState.plugins[p.name] !== false;
+      const item = menuItem({
+        label: p.name,
+        check: enabled,
+        action() {
+          menuState.plugins[p.name] = !enabled;
+          closeMenu();
+        },
+      });
+      const desc = document.createElement("span");
+      desc.className = "menu-desc";
+      desc.textContent = p.desc;
+      item.querySelector(".menu-label").appendChild(desc);
+      if (!enabled) item.classList.add("plugin-off");
+      return item;
+    }),
     menuSeparator(),
     menuItem({
       label: "Open Plugins Folder",

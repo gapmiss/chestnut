@@ -511,6 +511,20 @@ pre code { background: none; padding: 0; }
 }
 .menu-item:hover .menu-badge { background: rgba(255, 255, 255, 0.22); color: #fff; }
 
+.menu-label { flex: 1; min-width: 0; }
+
+.menu-desc {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: normal;
+  line-height: 1.3;
+}
+.menu-item:hover .menu-desc { color: rgba(255, 255, 255, 0.65); }
+.menu-item.plugin-off .menu-label { color: var(--text-tertiary); }
+.menu-item.plugin-off .menu-desc { opacity: 0.5; }
+.menu-item.plugin-off:hover .menu-label { color: #fff; }
+
 .menu-sep { height: 1px; background: var(--border); margin: 5px 10px; }
 
 .submenu {
@@ -565,10 +579,60 @@ pre code { background: none; padding: 0; }
 
 .chips-hint {
   font-size: 12px;
-  line-height: 2.1; /* air between the two lines' keycaps */
   color: var(--text-tertiary);
-  margin: 32px 0 0; /* clears the hint hanging under the demo-note pill */
+  margin: 56px 0 0;
 }
+
+.hotkey-tip {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  cursor: pointer;
+  margin-left: 4px;
+}
+.hotkey-tip svg {
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  vertical-align: -3px;
+  transition: color 0.15s;
+}
+.hotkey-tip:hover svg,
+.hotkey-tip:focus svg { color: var(--accent-bright); }
+
+.hotkey-tooltip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--panel-bg);
+  -webkit-backdrop-filter: var(--panel-blur);
+  backdrop-filter: var(--panel-blur);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  white-space: nowrap;
+  z-index: 8;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.3);
+}
+.hotkey-tooltip > span {
+  display: block;
+  font-size: 13px;
+  color: var(--text);
+  padding: 4px 0;
+}
+.hotkey-tooltip .keys { margin-right: 8px; }
+.hotkey-tooltip-hint {
+  font-size: 11px;
+  color: var(--text-tertiary) !important;
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.hotkey-tip:hover .hotkey-tooltip,
+.hotkey-tip:focus .hotkey-tooltip { display: block; }
 
 .cta { margin: 36px 0 24px; }
 
