@@ -4,6 +4,24 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-07-22
+
+### Added
+
+- **Capture attachments**: structured plugins can now include an `attachments`
+  array with `action: "capture"`. Files are copied to the vault's attachment
+  folder when the user submits the capture panel.
+- **Example plugins**: `img-clip-daily` (clipboard image to today's daily note)
+  and `img-clip-note` (clipboard image as a new note).
+
+### Fixed
+
+- Plugin attachments from clipboard paste (e.g. `img-ocr`) failed because the
+  temp file was deleted before it could be copied to the vault.
+- Plugin attachments now land in the vault's configured attachment folder
+  (per `.obsidian/app.json` `attachmentFolderPath`) instead of always going
+  to the vault root or note folder.
+
 ## [0.2.0] — 2026-07-22
 
 ### Added
@@ -48,5 +66,6 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.2.1]: https://github.com/gapmiss/chestnut/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gapmiss/chestnut/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gapmiss/chestnut/releases/tag/v0.1.0
