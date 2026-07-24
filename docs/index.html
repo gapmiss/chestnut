@@ -20,6 +20,7 @@
   <link rel="icon" href="favicon.png" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="prism-chestnut.css">
 </head>
 <body>
 <button class="mode-toggle" id="mode-toggle" aria-label="Toggle light/dark mode"></button>
@@ -198,7 +199,7 @@
         <h3>Minimal example</h3>
         <div class="plugins-file">
           <span class="plugins-filename">manifest.json</span>
-          <pre><code>{
+          <pre><code class="language-json">{
   "api": 1,
   "name": "Bookmark",
   "description": "Save a URL as a markdown note",
@@ -209,7 +210,7 @@
         </div>
         <div class="plugins-file">
           <span class="plugins-filename">save-bookmark.sh</span>
-          <pre><code>#!/bin/bash
+          <pre><code class="language-bash">#!/bin/bash
 echo "# $CHESTNUT_TITLE"
 echo ""
 echo "[$CHESTNUT_URL]($CHESTNUT_URL)"
@@ -284,7 +285,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
         System&nbsp;Settings → Privacy&nbsp;&amp;&nbsp;Security → <em>Open&nbsp;Anyway</em>.</p>
         <p><strong>macOS 14 Sonoma:</strong> right-click the app → Open → Open.</p>
         <p>Or, from Terminal:</p>
-        <pre><code>xattr -dr com.apple.quarantine /Applications/Chestnut.app</code></pre>
+        <pre><code class="language-bash">xattr -dr com.apple.quarantine /Applications/Chestnut.app</code></pre>
       </li>
       <li>
         Chestnut appears in the corner of your screen. Right-click it for
@@ -296,7 +297,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <p class="build-note">
       Or install with Homebrew:
     </p>
-    <pre class="brew-cmd"><code>brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
+    <pre class="brew-cmd"><code class="language-bash">brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
     <p class="build-note">
       Rather build it yourself? <code>git clone</code> the
       <a href="https://github.com/gapmiss/chestnut">source</a> and run
@@ -333,5 +334,8 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
 
 <script src="sprites.js"></script>
 <script src="chestnut.js"></script>
+<script src="prism.min.js"></script>
+<script src="prism-bash.min.js"></script>
+<script src="prism-json.min.js"></script>
 </body>
 </html>

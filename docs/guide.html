@@ -19,6 +19,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="guide.css">
+  <link rel="stylesheet" href="prism-chestnut.css">
 </head>
 <body>
 <button class="mode-toggle" id="mode-toggle" aria-label="Toggle light/dark mode"></button>
@@ -27,7 +28,7 @@
   <header class="guide-header">
     <a href="./" class="guide-back">&larr; Chestnut</a>
     <h1>User Guide</h1>
-    <p class="tagline">Everything you need to know after the install.</p>
+    <p class="tagline">From first launch to full setup.</p>
     <nav class="guide-nav">
       <a href="#getting-started">Getting started</a>
       <a href="#features">Features</a>
@@ -50,7 +51,7 @@
       <a href="https://github.com/gapmiss/chestnut/releases/latest/download/Chestnut.dmg">Chestnut.dmg</a>,
       open it, and drag Chestnut into Applications. Or use Homebrew:
     </p>
-    <pre><code>brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
+    <pre><code class="language-bash">brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
 
     <h3>First launch (Gatekeeper)</h3>
     <p>
@@ -165,7 +166,7 @@
     </p>
 
     <h3>Directory structure</h3>
-    <pre><code>~/.config/chestnut/plugins/
+    <pre><code class="language-bash">~/.config/chestnut/plugins/
   bookmark/
     manifest.json
     save-bookmark.sh
@@ -247,7 +248,7 @@
       When a manifest sets <code>"output": "structured"</code>, the script
       must print a JSON object to stdout:
     </p>
-    <pre><code>{
+    <pre><code class="language-json">{
   "action": "save",
   "content": "# My Note\n\nBody text here.",
   "filename": "My Note.md",
@@ -310,7 +311,7 @@
     <div class="example-grid">
       <div>
         <span class="plugins-filename">manifest.json</span>
-        <pre><code>{
+        <pre><code class="language-json">{
   "api": 1,
   "name": "Bookmark",
   "description": "Save a URL as a markdown note",
@@ -321,7 +322,7 @@
       </div>
       <div>
         <span class="plugins-filename">save-bookmark.sh</span>
-        <pre><code>#!/bin/bash
+        <pre><code class="language-bash">#!/bin/bash
 title="$CHESTNUT_TITLE"
 url=$(cat)
 echo "${title:-Untitled}.md"
@@ -356,7 +357,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
 
     <h3 id="hotkey-config">Hotkeys</h3>
-    <pre><code>{
+    <pre><code class="language-json">{
   "hotkeys": {
     "capture": "control+option+space",
     "hopper": "control+option+v",
@@ -380,7 +381,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       Four built-in themes: Obsidian Night (default), Classic Wood, Brushed
       Steel, and Sunbleached. Add your own:
     </p>
-    <pre><code>{
+    <pre><code class="language-json">{
   "customThemes": [
     {
       "id": "dracula",
@@ -417,7 +418,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       For single-color tweaks without a whole theme, <code>petPalette</code>
       overrides individual roles on top of the active theme:
     </p>
-    <pre><code>{
+    <pre><code class="language-json">{
   "petTheme": "classic-wood",
   "petPalette": { "m": "#C0C0C0" }
 }</code></pre>
@@ -436,14 +437,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
           <code>DD</code>, <code>D</code>, <code>[literal]</code>.</li>
       <li>Static inbox (<code>Inbox.md</code> at the vault root by default).</li>
     </ol>
-    <pre><code>{
+    <pre><code class="language-json">{
   "captureFormat": "YYYY-MM-DD",
   "captureFolder": "captures",
   "captureInboxName": "Inbox.md"
 }</code></pre>
 
     <h3>Notice duration</h3>
-    <pre><code>{
+    <pre><code class="language-json">{
   "noticeDuration": 8
 }</code></pre>
     <p>
@@ -452,7 +453,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
 
     <h3>Disabled plugins</h3>
-    <pre><code>{
+    <pre><code class="language-json">{
   "disabledPlugins": ["ocr", "code-snippet"]
 }</code></pre>
     <p>
@@ -622,5 +623,8 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
   });
   applyMode();
 </script>
+<script src="prism.min.js"></script>
+<script src="prism-bash.min.js"></script>
+<script src="prism-json.min.js"></script>
 </body>
 </html>
