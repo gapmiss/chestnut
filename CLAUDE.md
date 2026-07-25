@@ -138,7 +138,7 @@ Checks/
   width, since `NSMenu` sizes to its widest item. Sliders persist on mouse-up
   only, never on drag ticks. The website re-creates this menu by hand
   (`docs/chestnut.js`, `renderMenu`) and nothing checks the two agree — change
-  them together. Rationale and rejected alternatives: `MENU-PLAN.md`.
+  them together.
 - **Hotkeys:** ⌃⌥Space (capture), ⌃⌥V (hopper), ⌃⌥C (paste — plugin dispatch
   from clipboard), ⌃⌥O (notice action — registered only while an actionable
   bubble is visible). All configurable via config.
