@@ -167,10 +167,20 @@ Checks/
   handles them (copies/moves the directory as-is). Non-.md file drops route to a
   matching plugin when one exists; .md drops always go to courier. Zero-cost when
   no plugins installed — courier and all existing features work identically.
-- **Vault containment** is enforced by `Courier.isContained(_:inVault:)` — a
-  shared helper used by courier, capture, plugin save, and obsidian:// URL
-  resolution. Checks standardized-path prefix (with trailing `/`) and rejects
-  `.obsidian` path components.
+- **Vault containment** is a *lexical* prefix check,
+  `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
+  `/`), rejecting `.obsidian` path components. Three callers, all of them
+  paths the user did not type by hand: plugin `save` output
+  (`AppDelegate.swift:660`), plugin capture attachments (`:421`), and
+  `obsidian://` drop resolution (`PetWindow.swift:739`, a read path). It
+  collapses `../`, which is the case it exists to catch — a buggy plugin
+  emitting `"folder": "../.."`. It does **not** resolve symlinks: a directory
+  you symlink out of the vault is followed. That is deliberate, not an
+  oversight; see Hard invariants.
+  The courier does not call it and does not need to — `deliverNote` builds
+  destinations as `dir.appendingPathComponent(source.lastPathComponent)`
+  (`Courier.swift:195`), and a `lastPathComponent` cannot contain a `/`, so it
+  is contained structurally.
 
 ## Hard invariants
 
@@ -183,8 +193,14 @@ Checks/
   releases page in a browser.
 - **Courier never overwrites:** name conflicts get Obsidian-style suffixes;
   every operation is journaled for undo.
-- **Vault containment:** courier and capture refuse paths resolving outside the
-  vault root (standardized-path `hasPrefix`).
+- **Vault containment is lexical, and that is the whole promise.** Plugin
+  writes refuse paths that *lexically* resolve outside the vault root
+  (standardized-path `hasPrefix`). Symlinks are not resolved. Do not "harden"
+  this into a `realpath` check without re-reading the threat model: every
+  write-side caller is fed by a plugin envelope, plugins are shell scripts
+  already running as the user with full filesystem access, and the only way a
+  symlink enters a vault is if the user put it there. Resolving would break a
+  symlinked attachment folder to buy a guarantee that `cp` bypasses anyway.
 - **No reuse of Obsidian's gem logo;** "for Obsidian" nominative phrasing only.
 - **Cross-Vault Search is permanently out of scope** — decided early, won't build it.
 

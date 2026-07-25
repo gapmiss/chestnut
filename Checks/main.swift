@@ -1083,6 +1083,21 @@ struct Check {
             fm.fileExists(atPath: base.appendingPathComponent(path).path)
         }
 
+        // --- T1: isContained is lexical, by contract ---
+        // It collapses `../` and rejects `.obsidian`, but does not resolve
+        // symlinks. Pinned here so a future "hardening" has to change a test
+        // and read the rationale in CLAUDE.md first. Purely lexical — these
+        // need no files on disk.
+        let vaultPath = base.appendingPathComponent("src").path
+        check(Courier.isContained(base.appendingPathComponent("src/note.md"), inVault: vaultPath),
+              "isContained: plain child → true")
+        check(!Courier.isContained(base.appendingPathComponent("src/../escaped.md"), inVault: vaultPath),
+              "isContained: ../ escape → false")
+        check(!Courier.isContained(base.appendingPathComponent("src/.obsidian/app.json"), inVault: vaultPath),
+              "isContained: .obsidian component → false")
+        check(!Courier.isContained(base.appendingPathComponent("src"), inVault: vaultPath),
+              "isContained: vault root itself → false")
+
         // --- Fixture: source vault with a note + attachments, busy destination ---
         let noteContent = """
         ![[img.png]]
