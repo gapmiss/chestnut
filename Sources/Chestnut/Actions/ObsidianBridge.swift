@@ -111,7 +111,7 @@ enum ObsidianBridge {
                 if active == vaultPath { return }
             }
             let result = runCLI(["eval", "code=\(focusScript(vaultPath: vaultPath))"], timeout: 5)
-            NSLog("ObsidianBridge: focus fallback for %@ -> %@", vaultPath, result ?? "CLI error")
+            await DebugLog.log("obsidian bridge: focus fallback for \(vaultPath) → \(result ?? "CLI error")")
         }
     }
 
@@ -183,7 +183,7 @@ enum ObsidianBridge {
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if let result, !result.contains("no-") { break }
             } while Date() < deadline
-            NSLog("ObsidianBridge: present in %@ -> %@", vaultPath, result ?? "no CLI reply")
+            await DebugLog.log("obsidian bridge: present in \(vaultPath) → \(result ?? "no CLI reply")")
         }
     }
 
