@@ -164,6 +164,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: dir.path)
         }
+        window.onEditConfiguration = { [weak self] in
+            self?.openConfigForEditing()
+        }
         controller.onStateChange = { [weak window] state in
             window?.petScene.play(state)
         }
@@ -502,9 +505,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
         }
-        panel.show(aboveSprite: petWindow.spriteFrame, for: config.noticeDuration)
+        panel.show(aboveSprite: petWindow.spriteFrame, for: state.noticeDuration)
         notice = panel
         if onClick != nil { hotkeys.setNoticeHotkeyEnabled(true) }
+    }
+
+    /// Menu → Edit Configuration…: hand over config.json in whatever the user
+    /// edits JSON with. The notice does the work the menu item can't — nothing
+    /// here re-reads the file, so an edit is invisible until a relaunch.
+    private func openConfigForEditing() {
+        // Nothing else guarantees the file exists: createIfMissing runs at
+        // launch, but the user can delete it while Chestnut is running.
+        config.createIfMissing()
+        let url = Config.fileURL
+        if NSWorkspace.shared.open(url) {
+            showNotice("Opened config.json", "Changes apply after a relaunch")
+        } else {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+            showNotice("Revealed config.json", "No app is set to open .json files")
+        }
     }
 
     // MARK: - Plugins

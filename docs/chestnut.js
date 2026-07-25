@@ -806,7 +806,7 @@ function showNotice(title, subtitle, hint) {
   noticeTimer = setTimeout(() => {
     noticeEl.style.opacity = "0";
     noticeTimer = setTimeout(() => { noticeEl.hidden = true; }, 320);
-  }, 5000);
+  }, menuState.noticeDuration * 1000);
 }
 
 noticeEl.addEventListener("click", () => {
@@ -828,6 +828,7 @@ const SIZE_SCALES = { Small: 5, Medium: 8, Large: 11 };
 const menuState = {
   size: "Medium",
   opacity: 1,
+  noticeDuration: 5,
   copyOnDrop: true,
   showInFullScreen: true,
   launchAtLogin: true,
@@ -920,6 +921,28 @@ function renderMenu() {
   opacityRow.addEventListener("click", (ev) => ev.stopPropagation());
   menuEl.appendChild(menuItem({ label: "Opacity", submenu: submenuOf([opacityRow]) }));
 
+  // Notice Duration: slider with a live seconds readout, like the app's. This
+  // one really does retime the demo's speech bubbles.
+  const noticeRow = document.createElement("div");
+  noticeRow.className = "menu-slider";
+  noticeRow.innerHTML =
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">' +
+    '<circle cx="8" cy="9" r="5.4"/><path d="M8 6.2V9l1.9 1.3M6 1.6h4"/></svg>' +
+    '<input type="range" min="1" max="30" aria-label="Notice duration">' +
+    '<span class="menu-readout"></span>';
+  const noticeSlider = noticeRow.querySelector("input");
+  const noticeReadout = noticeRow.querySelector(".menu-readout");
+  noticeSlider.value = String(menuState.noticeDuration);
+  noticeReadout.textContent = menuState.noticeDuration + "s";
+  noticeSlider.addEventListener("input", () => {
+    menuState.noticeDuration = Number(noticeSlider.value);
+    noticeReadout.textContent = menuState.noticeDuration + "s";
+  });
+  noticeRow.addEventListener("click", (ev) => ev.stopPropagation());
+  menuEl.appendChild(menuItem({
+    label: "Notice Duration", submenu: submenuOf([noticeRow]),
+  }));
+
   menuEl.appendChild(menuItem({ label: "Reset Position", action: closeMenu }));
 
   menuEl.appendChild(menuSeparator());
@@ -987,6 +1010,14 @@ function renderMenu() {
     }),
   ]);
   menuEl.appendChild(menuItem({ label: "Plugins", submenu: pluginsSub }));
+  menuEl.appendChild(menuItem({
+    label: "Edit Configuration…",
+    action() {
+      closeMenu();
+      showNotice("Opened config.json", "Changes apply after a relaunch",
+        "Demo only, there's no file to open here");
+    },
+  }));
 
   menuEl.appendChild(menuSeparator());
   menuEl.appendChild(menuItem({

@@ -3,11 +3,12 @@ import Foundation
 /// Hand-edited settings, stored as JSON in ~/Library/Application Support/Chestnut/.
 /// Chestnut's own config only — never anything inside a vault or `.obsidian/`.
 ///
-/// This file belongs to the user. Chestnut writes it exactly twice in its life:
-/// once to create it if it's missing, and once to migrate a pre-0.3 config (see
-/// `AppState.migrateFromLegacyConfig`). Everything the app changes for itself —
-/// window position, size, theme, pinned vault, disabled plugins — lives in
-/// `AppState`, so a window drag can never clobber a hand-edited hotkey.
+/// This file belongs to the user. Chestnut writes it exactly once in its life,
+/// to create it if it's missing — there is no other write path, and settings
+/// that gain a UI move to `AppState` rather than earning one. Everything the
+/// app changes for itself — window position, size, theme, notice duration,
+/// pinned vault, disabled plugins — lives in `AppState`, so a window drag can
+/// never clobber a hand-edited hotkey.
 ///
 /// Changes here take effect on next launch; nothing re-reads the file.
 struct Config: Codable, Equatable {
@@ -26,8 +27,6 @@ struct Config: Codable, Equatable {
     var petPalette: [String: String]?
     /// User-defined sprite themes (appear in the right-click Theme menu).
     var customThemes: [CustomThemeConfig]?
-    /// How long notice bubbles stay visible (seconds).
-    var noticeDuration = 5.0
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
@@ -36,15 +35,17 @@ struct Config: Codable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case captureInboxName, captureFormat, captureFolder
         case petPalette, customThemes
-        case noticeDuration, hotkeys, debug
+        case hotkeys, debug
     }
 
     static let defaultInboxName = "Inbox.md"
 
     init() {}
 
-    /// Tolerant decoding: configs written by older builds lack newer keys.
-    /// Keys that moved to `AppState` in 0.3 are ignored if still present.
+    /// Tolerant decoding: configs written by older builds lack newer keys, and
+    /// keys that have since moved to `AppState` are ignored if still present.
+    /// That tolerance is what lets settings move without migration code — a
+    /// stale key is inert, never fatal.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let rawInbox = try c.decodeIfPresent(String.self, forKey: .captureInboxName)
@@ -56,8 +57,6 @@ struct Config: Codable, Equatable {
         captureFolder = try c.decodeIfPresent(String.self, forKey: .captureFolder)
         petPalette = try c.decodeIfPresent([String: String].self, forKey: .petPalette)
         customThemes = try c.decodeIfPresent([CustomThemeConfig].self, forKey: .customThemes)
-        let rawNotice = try c.decodeIfPresent(Double.self, forKey: .noticeDuration) ?? 5.0
-        noticeDuration = max(rawNotice, 1.0)
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
         debug = try c.decodeIfPresent(Bool.self, forKey: .debug) ?? false
     }
@@ -69,7 +68,6 @@ struct Config: Codable, Equatable {
         try c.encodeIfPresent(captureFolder, forKey: .captureFolder)
         try c.encodeIfPresent(petPalette, forKey: .petPalette)
         try c.encodeIfPresent(customThemes, forKey: .customThemes)
-        try c.encode(noticeDuration, forKey: .noticeDuration)
         try c.encode(hotkeys, forKey: .hotkeys)
         if debug { try c.encode(true, forKey: .debug) }
     }

@@ -37,8 +37,13 @@ final class PetWindow: NSPanel {
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
+    /// Menu → Edit Configuration…; the delegate opens config.json.
+    var onEditConfiguration: (() -> Void)?
 
     private var state: AppState
+    /// Seconds readout in the Notice Duration submenu, live during a drag.
+    /// Weak: the menu owns it, and it dies with the menu.
+    private weak var noticeDurationReadout: NSTextField?
     /// Hand-edited settings: read-only here, never written back.
     private let config: Config
 
@@ -250,6 +255,12 @@ final class PetWindow: NSPanel {
         opacityItem.submenu = opacityMenu
         menu.addItem(opacityItem)
 
+        let noticeMenu = NSMenu()
+        noticeMenu.addItem(noticeDurationSliderItem())
+        let noticeItem = NSMenuItem(title: "Notice Duration", action: nil, keyEquivalent: "")
+        noticeItem.submenu = noticeMenu
+        menu.addItem(noticeItem)
+
         let resetItem = NSMenuItem(title: "Reset Position", action: #selector(resetPosition), keyEquivalent: "")
         resetItem.target = self
         menu.addItem(resetItem)
@@ -340,6 +351,11 @@ final class PetWindow: NSPanel {
         let pluginsItem = NSMenuItem(title: "Plugins", action: nil, keyEquivalent: "")
         pluginsItem.submenu = pluginsMenu
         menu.addItem(pluginsItem)
+        let editConfigItem = NSMenuItem(
+            title: "Edit Configuration…", action: #selector(editConfiguration), keyEquivalent: ""
+        )
+        editConfigItem.target = self
+        menu.addItem(editConfigItem)
 
         menu.addItem(.separator())
         // No action/target: stays disabled, a plain "what version am I on" line.
@@ -388,16 +404,11 @@ final class PetWindow: NSPanel {
         )
         slider.isContinuous = true
 
-        func icon(_ symbolName: String) -> NSImageView {
-            let view = NSImageView(
-                image: NSImage(systemSymbolName: symbolName, accessibilityDescription: "Opacity")
-                    ?? NSImage()
-            )
-            view.contentTintColor = .secondaryLabelColor
-            return view
-        }
-
-        let row = NSStackView(views: [icon("circle.dotted"), slider, icon("circle.fill")])
+        let row = NSStackView(views: [
+            Self.menuIcon("circle.dotted", label: "Opacity"),
+            slider,
+            Self.menuIcon("circle.fill", label: "Opacity"),
+        ])
         row.edgeInsets = NSEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
         row.frame = NSRect(x: 0, y: 0, width: 180, height: 24)
         row.autoresizingMask = [.width]
@@ -405,6 +416,57 @@ final class PetWindow: NSPanel {
         let item = NSMenuItem()
         item.view = row
         return item
+    }
+
+    /// Slider row for the Notice Duration submenu. Unlike opacity, the value
+    /// can't be judged from the pet while the menu is open — you have to close
+    /// it and wait for a bubble — so the row prints the seconds as you drag.
+    private func noticeDurationSliderItem() -> NSMenuItem {
+        let slider = NSSlider(
+            value: state.noticeDuration,
+            minValue: AppState.noticeDurationRange.lowerBound,
+            maxValue: AppState.noticeDurationRange.upperBound,
+            target: self,
+            action: #selector(noticeDurationChanged(_:))
+        )
+        slider.isContinuous = true
+
+        let readout = NSTextField(labelWithString: Self.secondsLabel(state.noticeDuration))
+        readout.font = .monospacedDigitSystemFont(
+            ofSize: NSFont.smallSystemFontSize, weight: .regular
+        )
+        readout.textColor = .secondaryLabelColor
+        readout.alignment = .right
+        // Fixed width, monospaced digits: "1s" must not shove the slider
+        // sideways on the way to "30s".
+        readout.widthAnchor.constraint(equalToConstant: 28).isActive = true
+        noticeDurationReadout = readout
+
+        let row = NSStackView(views: [
+            Self.menuIcon("timer", label: "Notice duration"), slider, readout,
+        ])
+        row.edgeInsets = NSEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
+        row.frame = NSRect(x: 0, y: 0, width: 200, height: 24)
+        row.autoresizingMask = [.width]
+
+        let item = NSMenuItem()
+        item.view = row
+        return item
+    }
+
+    private static func menuIcon(_ symbolName: String, label: String) -> NSImageView {
+        let view = NSImageView(
+            image: NSImage(systemSymbolName: symbolName, accessibilityDescription: label)
+                ?? NSImage()
+        )
+        view.contentTintColor = .secondaryLabelColor
+        return view
+    }
+
+    /// Whole seconds only: a bubble that lingers 7.4s isn't a distinct choice
+    /// from one that lingers 7.
+    private static func secondsLabel(_ seconds: Double) -> String {
+        "\(Int(seconds.rounded()))s"
     }
 
     @objc private func opacityChanged(_ sender: NSSlider) {
@@ -415,6 +477,21 @@ final class PetWindow: NSPanel {
         if NSApp.currentEvent?.type != .leftMouseDragged {
             onStateChange?(state)
         }
+    }
+
+    @objc private func noticeDurationChanged(_ sender: NSSlider) {
+        let seconds = sender.doubleValue.rounded()
+        noticeDurationReadout?.stringValue = Self.secondsLabel(seconds)
+        state.noticeDuration = seconds
+        // Like the opacity slider: the action fires on every tick of a drag,
+        // so persist only on the final event (mouse-up, or a click on the track).
+        if NSApp.currentEvent?.type != .leftMouseDragged {
+            onStateChange?(state)
+        }
+    }
+
+    @objc private func editConfiguration() {
+        onEditConfiguration?()
     }
 
     @objc private func selectSize(_ sender: NSMenuItem) {

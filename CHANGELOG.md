@@ -4,6 +4,41 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Notice duration is now a menu control.** Right-click → Notice Duration,
+  a slider from 1 to 30 seconds with a live readout. It applies to the next
+  speech bubble, with no relaunch, which makes it possible to actually tune
+  by watching instead of by editing a file and restarting.
+
+- **Right-click → Edit Configuration…** opens `config.json` in whatever you
+  edit JSON with, and says that changes apply on next launch. If nothing is
+  registered for `.json`, it reveals the file in Finder instead.
+
+### Changed
+
+- `noticeDuration` moved from `config.json` to `state.json`, following the
+  rule that anything with a UI is Chestnut's to write.
+
+- **Settings are no longer migrated between versions, and the 0.3 migration
+  has been removed.** Upgrading to this version resets window position, size,
+  opacity, theme, copy-on-drop, full-screen, pinned vault, disabled plugins,
+  and notice duration to their defaults. Every one of those is a right-click
+  menu control, so setting them again takes seconds.
+
+  **Nothing hand-edited is affected.** Hotkeys, custom themes, capture format
+  and folder, inbox name, and palette overrides all live in `config.json`,
+  which Chestnut still never writes. A key it no longer reads (such as a
+  leftover `noticeDuration`) is ignored, not deleted; remove it yourself or
+  leave it.
+
+  Both decoders stay tolerant of unknown and missing keys, so a stale file
+  can never break a launch. That tolerance is what makes the migration code
+  unnecessary, and dropping it keeps the write invariant exception-free:
+  Chestnut writes `config.json` only when creating it from scratch.
+
 ## [0.3.0] — 2026-07-24
 
 ### Changed

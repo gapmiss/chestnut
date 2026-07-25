@@ -575,6 +575,15 @@ pre:hover .copy-btn { opacity: 1; }
   margin: 0;
   accent-color: var(--accent);
 }
+/* Fixed width and tabular digits: "1s" must not shove the slider on the
+   way to "30s". */
+.menu-readout {
+  flex: none;
+  width: 26px;
+  text-align: right;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---------- Chips, themes, CTA ---------- */
 

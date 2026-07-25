@@ -350,13 +350,15 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
     <p>
       <code>config.json</code> is yours: hotkeys, custom sprite themes,
-      capture destination, notice duration. Chestnut never writes to it,
-      apart from creating it on first run. Hand-editable; changes take
-      effect on next launch.
+      capture destination. Chestnut never writes to it, apart from creating
+      it on first run. Hand-editable; changes take effect on next launch.
+      Right-click the pet and pick <strong>Edit Configuration&hellip;</strong>
+      to open it.
     </p>
     <p>
       <code>state.json</code> is Chestnut's: window position, size, opacity,
-      theme, pinned vault, disabled plugins, last capture vault. Everything
+      theme, notice duration, pinned vault, disabled plugins, last capture
+      vault. Everything
       in it has a control in the right-click menu, so there's no reason to
       edit it by hand. Chestnut rewrites it every time you move the window.
     </p>
@@ -365,9 +367,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       Chestnut is running is safe. Nothing the app does can overwrite it.
     </p>
     <p>
-      <strong>Upgrading from 0.2.x:</strong> the split happens automatically
-      on first launch. Your original file is kept as
-      <code>config.json.pre-0.3</code>, unchanged.
+      <strong>Upgrading:</strong> settings are not carried between versions.
+      When a setting moves from one file to the other, it reverts to its
+      default and you set it again from the right-click menu. Keys Chestnut
+      no longer reads are ignored rather than removed, so nothing you edited
+      by hand is ever rewritten or thrown away. You can delete a stale key
+      yourself, or leave it.
     </p>
     <p>
       If either file can't be parsed, Chestnut moves it aside and starts
@@ -464,12 +469,18 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
 }</code></pre>
 
     <h3>Notice duration</h3>
+    <p>
+      How long the speech bubble stays visible. Set it from the right-click
+      menu → Notice Duration, anywhere from 1 to 30 seconds. The slider
+      prints the value as you drag, and the next bubble uses it: no relaunch.
+      It's stored in <code>state.json</code>.
+    </p>
     <pre><code class="language-json">{
   "noticeDuration": 8
 }</code></pre>
     <p>
-      How long the speech bubble stays visible, in seconds. Minimum 1,
-      default 5.
+      Before 0.4 this lived in <code>config.json</code>. A leftover key there
+      is ignored, and you can delete it.
     </p>
 
     <h3>Disabled plugins</h3>
@@ -533,6 +544,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
           <tr><td>Size</td><td>Small, Medium (default), or Large sprite.</td></tr>
           <tr><td>Theme</td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
           <tr><td>Opacity</td><td>Slider from 10% to 100%.</td></tr>
+          <tr><td>Notice Duration</td><td>Slider from 1 to 30 seconds, with a live readout. Applies to the next speech bubble.</td></tr>
           <tr><td>Reset Position</td><td>Moves the pet back to the default corner.</td></tr>
           <tr><td>Vaults&hellip;</td><td>Opens the Vault Hopper palette.</td></tr>
           <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
@@ -542,6 +554,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
           <tr><td>Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
           <tr><td><strong>Plugins &rarr;</strong></td><td>Lists installed plugins with checkmarks. Toggle to enable/disable.</td></tr>
           <tr><td>Plugins &rarr; Open Plugins Folder</td><td>Opens <code>~/.config/chestnut/plugins/</code> in Finder.</td></tr>
+          <tr><td>Edit Configuration&hellip;</td><td>Opens <code>config.json</code> in whatever you edit JSON with. Changes apply on next launch.</td></tr>
           <tr><td>Chestnut <em>version</em></td><td>Shows the current version (not clickable).</td></tr>
           <tr><td>Check for Updates&hellip;</td><td>Opens the GitHub releases page in your browser.</td></tr>
           <tr><td>Support Chestnut</td><td>Opens the GitHub Sponsors page.</td></tr>
