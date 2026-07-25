@@ -367,12 +367,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       Chestnut is running is safe. Nothing the app does can overwrite it.
     </p>
     <p>
-      <strong>Upgrading:</strong> settings are not carried between versions.
-      When a setting moves from one file to the other, it reverts to its
-      default and you set it again from the right-click menu. Keys Chestnut
-      no longer reads are ignored rather than removed, so nothing you edited
-      by hand is ever rewritten or thrown away. You can delete a stale key
-      yourself, or leave it.
+      <strong>Upgrading:</strong> an upgrade is just a new <code>.app</code>.
+      Neither file is touched, so nothing resets. If a release ever moves a
+      setting from one file to the other, that one value goes back to its
+      default and the release notes say so; it's always something you can
+      re-pick from the right-click menu. Keys Chestnut no longer reads are
+      ignored rather than removed, so nothing you edited by hand is ever
+      rewritten or thrown away. You can delete a stale key yourself, or
+      leave it.
     </p>
     <p>
       If either file can't be parsed, Chestnut moves it aside and starts
@@ -478,10 +480,6 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <pre><code class="language-json">{
   "noticeDuration": 8
 }</code></pre>
-    <p>
-      Before 0.4 this lived in <code>config.json</code>. A leftover key there
-      is ignored, and you can delete it.
-    </p>
 
     <h3>Disabled plugins</h3>
     <p>

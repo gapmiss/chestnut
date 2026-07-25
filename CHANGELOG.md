@@ -37,30 +37,17 @@ Notable, user-facing changes to Chestnut. The format follows
 - `noticeDuration` moved from `config.json` to `state.json`, following the
   rule that anything with a UI is Chestnut's to write.
 
-- **Settings are no longer migrated between versions, and the 0.3 migration
-  has been removed.** What that costs depends on where you upgrade from:
+- **Settings migrations are gone, and won't come back.** Both files tolerate
+  unknown and missing keys, so a file written by any version loads under any
+  other and a stale key can never break a launch. That tolerance is what makes
+  migration code unnecessary, and dropping it keeps the write invariant
+  exception-free: Chestnut writes `config.json` only when creating it from
+  scratch.
 
-  - **From 0.3.0:** notice duration resets, because it moved from
-    `config.json` to `state.json`. Window position, size, opacity, theme,
-    copy-on-drop, full-screen, pinned vault and disabled plugins are all in
-    `state.json` already and survive untouched.
-  - **From 0.2.x or earlier:** all of those reset to defaults. The 0.3
-    migration that split the old single-file `config.json` is gone, so nothing
-    carries the values across.
-
-  Every one of them is a right-click menu control, so setting them again takes
-  seconds.
-
-  **Nothing hand-edited is affected.** Hotkeys, custom themes, capture format
-  and folder, inbox name, and palette overrides all live in `config.json`,
-  which Chestnut still never writes. A key it no longer reads (such as a
-  leftover `noticeDuration`) is ignored, not deleted; remove it yourself or
-  leave it.
-
-  Both decoders stay tolerant of unknown and missing keys, so a stale file
-  can never break a launch. That tolerance is what makes the migration code
-  unnecessary, and dropping it keeps the write invariant exception-free:
-  Chestnut writes `config.json` only when creating it from scratch.
+  The one visible cost is a release that relocates a setting, as this one does
+  to notice duration: the value goes back to its default and you set it again
+  from the menu. A leftover key in the file it came from is ignored, not
+  deleted; remove it yourself or leave it. Nothing hand-edited is touched.
 
 ## [0.3.0] — 2026-07-24
 

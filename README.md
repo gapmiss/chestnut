@@ -15,19 +15,9 @@ modified.
 Native Swift and SpriteKit: ~1 MB download, under 2 MB installed, ~2% idle
 CPU. No Electron, no bundled browser, no network calls.
 
-## Project status
-
-Chestnut is pre-1.0 and moving quickly. Expect frequent releases.
-
-Settings are not migrated between versions. When one of the values Chestnut
-manages for itself moves between the two settings files — which is how a
-setting graduates into a menu control — it reverts to its default on upgrade.
-0.4.0 does this to notice duration. Each of those values is a right-click menu
-control, so setting it again takes seconds.
-
-Nothing you hand-edit is affected: `config.json` is never rewritten. And
-whatever else changes, Chestnut never modifies Obsidian's own files and never
-writes to a vault unless you ask it to.
+> [!IMPORTANT]
+> 
+> **Project status**: Chestnut is pre-1.0 and moving quickly. Expect frequent releases.
 
 ## Features
 
@@ -139,9 +129,10 @@ Two files in `~/Library/Application Support/Chestnut/`:
   the right-click menu.
 
 Keeping them apart means editing `config.json` while Chestnut is running is
-safe. Settings are not migrated between versions: if a setting moves from one
-file to the other, it reverts to its default and you re-pick it from the menu.
-Nothing hand-edited is ever rewritten or lost. See the
+safe. Upgrading is just a new `.app`: neither file is touched, so nothing
+resets. If a release ever moves a setting from one file to the other, that one
+value goes back to its default and the release notes say so; it's always
+something you can re-pick from the menu. See the
 [User Guide](https://gapmiss.github.io/chestnut/guide.html#configuration)
 for the full reference.
 
