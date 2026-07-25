@@ -8,6 +8,16 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **The undo journals no longer grow without limit.** Every delivery and
+  capture was recorded forever, and a delivery that rewrote a note's links
+  stored a complete copy of that note's text in the record. The journals now
+  keep the 20 most recent entries, and drop older ones if the file still
+  exceeds 1 MB. Existing journals are trimmed the next time you deliver or
+  capture. This does shorten how far back Undo can reach, which in practice
+  it could not reach anyway: the menu never said which delivery it was about
+  to reverse, and an entry that fails to undo is kept and blocks everything
+  older than it.
+
 - **The plugin guide documented the wrong field name, so every copy-pasted
   manifest silently failed to load.** The manifest reference and both worked
   examples called the script field `command`; the parser has always required

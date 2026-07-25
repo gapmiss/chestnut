@@ -1241,6 +1241,39 @@ struct Check {
                     && restored?.isCopy == op.isCopy,
                   "journal encodes and decodes the operation")
 
+            // --- Retention: journals are capped, not grown forever ---
+            let capped = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("capped.jsonl"))
+            for i in 0..<(JournalLimits.maxRecords + 15) {
+                try capped.append(CaptureRecord(
+                    date: Date(), vaultPath: "/v", notePath: "/v/n\(i).md",
+                    appended: "x", createdFile: false))
+            }
+            let cappedLines = (try? String(
+                contentsOf: base.appendingPathComponent("capped.jsonl"), encoding: .utf8))?
+                .split(separator: "\n").count ?? 0
+            check(cappedLines == JournalLimits.maxRecords,
+                  "journal keeps exactly maxRecords (got \(cappedLines))")
+            check(capped.last()?.notePath == "/v/n\(JournalLimits.maxRecords + 14).md",
+                  "trimming drops the oldest, newest still on top")
+
+            // A single record can carry a whole note body, so the byte
+            // ceiling has to bite before the record count does.
+            let heavy = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("heavy.jsonl"))
+            let bigBody = String(repeating: "x", count: 300_000)
+            for i in 0..<6 {
+                try heavy.append(CaptureRecord(
+                    date: Date(), vaultPath: "/v", notePath: "/v/big\(i).md",
+                    appended: bigBody, createdFile: false))
+            }
+            let heavySize = (try? FileManager.default.attributesOfItem(
+                atPath: base.appendingPathComponent("heavy.jsonl").path)[.size] as? Int) ?? 0
+            check(heavySize <= JournalLimits.maxBytes,
+                  "byte ceiling trims below the record cap (\(heavySize) bytes)")
+            check(heavy.last()?.notePath == "/v/big5.md",
+                  "byte-trimmed journal still returns the newest record")
+
             try courier.undo(op)
             try journal.removeLast()
             check(read("src/note.md") == noteContent,

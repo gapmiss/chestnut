@@ -196,7 +196,13 @@ Checks/
 - **No network calls, no telemetry.** "Check for Updates" opens the GitHub
   releases page in a browser.
 - **Courier never overwrites:** name conflicts get Obsidian-style suffixes;
-  every operation is journaled for undo.
+  every operation is journaled for undo. Journals are capped
+  (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
+  append — a courier record can carry a whole note body in
+  `NoteRewrite.original`, so both limits are load-bearing. Undo depth is
+  *not* a feature to grow: the menu names no particular record, and a record
+  whose undo fails is deliberately kept, which blocks every older record
+  behind it. Undo is for "take back what I just did".
 - **Vault containment is lexical, and that is the whole promise.** Plugin
   writes refuse paths that *lexically* resolve outside the vault root
   (standardized-path `hasPrefix`). Symlinks are not resolved. Do not "harden"
