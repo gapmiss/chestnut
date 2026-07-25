@@ -4,6 +4,19 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A plugin's attachments no longer follow you to an unrelated capture.**
+  If a plugin queued a file and you dismissed the capture panel instead of
+  submitting, that file stayed queued for the rest of the session and was
+  copied into whatever you captured next, in whatever vault. Attachments are
+  now copied only when your note refers to them, which is what the plugins
+  were already writing into the draft as `![[filename]]`. Delete the link and
+  the file is dropped; rewrite the draft into something else and nothing
+  follows. Dismissing still keeps your draft exactly as before.
+
 ## [0.4.0] — 2026-07-25
 
 ### Added

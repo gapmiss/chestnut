@@ -11,6 +11,34 @@ struct CaptureRecord: Codable, Equatable {
     let createdFile: Bool
 }
 
+/// Splits a plugin's queued attachments by whether the note text refers to
+/// them, so only referenced files are copied into the vault.
+///
+/// The draft is the only place a queued attachment is visible — every shipped
+/// attachment plugin writes a `![[filename]]` link into its content — so the
+/// draft is what the user is actually editing when they decide what this
+/// capture contains. Matching on it means deleting the link removes the file,
+/// and a draft rewritten into something unrelated carries nothing along. A
+/// file no note refers to would land in the vault as an orphan anyway.
+///
+/// Substring rather than link-syntax matching, so `![[a.png]]`, `![](a.png)`
+/// and a bare mention all count.
+func partitionAttachmentsByReference(
+    _ attachments: [PluginAttachment], inText text: String
+) -> (referenced: [PluginAttachment], unreferenced: [PluginAttachment]) {
+    var referenced: [PluginAttachment] = []
+    var unreferenced: [PluginAttachment] = []
+    for att in attachments {
+        // An empty filename would match every draft; treat it as unreferenced.
+        if !att.filename.isEmpty, text.contains(att.filename) {
+            referenced.append(att)
+        } else {
+            unreferenced.append(att)
+        }
+    }
+    return (referenced, unreferenced)
+}
+
 enum CaptureError: LocalizedError {
     case emptyText
     case noteChanged(String)

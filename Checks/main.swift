@@ -173,6 +173,38 @@ struct Check {
             NSTemporaryDirectory() + "chestnut-check-capture-\(ProcessInfo.processInfo.processIdentifier)")
         defer { try? fm.removeItem(at: base) }
 
+        // --- Attachments are copied only when the note refers to them ---
+        // Regression test for a plugin's queued attachments surviving a
+        // dismissed capture panel and riding along on the next, unrelated one.
+        let png = PluginAttachment(source: "/tmp/x/scan.png", filename: "scan.png")
+        let pdf = PluginAttachment(source: "/tmp/x/doc.pdf", filename: "doc.pdf")
+
+        let wikilink = partitionAttachmentsByReference([png], inText: "![[scan.png]]")
+        check(wikilink.referenced.count == 1 && wikilink.unreferenced.isEmpty,
+              "attachments: wikilink reference → copied")
+
+        let markdown = partitionAttachmentsByReference([png], inText: "![shot](scan.png)")
+        check(markdown.referenced.count == 1,
+              "attachments: markdown embed reference → copied")
+
+        // The M2 scenario: draft rewritten into something unrelated.
+        let rewritten = partitionAttachmentsByReference([png], inText: "buy milk")
+        check(rewritten.referenced.isEmpty && rewritten.unreferenced.count == 1,
+              "attachments: rewritten draft → not copied")
+
+        let mixed = partitionAttachmentsByReference([png, pdf], inText: "see ![[doc.pdf]]")
+        check(mixed.referenced.map(\.filename) == ["doc.pdf"]
+              && mixed.unreferenced.map(\.filename) == ["scan.png"],
+              "attachments: partition keeps referenced only")
+
+        // An empty filename must not match every draft.
+        let empty = PluginAttachment(source: "/tmp/x/y", filename: "")
+        check(partitionAttachmentsByReference([empty], inText: "anything").referenced.isEmpty,
+              "attachments: empty filename → not copied")
+
+        check(partitionAttachmentsByReference([], inText: "").referenced.isEmpty,
+              "attachments: no attachments → nothing copied")
+
         func write(_ path: String, _ content: String) {
             let url = base.appendingPathComponent(path)
             try! fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

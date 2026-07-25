@@ -408,13 +408,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.save()
 
         let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
-        if !attachments.isEmpty {
+
+        // Only files the note refers to are copied; see
+        // partitionAttachmentsByReference. A draft that survived a dismissed
+        // panel and was then rewritten carries none of the old plugin's files.
+        let (referenced, unreferenced) =
+            partitionAttachmentsByReference(attachments, inText: text)
+        if !unreferenced.isEmpty {
+            DebugLog.log("capture: dropping \(unreferenced.count) unreferenced attachment(s)")
+            for att in unreferenced where att.source.hasPrefix(tempPrefix) {
+                try? FileManager.default.removeItem(
+                    at: URL(fileURLWithPath: att.source))
+            }
+        }
+
+        if !referenced.isEmpty {
             let vaultURL = URL(fileURLWithPath: vault.path)
             let attDir = Courier().attachmentFolder(of: vaultURL)
             try? FileManager.default.createDirectory(
                 at: attDir, withIntermediateDirectories: true
             )
-            for att in attachments {
+            for att in referenced {
                 let dest = Courier.availableURL(
                     for: attDir.appendingPathComponent(att.filename)
                 )
