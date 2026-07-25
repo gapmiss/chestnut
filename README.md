@@ -106,11 +106,18 @@ Sources/Chestnut/
 
 ## Configuration
 
-Settings live in `~/Library/Application Support/Chestnut/config.json`, created
-on first run. Hand-editable; changes take effect on next launch.
+Two files in `~/Library/Application Support/Chestnut/`:
 
-Configurable: hotkeys, capture destination, notice duration, custom sprite
-themes, pinned vault, disabled plugins. See the
+- **`config.json`** is yours: hotkeys, capture destination, notice duration,
+  custom sprite themes. Chestnut never writes to it, apart from creating it on
+  first run. Hand-editable; changes take effect on next launch.
+- **`state.json`** is Chestnut's: window position, size, opacity, theme, pinned
+  vault, disabled plugins. Everything in it has a control in the right-click
+  menu.
+
+Keeping them apart means editing `config.json` while Chestnut is running is
+safe. Upgrading from 0.2.x splits the old single file automatically and keeps
+the original as `config.json.pre-0.3`. See the
 [User Guide](https://gapmiss.github.io/chestnut/guide.html#configuration)
 for the full reference.
 

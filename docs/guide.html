@@ -304,7 +304,7 @@
     <p>
       Right-click Chestnut &rarr; Plugins. Each installed plugin is listed
       with a checkmark. Click to toggle. Disabled plugins are persisted in
-      <a href="#configuration">config.json</a> as <code>disabledPlugins</code>.
+      <a href="#configuration">state.json</a> as <code>disabledPlugins</code>.
     </p>
 
     <h3>Example: a bookmark saver</h3>
@@ -345,15 +345,35 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <p class="kicker">Settings</p>
     <h2>Configuration</h2>
     <p>
-      Settings live in
-      <code>~/Library/Application Support/Chestnut/config.json</code>,
-      created on first run. Hand-editable; changes take effect on next
-      launch.
+      Chestnut keeps two files in
+      <code>~/Library/Application&nbsp;Support/Chestnut/</code>.
     </p>
     <p>
-      If the file can't be parsed, Chestnut renames it to
-      <code>config.json.bak</code> and starts with defaults. The backup
-      is never overwritten, so you can recover your settings.
+      <code>config.json</code> is yours: hotkeys, custom sprite themes,
+      capture destination, notice duration. Chestnut never writes to it,
+      apart from creating it on first run. Hand-editable; changes take
+      effect on next launch.
+    </p>
+    <p>
+      <code>state.json</code> is Chestnut's: window position, size, opacity,
+      theme, pinned vault, disabled plugins, last capture vault. Everything
+      in it has a control in the right-click menu, so there's no reason to
+      edit it by hand. Chestnut rewrites it every time you move the window.
+    </p>
+    <p>
+      Keeping them apart means editing <code>config.json</code> while
+      Chestnut is running is safe. Nothing the app does can overwrite it.
+    </p>
+    <p>
+      <strong>Upgrading from 0.2.x:</strong> the split happens automatically
+      on first launch. Your original file is kept as
+      <code>config.json.pre-0.3</code>, unchanged.
+    </p>
+    <p>
+      If either file can't be parsed, Chestnut moves it aside and starts
+      with defaults. Existing backups are never overwritten: a second
+      failure becomes <code>config.json.bak.1</code>, and so on, so you can
+      always recover your settings.
     </p>
 
     <h3 id="hotkey-config">Hotkeys</h3>
@@ -453,13 +473,15 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
 
     <h3>Disabled plugins</h3>
+    <p>
+      Plugins toggled off in the right-click menu are stored in
+      <code>state.json</code>, not <code>config.json</code>. Use the menu
+      rather than editing the file: it takes effect immediately, and it's
+      the only place the two can't disagree.
+    </p>
     <pre><code class="language-json">{
   "disabledPlugins": ["ocr", "code-snippet"]
 }</code></pre>
-    <p>
-      Plugins toggled off in the right-click menu are stored here. You can
-      also edit it by hand.
-    </p>
   </section>
 
   <!-- ================================================================== -->
@@ -563,11 +585,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Corrupt config</h3>
     <p>
       If <code>config.json</code> can't be parsed, Chestnut renames it to
-      <code>config.json.bak</code> and loads defaults. Your old settings
-      are preserved in the backup. Fix the JSON syntax and rename it back.
+      <code>config.json.bak</code> and loads defaults. Your old settings are
+      preserved in the backup, untouched. If a backup already exists it is
+      kept, and the new one becomes <code>config.json.bak.1</code>. Fix the
+      JSON syntax and rename it back.
     </p>
-    <p>Config location:</p>
-    <pre><code>~/Library/Application Support/Chestnut/config.json</code></pre>
+    <p>File locations:</p>
+    <pre><code>~/Library/Application Support/Chestnut/config.json   (yours)
+~/Library/Application Support/Chestnut/state.json    (Chestnut's)</code></pre>
   </section>
 
 </main>

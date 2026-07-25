@@ -149,6 +149,7 @@ struct Check {
         courierChecks()
         captureChecks()
         configChecks()
+        appStateChecks()
         hotkeyChecks()
         customThemeChecks()
         themeChecks()
@@ -330,12 +331,6 @@ struct Check {
         func decode(_ json: String) -> Config? {
             try? JSONDecoder().decode(Config.self, from: Data(json.utf8))
         }
-        let old = decode(#"{"size":"large"}"#)
-        check(old?.opacity == 1.0, "config without opacity key defaults to 1.0")
-        check(decode(#"{"opacity":0.6}"#)?.opacity == 0.6, "config opacity round-trips")
-        check(decode(#"{"opacity":0.05}"#)?.opacity == Config.opacityRange.lowerBound,
-              "hand-edited opacity below the floor is clamped")
-        check(decode(#"{"opacity":3}"#)?.opacity == 1.0, "opacity above 1 is clamped")
         check(decode(#"{"size":"large"}"#)?.captureInboxName == "Inbox.md",
               "config without inbox key defaults to Inbox.md")
         check(decode(#"{"captureInboxName":"Later.md"}"#)?.captureInboxName == "Later.md",
@@ -347,14 +342,92 @@ struct Check {
               "captureFormat round-trips")
         check(decode(#"{"captureFolder":"captures"}"#)?.captureFolder == "captures",
               "captureFolder round-trips")
-        check(decode(#"{"size":"large"}"#)?.petTheme == SpriteTheme.defaultID,
-              "config without theme key defaults to obsidian-night")
-        check(decode(#"{"petTheme":"brushed-steel"}"#)?.petTheme == "brushed-steel",
-              "config theme id round-trips")
-        check(decode(#"{"petTheme":"neon-dreams"}"#)?.petTheme == "neon-dreams",
-              "unknown theme id is accepted (validated after custom theme registration)")
         check(decode(##"{"petPalette":{"m":"#FF0000"}}"##)?.petPalette == ["m": "#FF0000"],
               "custom palette override survives decode verbatim")
+        check(decode(#"{}"#)?.noticeDuration == 5.0, "config without noticeDuration defaults to 5")
+        check(decode(#"{"noticeDuration":0.2}"#)?.noticeDuration == 1.0,
+              "hand-edited noticeDuration below the floor is clamped")
+
+        // Keys that moved to AppState in 0.3 are ignored, not resurrected.
+        let legacy = decode(#"{"opacity":0.4,"size":"large","noticeDuration":10}"#)
+        check(legacy?.noticeDuration == 10, "a pre-0.3 config still decodes its own keys")
+        let reencoded = String(
+            data: try! JSONEncoder().encode(legacy!), encoding: .utf8
+        )!
+        for key in AppState.legacyStateKeys {
+            check(!reencoded.contains(key), "config no longer encodes the moved key \(key)")
+        }
+
+        // Corrupt configs never overwrite an earlier backup.
+        let base = URL(fileURLWithPath: "/tmp/config.json.bak")
+        check(Config.availableBackupURL(base: base, exists: { _ in false }) == base,
+              "first backup uses the plain .bak name")
+        let taken: Set<String> = ["/tmp/config.json.bak", "/tmp/config.json.bak.1"]
+        check(Config.availableBackupURL(base: base, exists: { taken.contains($0.path) }).path
+              == "/tmp/config.json.bak.2",
+              "backup name skips past existing backups")
+    }
+
+    // MARK: - App state
+
+    static func appStateChecks() {
+        func decode(_ json: String) -> AppState? {
+            try? JSONDecoder().decode(AppState.self, from: Data(json.utf8))
+        }
+        check(decode(#"{}"#)?.opacity == 1.0, "state without opacity key defaults to 1.0")
+        check(decode(#"{"opacity":0.6}"#)?.opacity == 0.6, "state opacity round-trips")
+        check(decode(#"{"opacity":0.05}"#)?.opacity == AppState.opacityRange.lowerBound,
+              "opacity below the floor is clamped")
+        check(decode(#"{"opacity":3}"#)?.opacity == 1.0, "opacity above 1 is clamped")
+        check(decode(#"{"size":"large"}"#)?.size == .large, "state size round-trips")
+        check(decode(#"{}"#)?.petTheme == SpriteTheme.defaultID,
+              "state without theme key defaults to obsidian-night")
+        check(decode(#"{"petTheme":"brushed-steel"}"#)?.petTheme == "brushed-steel",
+              "state theme id round-trips")
+        check(decode(#"{"petTheme":"neon-dreams"}"#)?.petTheme == "neon-dreams",
+              "unknown theme id is accepted (validated after custom theme registration)")
+        check(decode(#"{"disabledPlugins":["a","b"]}"#)?.disabledPlugins == ["a", "b"],
+              "disabledPlugins round-trips")
+        check(decode(#"{}"#)?.disabledPlugins.isEmpty == true,
+              "state without disabledPlugins defaults to empty")
+
+        // An empty list is omitted entirely rather than written as [].
+        var empty = AppState()
+        empty.disabledPlugins = []
+        let encoded = String(data: try! JSONEncoder().encode(empty), encoding: .utf8)!
+        check(!encoded.contains("disabledPlugins"), "an empty disabledPlugins is not encoded")
+
+        // A pre-0.3 config decodes straight into AppState: that is the
+        // migration, and every app-owned key has to survive the move.
+        let pre03 = """
+        {"captureInboxName":"Later.md","courierCopyByDefault":true,\
+        "disabledPlugins":["img-ocr"],"hotkeys":{"paste":"control+option+p"},\
+        "lastCaptureVaultPath":"/Vaults/Master","noticeDuration":10,\
+        "opacity":0.8,"petTheme":"dracula","pinnedVaultPath":"/Vaults/Work",\
+        "position":[12,34],"showInFullScreen":false,"size":"large"}
+        """
+        let migrated = decode(pre03)
+        check(migrated?.size == .large, "migration carries size across")
+        check(migrated?.opacity == 0.8, "migration carries opacity across")
+        check(migrated?.petTheme == "dracula", "migration carries theme across")
+        check(migrated?.courierCopyByDefault == true, "migration carries copy-on-drop across")
+        check(migrated?.showInFullScreen == false, "migration carries full-screen across")
+        check(migrated?.pinnedVaultPath == "/Vaults/Work", "migration carries pinned vault across")
+        check(migrated?.lastCaptureVaultPath == "/Vaults/Master",
+              "migration carries last capture vault across")
+        check(migrated?.disabledPlugins == ["img-ocr"], "migration carries disabled plugins across")
+        check(migrated?.position?.x == 12 && migrated?.position?.y == 34,
+              "migration carries window position across")
+
+        // The same file still decodes its user-owned half into Config.
+        let keptConfig = try? JSONDecoder().decode(Config.self, from: Data(pre03.utf8))
+        check(keptConfig?.captureInboxName == "Later.md", "migration leaves the inbox name to Config")
+        check(keptConfig?.noticeDuration == 10, "migration leaves noticeDuration to Config")
+        check(keptConfig?.hotkeys.paste == "control+option+p",
+              "migration leaves hotkeys to Config")
+
+        check(Set(AppState.legacyStateKeys).count == AppState.legacyStateKeys.count,
+              "legacy key list has no duplicates")
     }
 
     // MARK: - Custom themes

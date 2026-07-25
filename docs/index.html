@@ -189,7 +189,8 @@
           file extensions (e.g. only <code>.csv</code> or <code>.txt</code>).
         </p>
         <p>
-          Manifests are hot-reloaded: edit one and Chestnut picks up the
+          Manifests are hot-reloaded: edit one in
+          <code>~/.config/chestnut/plugins/</code> and Chestnut picks up the
           change live. Enable or disable individual plugins from the
           right-click menu.
         </p>
@@ -236,10 +237,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <div class="customize-note">
       <h3>Customize</h3>
       <p>
-        Hotkeys, sprite color themes, capture defaults, notice duration, and
-        the disabled-plugins list are all configurable in
+        Hotkeys, sprite color themes, capture defaults, and notice duration
+        are configurable in
         <code>~/Library/Application&nbsp;Support/Chestnut/config.json</code>.
-        Details in the <a href="guide.html#configuration">User Guide</a>.
+        That file is yours; Chestnut keeps its own settings separately, so
+        your edits are never overwritten. Details in the
+        <a href="guide.html#configuration">User Guide</a>.
       </p>
     </div>
   </section>

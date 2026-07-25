@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.2.1
+VERSION := 0.3.0
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
@@ -22,6 +22,7 @@ check: site-gen
 		Sources/$(APP)/Actions/Capture.swift \
 		Sources/$(APP)/Support/Journal.swift \
 		Sources/$(APP)/Support/Config.swift \
+		Sources/$(APP)/Support/AppState.swift \
 		Sources/$(APP)/Support/DebugLog.swift \
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \

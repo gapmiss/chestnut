@@ -10,9 +10,9 @@ final class PetWindow: NSPanel {
     let petScene: PetScene
 
     /// Called when position (or anything else persisted) changes.
-    var onConfigChange: ((Config) -> Void)?
+    var onStateChange: ((AppState) -> Void)?
     /// Called when the user picks a new size; the delegate rebuilds the window.
-    var onSelectSize: ((Config.PetSize) -> Void)?
+    var onSelectSize: ((AppState.PetSize) -> Void)?
     /// Called when the user picks a theme; the delegate rebuilds the window
     /// (same path as a size change — no re-texturing of a live scene).
     var onSelectTheme: ((String) -> Void)?
@@ -38,7 +38,9 @@ final class PetWindow: NSPanel {
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
 
-    private var config: Config
+    private var state: AppState
+    /// Hand-edited settings: read-only here, never written back.
+    private let config: Config
 
     /// Transparent margins around the sprite: room for the hop and z-drift
     /// above, future panels at the sides, a whisker below the baseline.
@@ -48,7 +50,7 @@ final class PetWindow: NSPanel {
         static let bottom: CGFloat = PetScene.baselineY
     }
 
-    static func contentSize(for size: Config.PetSize) -> NSSize {
+    static func contentSize(for size: AppState.PetSize) -> NSSize {
         let scale = size.pixelScale
         return NSSize(
             width: CGFloat(PetFrames.gridWidth) * scale + Margin.side * 2,
@@ -67,7 +69,7 @@ final class PetWindow: NSPanel {
     /// The sprite's current on-screen rect — the anchor for the notice
     /// bubble's tail (the window frame itself has invisible headroom).
     var spriteFrame: NSRect {
-        Self.petRect(inWindowFrame: frame, scale: config.size.pixelScale)
+        Self.petRect(inWindowFrame: frame, scale: state.size.pixelScale)
     }
 
     /// The sprite's rect within a window frame (frame minus the margins).
@@ -83,7 +85,7 @@ final class PetWindow: NSPanel {
     /// Clamp a window origin so the whole sprite sits inside `screen`'s
     /// visible frame (below the menu bar, above the Dock).
     static func clampedOrigin(
-        _ origin: NSPoint, for petSize: Config.PetSize, on screen: NSScreen?
+        _ origin: NSPoint, for petSize: AppState.PetSize, on screen: NSScreen?
     ) -> NSPoint {
         guard let visible = screen?.visibleFrame else { return origin }
         let size = contentSize(for: petSize)
@@ -102,7 +104,7 @@ final class PetWindow: NSPanel {
     /// A saved position is only trusted if part of the sprite is on a screen —
     /// displays come and go, and constrainFrameRect no longer rescues us.
     /// Trusted positions are still clamped into the visible area.
-    static func validatedOrigin(_ saved: NSPoint?, for petSize: Config.PetSize) -> NSPoint {
+    static func validatedOrigin(_ saved: NSPoint?, for petSize: AppState.PetSize) -> NSPoint {
         let size = contentSize(for: petSize)
         guard let saved else { return defaultOrigin(for: size) }
         let sprite = petRect(
@@ -114,17 +116,18 @@ final class PetWindow: NSPanel {
         return clampedOrigin(saved, for: petSize, on: screen)
     }
 
-    init(config: Config, controller: PetController) {
+    init(state: AppState, config: Config, controller: PetController) {
+        self.state = state
         self.config = config
         self.controller = controller
 
-        let size = Self.contentSize(for: config.size)
-        let origin = Self.validatedOrigin(config.position, for: config.size)
+        let size = Self.contentSize(for: state.size)
+        let origin = Self.validatedOrigin(state.position, for: state.size)
         petScene = PetScene(
             size: size,
-            pixelScale: config.size.pixelScale,
+            pixelScale: state.size.pixelScale,
             palette: SpriteTheme.resolvedPalette(
-                themeID: config.petTheme, overrides: config.petPalette
+                themeID: state.petTheme, overrides: config.petPalette
             )
         )
 
@@ -138,9 +141,9 @@ final class PetWindow: NSPanel {
         isOpaque = false
         backgroundColor = .clear
         hasShadow = false
-        alphaValue = config.opacity
+        alphaValue = state.opacity
         level = .floating
-        collectionBehavior = Self.collectionBehavior(showInFullScreen: config.showInFullScreen)
+        collectionBehavior = Self.collectionBehavior(showInFullScreen: state.showInFullScreen)
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
 
@@ -184,12 +187,12 @@ final class PetWindow: NSPanel {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) }
             ?? NSScreen.screens.first { $0.frame.intersects(frame) }
-        setFrameOrigin(Self.clampedOrigin(origin, for: config.size, on: screen))
+        setFrameOrigin(Self.clampedOrigin(origin, for: state.size, on: screen))
     }
 
     func dragEnded() {
-        config.position = frame.origin
-        onConfigChange?(config)
+        state.position = frame.origin
+        onStateChange?(state)
         controller.noteInteraction()
     }
 
@@ -204,7 +207,7 @@ final class PetWindow: NSPanel {
     /// Effective operation for a file drag: the persisted default, flipped by ⌥.
     var courierDragOperation: NSDragOperation {
         let optionHeld = NSEvent.modifierFlags.contains(.option)
-        return config.courierCopyByDefault != optionHeld ? .copy : .move
+        return state.courierCopyByDefault != optionHeld ? .copy : .move
     }
 
     func filesDropped(_ urls: [URL]) {
@@ -218,11 +221,11 @@ final class PetWindow: NSPanel {
         let menu = NSMenu()
 
         let sizeMenu = NSMenu()
-        for size in Config.PetSize.allCases {
+        for size in AppState.PetSize.allCases {
             let item = NSMenuItem(title: size.title, action: #selector(selectSize(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = size.rawValue
-            item.state = size == config.size ? .on : .off
+            item.state = size == state.size ? .on : .off
             sizeMenu.addItem(item)
         }
         let sizeItem = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
@@ -234,7 +237,7 @@ final class PetWindow: NSPanel {
             let item = NSMenuItem(title: theme.title, action: #selector(selectTheme(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = theme.id
-            item.state = theme.id == config.petTheme ? .on : .off
+            item.state = theme.id == state.petTheme ? .on : .off
             themeMenu.addItem(item)
         }
         let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
@@ -282,13 +285,13 @@ final class PetWindow: NSPanel {
             title: "Copy on Drop", action: #selector(toggleCopyDefault), keyEquivalent: ""
         )
         copyItem.target = self
-        copyItem.state = config.courierCopyByDefault ? .on : .off
+        copyItem.state = state.courierCopyByDefault ? .on : .off
         menu.addItem(copyItem)
         let fullScreenItem = NSMenuItem(
             title: "Show in Full Screen", action: #selector(toggleShowInFullScreen), keyEquivalent: ""
         )
         fullScreenItem.target = self
-        fullScreenItem.state = config.showInFullScreen ? .on : .off
+        fullScreenItem.state = state.showInFullScreen ? .on : .off
         menu.addItem(fullScreenItem)
 
         let pluginsMenu = NSMenu()
@@ -377,9 +380,9 @@ final class PetWindow: NSPanel {
     /// dim icon → slider → solid icon, no text.
     private func opacitySliderItem() -> NSMenuItem {
         let slider = NSSlider(
-            value: config.opacity,
-            minValue: Config.opacityRange.lowerBound,
-            maxValue: Config.opacityRange.upperBound,
+            value: state.opacity,
+            minValue: AppState.opacityRange.lowerBound,
+            maxValue: AppState.opacityRange.upperBound,
             target: self,
             action: #selector(opacityChanged(_:))
         )
@@ -406,17 +409,17 @@ final class PetWindow: NSPanel {
 
     @objc private func opacityChanged(_ sender: NSSlider) {
         alphaValue = sender.doubleValue
-        config.opacity = sender.doubleValue
+        state.opacity = sender.doubleValue
         // The action fires for every tick of a drag; persist only on the final
         // event (mouse-up, or a direct click on the track).
         if NSApp.currentEvent?.type != .leftMouseDragged {
-            onConfigChange?(config)
+            onStateChange?(state)
         }
     }
 
     @objc private func selectSize(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
-              let size = Config.PetSize(rawValue: raw) else { return }
+              let size = AppState.PetSize(rawValue: raw) else { return }
         onSelectSize?(size)
     }
 
@@ -426,9 +429,9 @@ final class PetWindow: NSPanel {
     }
 
     @objc private func resetPosition() {
-        config.position = nil
+        state.position = nil
         setFrameOrigin(Self.defaultOrigin(for: frame.size))
-        onConfigChange?(config)
+        onStateChange?(state)
     }
 
     /// Translate a config hotkey string into an NSMenuItem key equivalent.
@@ -479,20 +482,20 @@ final class PetWindow: NSPanel {
     @objc private func undoCapture() { onUndoCapture?() }
 
     @objc private func toggleCopyDefault() {
-        config.courierCopyByDefault.toggle()
-        onConfigChange?(config)
+        state.courierCopyByDefault.toggle()
+        onStateChange?(state)
     }
 
     @objc private func toggleShowInFullScreen() {
-        config.showInFullScreen.toggle()
-        collectionBehavior = Self.collectionBehavior(showInFullScreen: config.showInFullScreen)
+        state.showInFullScreen.toggle()
+        collectionBehavior = Self.collectionBehavior(showInFullScreen: state.showInFullScreen)
         // The window server doesn't re-evaluate space membership on a live
         // collectionBehavior change: toggled off while on a full-screen space,
         // the window would stay there in a broken state (visible, but its
         // context menu can no longer open). Re-ordering forces the re-eval.
         orderOut(nil)
         orderFrontRegardless()
-        onConfigChange?(config)
+        onStateChange?(state)
     }
 
     @objc private func toggleLaunchAtLogin() {

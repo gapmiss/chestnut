@@ -4,6 +4,37 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-07-24
+
+### Changed
+
+- **Settings are now two files.** `config.json` holds only what you edit by
+  hand (hotkeys, custom themes, capture destination, notice duration, debug).
+  Everything Chestnut sets for itself (window position, size, opacity, theme,
+  pinned vault, disabled plugins, last capture vault) moved to a new
+  `state.json` beside it. Chestnut no longer writes `config.json` at all,
+  apart from creating it on first run.
+
+  **Migration is automatic** on first launch: the old file is split, and the
+  original is kept as `config.json.pre-0.3`. Nothing to do. Rolling back to
+  0.2.x afterwards resets window position, size, and theme to defaults;
+  restore the `.pre-0.3` file to get them back.
+
+- `disabledPlugins` now lives in `state.json` and is managed from the
+  right-click menu → Plugins. Hand-editing it is no longer the supported
+  path.
+
+### Fixed
+
+- Hand-edits to `config.json` made while Chestnut was running were silently
+  overwritten the next time it saved, and a window drag was enough to trigger
+  it. Clearing `disabledPlugins` by hand would repopulate. The file split
+  removes the cause: the app has nothing to write there.
+- An unparseable `config.json` is now moved aside rather than copied, so the
+  defaults Chestnut loads can't overwrite JSON you were about to fix. An
+  existing `config.json.bak` is no longer clobbered by a second failure;
+  backups number upward (`config.json.bak.1`, …) as documented.
+
 ## [0.2.1] — 2026-07-22
 
 ### Added

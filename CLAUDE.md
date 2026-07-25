@@ -107,8 +107,21 @@ Checks/
   FSEvents.
 - **FPS management:** 10fps steady-state, 60fps only during hop/gulp gestures.
   Idle CPU ~2%.
-- **Config** persists to `~/Library/Application Support/Chestnut/config.json`.
-  Unparseable config preserved to `.bak` before defaults load.
+- **Two settings files**, both in `~/Library/Application Support/Chestnut/`:
+  `config.json` (`Config`) is user-owned and hand-edited — hotkeys, custom
+  themes, capture destination, `noticeDuration`, `debug`. `state.json`
+  (`AppState`) is app-owned — window position, size, opacity, theme,
+  copy-on-drop, full-screen, pinned vault, last capture vault,
+  `disabledPlugins`. **The app never writes `config.json`** except
+  `createIfMissing()` on first run and the one-time 0.3 migration; that
+  invariant is what keeps a window drag from clobbering a hand-edited hotkey.
+  Anything gaining a UI moves to `AppState`.
+  `AppState.migrateFromLegacyConfig()` splits a pre-0.3 single-file config,
+  triggered by the *absence* of `state.json` (no version stamp), keeping the
+  original at `config.json.pre-0.3` and stripping moved keys via
+  `JSONSerialization` so unmodelled keys survive. Unparseable files are
+  *moved* to the first free `.bak`/`.bak.N`, never copied over an earlier
+  backup. `CGPoint` encodes as `[x, y]`, not `{"x":…}`.
   `noticeDuration` (seconds, floor 1) controls how long notice bubbles stay.
 - **Hotkeys:** ⌃⌥Space (capture), ⌃⌥V (hopper), ⌃⌥C (paste — plugin dispatch
   from clipboard), ⌃⌥O (notice action — registered only while an actionable
@@ -177,6 +190,8 @@ Key site details:
 - Download button targets `releases/latest/download/Chestnut.dmg`.
 - Naming: the pet is "Chestnut" in copy, never "the chestnut". When a generic
   noun is needed: "a pixel-art treasure chest creature".
+- **No em-dashes in site copy.** Use commas, colons, or separate sentences.
+  (Code comments in `docs/*.js` / `docs/*.css` are exempt.)
 - Demos will drift if the real panels or menu change — reminder comments sit in
   the relevant Swift source files.
 

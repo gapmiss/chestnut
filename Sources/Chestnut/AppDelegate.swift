@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var config = Config.load()
+    private var state = AppState.load()
     private let controller = PetController()
     private let registry = VaultRegistry()
     private let watcher = VaultWatcher()
@@ -37,14 +38,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         DebugLog.configure(enabled: config.debug)
         DebugLog.log("config loaded from \(Config.fileURL.path)")
+        DebugLog.log("state loaded from \(AppState.fileURL.path)")
+        // Gives new users a documented file to edit; never touches an existing one.
+        config.createIfMissing()
         UserDefaults.standard.set(300, forKey: "NSInitialToolTipDelay")
         if let custom = config.customThemes {
             SpriteTheme.registerCustomThemes(custom)
             DebugLog.log("config: registered \(custom.count) custom theme(s): \(custom.map(\.id))")
         }
-        if SpriteTheme.theme(id: config.petTheme).id != config.petTheme {
-            DebugLog.log("config: theme \"\(config.petTheme)\" invalid, falling back to default")
-            config.petTheme = SpriteTheme.defaultID
+        if SpriteTheme.theme(id: state.petTheme).id != state.petTheme {
+            DebugLog.log("config: theme \"\(state.petTheme)\" invalid, falling back to default")
+            state.petTheme = SpriteTheme.defaultID
         }
         openPetWindow()
         controller.start()
@@ -77,7 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "This version of Chestnut supports api \(PluginManifest.maxAPI)"
             )
         }
-        pluginRegistry.disabled = config.disabledPlugins
+        pluginRegistry.disabled = state.disabledPlugins
         pluginRegistry.start()
     }
 
@@ -87,10 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openPetWindow() {
-        let window = PetWindow(config: config, controller: controller)
-        window.onConfigChange = { [weak self] newConfig in
-            self?.config = newConfig
-            newConfig.save()
+        let window = PetWindow(state: state, config: config, controller: controller)
+        window.onStateChange = { [weak self] newState in
+            self?.state = newState
+            newState.save()
         }
         window.onSelectSize = { [weak self] size in
             self?.changeSize(to: size)
@@ -138,17 +142,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.pluginRegistry.plugins ?? []
         }
         window.isPluginEnabled = { [weak self] name in
-            !(self?.config.disabledPlugins.contains(name) ?? false)
+            !(self?.state.disabledPlugins.contains(name) ?? false)
         }
         window.togglePlugin = { [weak self] name in
             guard let self else { return }
-            if self.config.disabledPlugins.contains(name) {
-                self.config.disabledPlugins.remove(name)
+            if self.state.disabledPlugins.contains(name) {
+                self.state.disabledPlugins.remove(name)
             } else {
-                self.config.disabledPlugins.insert(name)
+                self.state.disabledPlugins.insert(name)
             }
-            self.pluginRegistry.disabled = self.config.disabledPlugins
-            self.config.save()
+            self.pluginRegistry.disabled = self.state.disabledPlugins
+            self.state.save()
         }
         window.onOpenPluginsFolder = {
             let dir = PluginRegistry.pluginsDirectory
@@ -168,14 +172,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Rebuild the window at the new scale, keeping the pet's bottom-center put.
-    private func changeSize(to size: Config.PetSize) {
+    private func changeSize(to size: AppState.PetSize) {
         guard let old = petWindow else { return }
         palette?.dismiss()
         let oldFrame = old.frame
         let newSize = PetWindow.contentSize(for: size)
-        config.size = size
-        config.position = NSPoint(x: oldFrame.midX - newSize.width / 2, y: oldFrame.minY)
-        config.save()
+        state.size = size
+        state.position = NSPoint(x: oldFrame.midX - newSize.width / 2, y: oldFrame.minY)
+        state.save()
         old.close()
         openPetWindow()
     }
@@ -185,8 +189,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func changeTheme(to id: String) {
         guard let old = petWindow else { return }
         palette?.dismiss()
-        config.petTheme = id
-        config.save()
+        state.petTheme = id
+        state.save()
         old.close()
         openPetWindow()
     }
@@ -196,12 +200,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Registry order (open-first/most-recent) with the pinned vault hoisted
     /// to the top, so it starts highlighted and owns ⌘1 in the capture panel.
     private func pinnedFirst(_ vaults: [Vault]) -> [Vault] {
-        VaultRegistry.pinnedFirst(vaults, pinnedPath: config.pinnedVaultPath)
+        VaultRegistry.pinnedFirst(vaults, pinnedPath: state.pinnedVaultPath)
     }
 
     private func setPinnedVault(_ path: String?) {
-        config.pinnedVaultPath = path
-        config.save()
+        state.pinnedVaultPath = path
+        state.save()
     }
 
     private func toggleHopper() {
@@ -213,7 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentPalette(
             VaultPalettePanel(
                 vaults: pinnedFirst(registry.vaults),
-                pinnedPath: config.pinnedVaultPath,
+                pinnedPath: state.pinnedVaultPath,
                 onOpenDaily: { [weak self] vault in
                     self?.openDailyNote(in: vault)
                 },
@@ -278,7 +282,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             VaultPalettePanel(
                 vaults: pinnedFirst(destinations),
                 placeholder: copy ? "Copy to vault…" : "Deliver to vault…",
-                pinnedPath: config.pinnedVaultPath,
+                pinnedPath: state.pinnedVaultPath,
                 onPinChange: { [weak self] path in
                     self?.setPinnedVault(path)
                 }
@@ -370,8 +374,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let vaults = pinnedFirst(registry.vaults)
         let draftTarget = captureDraft.isEmpty ? nil : captureTargetPath
         let target = vaults.first { $0.path == draftTarget }
-            ?? vaults.first { $0.path == config.pinnedVaultPath }
-            ?? vaults.first { $0.path == config.lastCaptureVaultPath }
+            ?? vaults.first { $0.path == state.pinnedVaultPath }
+            ?? vaults.first { $0.path == state.lastCaptureVaultPath }
             ?? vaults[0]
         presentPalette(
             CapturePanel(
@@ -397,8 +401,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         attachments: [PluginAttachment] = []
     ) {
         DebugLog.log("capture: to \(vault.name) (\(vault.path)), \(text.count) chars, attachments=\(attachments.count)")
-        config.lastCaptureVaultPath = vault.path
-        config.save()
+        state.lastCaptureVaultPath = vault.path
+        state.save()
 
         let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
         if !attachments.isEmpty {
@@ -684,9 +688,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var resolved: Vault? = nil
 
         if hint == "pinned" {
-            resolved = registry.vaults.first { $0.path == config.pinnedVaultPath }
+            resolved = registry.vaults.first { $0.path == state.pinnedVaultPath }
         } else if hint == "last" {
-            resolved = registry.vaults.first { $0.path == config.lastCaptureVaultPath }
+            resolved = registry.vaults.first { $0.path == state.lastCaptureVaultPath }
         } else if let hint, hint != "ask" {
             if let vault = registry.vaults.first(where: { $0.path == hint }) {
                 resolved = vault
@@ -714,7 +718,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let panel = VaultPalettePanel(
                 vaults: vaults,
                 placeholder: "Save to vault\u{2026}",
-                pinnedPath: config.pinnedVaultPath,
+                pinnedPath: state.pinnedVaultPath,
                 onPinChange: { [weak self] path in
                     self?.setPinnedVault(path)
                 }

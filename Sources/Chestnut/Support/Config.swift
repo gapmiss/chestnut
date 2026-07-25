@@ -1,40 +1,16 @@
 import Foundation
 
-/// App settings, stored as JSON in ~/Library/Application Support/Chestnut/.
+/// Hand-edited settings, stored as JSON in ~/Library/Application Support/Chestnut/.
 /// Chestnut's own config only — never anything inside a vault or `.obsidian/`.
+///
+/// This file belongs to the user. Chestnut writes it exactly twice in its life:
+/// once to create it if it's missing, and once to migrate a pre-0.3 config (see
+/// `AppState.migrateFromLegacyConfig`). Everything the app changes for itself —
+/// window position, size, theme, pinned vault, disabled plugins — lives in
+/// `AppState`, so a window drag can never clobber a hand-edited hotkey.
+///
+/// Changes here take effect on next launch; nothing re-reads the file.
 struct Config: Codable, Equatable {
-    enum PetSize: String, Codable, CaseIterable {
-        case small, medium, large
-
-        var pixelScale: CGFloat {
-            switch self {
-            case .small: 4
-            case .medium: 6
-            case .large: 8
-            }
-        }
-
-        var title: String {
-            switch self {
-            case .small: "Small"
-            case .medium: "Medium"
-            case .large: "Large"
-            }
-        }
-    }
-
-    /// Window origin (screen coordinates); nil = default bottom-right.
-    var position: CGPoint?
-    var size: PetSize = .medium
-    /// Courier: drops copy instead of move by default (⌥ flips either way).
-    var courierCopyByDefault = false
-    /// Pet window opacity; the floor keeps the pet findable.
-    var opacity = 1.0
-    /// Capture: vault that last received a quick capture (keyed by path).
-    var lastCaptureVaultPath: String?
-    /// User-pinned "home" vault (keyed by path): sorts first in the vault
-    /// palettes and wins the capture default over lastCaptureVaultPath.
-    var pinnedVaultPath: String?
     /// Capture: note at the vault root receiving captures when the daily note
     /// can't be determined. Hand-editable; a bare file name, no folders.
     var captureInboxName = "Inbox.md"
@@ -43,8 +19,6 @@ struct Config: Codable, Equatable {
     var captureFormat: String?
     /// Folder for Chestnut-native daily notes (relative to vault root).
     var captureFolder: String?
-    /// Sprite theme id (see SpriteTheme.all).
-    var petTheme = SpriteTheme.defaultID
     /// Custom palette override, hand-editable only (no UI): role char →
     /// "#RRGGBB"/"#RRGGBBAA", applied on top of the theme. Kept verbatim so
     /// saving doesn't rewrite a hand-edited config; entries that don't parse
@@ -54,39 +28,25 @@ struct Config: Codable, Equatable {
     var customThemes: [CustomThemeConfig]?
     /// How long notice bubbles stay visible (seconds).
     var noticeDuration = 5.0
-    /// Show the pet window over full-screen apps.
-    var showInFullScreen = true
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
     var debug = false
-    var disabledPlugins: Set<String> = []
 
     private enum CodingKeys: String, CodingKey {
-        case position, size, courierCopyByDefault, opacity
-        case lastCaptureVaultPath, pinnedVaultPath
         case captureInboxName, captureFormat, captureFolder
-        case petTheme, petPalette, customThemes
-        case noticeDuration, showInFullScreen, hotkeys, debug
-        case disabledPlugins
+        case petPalette, customThemes
+        case noticeDuration, hotkeys, debug
     }
 
-    static let opacityRange = 0.1...1.0
     static let defaultInboxName = "Inbox.md"
 
     init() {}
 
     /// Tolerant decoding: configs written by older builds lack newer keys.
+    /// Keys that moved to `AppState` in 0.3 are ignored if still present.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        position = try c.decodeIfPresent(CGPoint.self, forKey: .position)
-        size = try c.decodeIfPresent(PetSize.self, forKey: .size) ?? .medium
-        courierCopyByDefault =
-            try c.decodeIfPresent(Bool.self, forKey: .courierCopyByDefault) ?? false
-        let rawOpacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
-        opacity = rawOpacity.clamped(to: Self.opacityRange)  // hand-edited configs
-        lastCaptureVaultPath = try c.decodeIfPresent(String.self, forKey: .lastCaptureVaultPath)
-        pinnedVaultPath = try c.decodeIfPresent(String.self, forKey: .pinnedVaultPath)
         let rawInbox = try c.decodeIfPresent(String.self, forKey: .captureInboxName)
             ?? Self.defaultInboxName
         // Hand-edited configs: a path here could climb out of the vault.
@@ -96,20 +56,22 @@ struct Config: Codable, Equatable {
         captureFolder = try c.decodeIfPresent(String.self, forKey: .captureFolder)
         petPalette = try c.decodeIfPresent([String: String].self, forKey: .petPalette)
         customThemes = try c.decodeIfPresent([CustomThemeConfig].self, forKey: .customThemes)
-        // Theme id validation is deferred: custom themes aren't registered yet
-        // at decode time, so accept any non-empty id here. AppDelegate validates
-        // after registerCustomThemes.
-        petTheme = try c.decodeIfPresent(String.self, forKey: .petTheme)
-            ?? SpriteTheme.defaultID
         let rawNotice = try c.decodeIfPresent(Double.self, forKey: .noticeDuration) ?? 5.0
         noticeDuration = max(rawNotice, 1.0)
-        showInFullScreen =
-            try c.decodeIfPresent(Bool.self, forKey: .showInFullScreen) ?? true
         hotkeys = try c.decodeIfPresent(HotkeyConfig.self, forKey: .hotkeys) ?? HotkeyConfig()
         debug = try c.decodeIfPresent(Bool.self, forKey: .debug) ?? false
-        disabledPlugins = Set(
-            try c.decodeIfPresent([String].self, forKey: .disabledPlugins) ?? []
-        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(captureInboxName, forKey: .captureInboxName)
+        try c.encodeIfPresent(captureFormat, forKey: .captureFormat)
+        try c.encodeIfPresent(captureFolder, forKey: .captureFolder)
+        try c.encodeIfPresent(petPalette, forKey: .petPalette)
+        try c.encodeIfPresent(customThemes, forKey: .customThemes)
+        try c.encode(noticeDuration, forKey: .noticeDuration)
+        try c.encode(hotkeys, forKey: .hotkeys)
+        if debug { try c.encode(true, forKey: .debug) }
     }
 
     static var fileURL: URL {
@@ -124,16 +86,41 @@ struct Config: Codable, Equatable {
         do {
             return try JSONDecoder().decode(Config.self, from: data)
         } catch {
-            let backup = fileURL.appendingPathExtension("bak")
-            try? data.write(to: backup, options: .atomic)
-            NSLog("Config load failed (%@) — original preserved at %@",
-                  error.localizedDescription, backup.path)
+            // Move the unreadable file aside rather than copy it: defaults are
+            // then written to a clean path instead of overwriting JSON the user
+            // could have fixed by hand.
+            let backup = Self.availableBackupURL(
+                base: fileURL.appendingPathExtension("bak"),
+                exists: { FileManager.default.fileExists(atPath: $0.path) }
+            )
+            do {
+                try FileManager.default.moveItem(at: fileURL, to: backup)
+                NSLog("Config load failed (%@) — original moved to %@",
+                      error.localizedDescription, backup.path)
+            } catch {
+                NSLog("Config load failed and the original could not be moved aside: %@",
+                      error.localizedDescription)
+            }
             return Config()
         }
     }
 
-    func save() {
+    /// First unused backup name (`config.json.bak`, `config.json.bak.1`, …) so
+    /// recovering an earlier failure stays possible.
+    static func availableBackupURL(base: URL, exists: (URL) -> Bool) -> URL {
+        guard exists(base) else { return base }
+        for n in 1...99 {
+            let candidate = base.appendingPathExtension(String(n))
+            if !exists(candidate) { return candidate }
+        }
+        return base.appendingPathExtension(String(Int(Date().timeIntervalSince1970)))
+    }
+
+    /// Writes the defaults so there's a documented file to edit — only when
+    /// none exists. Never overwrites: an existing config is the user's.
+    func createIfMissing() {
         let url = Self.fileURL
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
         do {
             try FileManager.default.createDirectory(
                 at: url.deletingLastPathComponent(), withIntermediateDirectories: true
@@ -142,30 +129,7 @@ struct Config: Codable, Equatable {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             try encoder.encode(self).write(to: url, options: .atomic)
         } catch {
-            NSLog("Config save failed: %@", error.localizedDescription)
-        }
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encodeIfPresent(position, forKey: .position)
-        try c.encode(size, forKey: .size)
-        try c.encode(courierCopyByDefault, forKey: .courierCopyByDefault)
-        try c.encode(opacity, forKey: .opacity)
-        try c.encodeIfPresent(lastCaptureVaultPath, forKey: .lastCaptureVaultPath)
-        try c.encodeIfPresent(pinnedVaultPath, forKey: .pinnedVaultPath)
-        try c.encode(captureInboxName, forKey: .captureInboxName)
-        try c.encodeIfPresent(captureFormat, forKey: .captureFormat)
-        try c.encodeIfPresent(captureFolder, forKey: .captureFolder)
-        try c.encode(petTheme, forKey: .petTheme)
-        try c.encodeIfPresent(petPalette, forKey: .petPalette)
-        try c.encodeIfPresent(customThemes, forKey: .customThemes)
-        try c.encode(noticeDuration, forKey: .noticeDuration)
-        try c.encode(showInFullScreen, forKey: .showInFullScreen)
-        try c.encode(hotkeys, forKey: .hotkeys)
-        if debug { try c.encode(true, forKey: .debug) }
-        if !disabledPlugins.isEmpty {
-            try c.encode(disabledPlugins.sorted(), forKey: .disabledPlugins)
+            NSLog("Config create failed: %@", error.localizedDescription)
         }
     }
 }
