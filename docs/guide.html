@@ -352,8 +352,8 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       <code>config.json</code> is yours: hotkeys, custom sprite themes,
       capture destination. Chestnut never writes to it, apart from creating
       it on first run. Hand-editable; changes take effect on next launch.
-      Right-click the pet and pick <strong>Edit Configuration&hellip;</strong>
-      to open it.
+      Right-click the pet and pick
+      <strong>Settings &rarr; Edit Configuration&hellip;</strong> to open it.
     </p>
     <p>
       <code>state.json</code> is Chestnut's: window position, size, opacity,
@@ -471,7 +471,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Notice duration</h3>
     <p>
       How long the speech bubble stays visible. Set it from the right-click
-      menu → Notice Duration, anywhere from 1 to 30 seconds. The slider
+      menu → Settings → Notice Bubble, anywhere from 1 to 30 seconds. The slider
       prints the value as you drag, and the next bubble uses it: no relaunch.
       It's stored in <code>state.json</code>.
     </p>
@@ -541,24 +541,24 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       <table>
         <thead><tr><th>Item</th><th>What it does</th></tr></thead>
         <tbody>
-          <tr><td>Size</td><td>Small, Medium (default), or Large sprite.</td></tr>
-          <tr><td>Theme</td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
-          <tr><td>Opacity</td><td>Slider from 10% to 100%.</td></tr>
-          <tr><td>Notice Duration</td><td>Slider from 1 to 30 seconds, with a live readout. Applies to the next speech bubble.</td></tr>
-          <tr><td>Reset Position</td><td>Moves the pet back to the default corner.</td></tr>
           <tr><td>Vaults&hellip;</td><td>Opens the Vault Hopper palette.</td></tr>
           <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
           <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy).</td></tr>
           <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append.</td></tr>
-          <tr><td>Copy on Drop</td><td>Toggle default behavior: copy files instead of moving them.</td></tr>
-          <tr><td>Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
+          <tr><td><strong>Size &rarr;</strong></td><td>Small, Medium (default), or Large sprite.</td></tr>
+          <tr><td><strong>Theme &rarr;</strong></td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
+          <tr><td><strong>Settings &rarr;</strong></td><td>Everything you set once, one level down.</td></tr>
+          <tr><td>Settings &rarr; Opacity</td><td>Slider from 10% to 100%.</td></tr>
+          <tr><td>Settings &rarr; Notice Bubble</td><td>Slider from 1 to 30 seconds, with a live readout. Applies to the next speech bubble.</td></tr>
+          <tr><td>Settings &rarr; Copy on Drop</td><td>Toggle default behavior: copy files instead of moving them.</td></tr>
+          <tr><td>Settings &rarr; Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
+          <tr><td>Settings &rarr; Launch at Login</td><td>Toggle auto-start at login (uses SMAppService).</td></tr>
+          <tr><td>Settings &rarr; Reset Position</td><td>Moves the pet back to the default corner.</td></tr>
+          <tr><td>Settings &rarr; Edit Configuration&hellip;</td><td>Opens <code>config.json</code> in whatever you edit JSON with. Changes apply on next launch.</td></tr>
           <tr><td><strong>Plugins &rarr;</strong></td><td>Lists installed plugins with checkmarks. Toggle to enable/disable.</td></tr>
           <tr><td>Plugins &rarr; Open Plugins Folder</td><td>Opens <code>~/.config/chestnut/plugins/</code> in Finder.</td></tr>
-          <tr><td>Edit Configuration&hellip;</td><td>Opens <code>config.json</code> in whatever you edit JSON with. Changes apply on next launch.</td></tr>
-          <tr><td>Chestnut <em>version</em></td><td>Shows the current version (not clickable).</td></tr>
-          <tr><td>Check for Updates&hellip;</td><td>Opens the GitHub releases page in your browser.</td></tr>
+          <tr><td>Check for Updates&hellip;</td><td>Opens the GitHub releases page in your browser. Badged with the version you're running.</td></tr>
           <tr><td>Support Chestnut</td><td>Opens the GitHub Sponsors page.</td></tr>
-          <tr><td>Launch at Login</td><td>Toggle auto-start at login (uses SMAppService).</td></tr>
           <tr><td>Quit Chestnut</td><td>Quits the app.</td></tr>
         </tbody>
       </table>

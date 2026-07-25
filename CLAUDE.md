@@ -127,13 +127,25 @@ Checks/
   copied over an earlier backup. `CGPoint` encodes as `[x, y]`, not `{"x":…}`.
   `noticeDuration` (seconds, clamped to 1–30) is set from the menu and applies
   to the next bubble without a relaunch.
+- **Right-click menu** (`PetWindow.showMenu`) is ordered actions first, then
+  the pet's identity, then about: Vaults…/Capture… · Undo Delivery/Undo
+  Capture · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
+  (version + ↗ in one badge) / Support Chestnut · Quit. Size and Theme stay
+  top-level deliberately; everything set-once lives in Settings ▸, which is
+  flat — **the menu never reaches a third level**. `showMenu` is an assembly
+  list; one builder method per group. Both slider rows go through
+  `sliderRow(label:value:range:action:readout:)` and must declare the same
+  width, since `NSMenu` sizes to its widest item. Sliders persist on mouse-up
+  only, never on drag ticks. The website re-creates this menu by hand
+  (`docs/chestnut.js`, `renderMenu`) and nothing checks the two agree — change
+  them together. Rationale and rejected alternatives: `MENU-PLAN.md`.
 - **Hotkeys:** ⌃⌥Space (capture), ⌃⌥V (hopper), ⌃⌥C (paste — plugin dispatch
   from clipboard), ⌃⌥O (notice action — registered only while an actionable
   bubble is visible). All configurable via config.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
-- **Launch at login:** `SMAppService.mainApp`, toggled in right-click menu.
-- **Full-screen visibility:** `collectionBehavior`-based, toggled in menu.
+- **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
+- **Full-screen visibility:** `collectionBehavior`-based, toggled in Settings.
   orderOut/orderFront on toggle to force window-server re-evaluation.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
   fallback. Trusted path lookup only (never `$PATH`).
@@ -148,7 +160,7 @@ Checks/
   exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
-  submenu (persisted in `config.json` as `disabledPlugins`). Manifests support an
+  submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
   within a broad `accepts` category — unmatched files fall through to the courier.
   Folder drops route to a `folder` plugin when one exists; otherwise the courier

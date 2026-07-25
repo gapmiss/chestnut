@@ -476,6 +476,13 @@ pre:hover .copy-btn { opacity: 1; }
 /* Right-click menu (re-creation of the app's context menu) */
 
 .menu {
+  /* A row's label sits at row-pad, or at row-pad + check + gap in a menu with
+     checkmarks. The slider rows have to match that second figure to line up, so
+     derive it rather than hardcoding it in two places. */
+  --menu-row-pad: 8px;
+  --menu-check-w: 11px;
+  --menu-gap: 7px;
+  --menu-label-x: calc(var(--menu-row-pad) + var(--menu-check-w) + var(--menu-gap));
   position: absolute;
   z-index: 6;
   min-width: 230px;
@@ -497,16 +504,26 @@ pre:hover .copy-btn { opacity: 1; }
   position: relative;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 3px 9px 3px 4px;
+  gap: var(--menu-gap);
+  padding: 2px 9px 2px var(--menu-row-pad);
   border-radius: 5px;
   white-space: nowrap;
-  line-height: 1.5;
+  line-height: 1.35;
 }
 .menu-item:hover { background: var(--accent); color: #fff; }
 .menu-item.disabled { color: var(--text-tertiary); pointer-events: none; }
 
-.menu-check { width: 15px; text-align: center; font-size: 11px; flex: none; }
+/* AppKit reserves the checkmark column per menu, not per row: a menu with no
+   checkable item sits flush (the top level), one with any of them indents every
+   row so the labels line up (Size, Theme, Settings, Plugins). */
+.menu-check { display: none; }
+.menu.has-checks .menu-check {
+  display: block;
+  width: var(--menu-check-w);
+  text-align: center;
+  font-size: 11px;
+  flex: none;
+}
 .menu-icon { line-height: 0; }
 .menu-icon svg { width: 14px; height: 14px; }
 
@@ -521,10 +538,13 @@ pre:hover .copy-btn { opacity: 1; }
 .menu-arrow { margin-left: auto; padding-left: 18px; color: var(--text-tertiary); }
 .menu-item:hover .menu-arrow { color: #fff; }
 
+/* Sized by content, not just the bare ↗: Check for Updates… carries the
+   version in here too, and a pill with no side padding looks clipped. */
 .menu-badge {
   margin-left: auto;
   min-width: 21px;
   height: 15px;
+  padding: 0 6px;
   display: grid;
   place-items: center;
   border-radius: 8px;
@@ -565,21 +585,22 @@ pre:hover .copy-btn { opacity: 1; }
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px;
+  padding: 4px 10px 4px var(--menu-label-x);
   color: var(--text-secondary);
 }
-.menu-slider svg { width: 13px; height: 13px; flex: none; }
+/* Fixed label and readout widths: the two slider rows line up with each other,
+   and "1s" doesn't shove the slider on the way to "30s". Tabular digits for
+   the same reason. */
+.menu-slider-label { flex: none; width: 88px; color: var(--text); }
 .menu-slider input {
   flex: 1;
   width: 110px;
   margin: 0;
   accent-color: var(--accent);
 }
-/* Fixed width and tabular digits: "1s" must not shove the slider on the
-   way to "30s". */
 .menu-readout {
   flex: none;
-  width: 26px;
+  width: 30px;
   text-align: right;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
