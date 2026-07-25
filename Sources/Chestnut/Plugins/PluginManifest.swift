@@ -33,7 +33,10 @@ struct PluginManifest: Sendable {
 enum ManifestLoadResult: Sendable {
     case ok(PluginManifest)
     case apiTooHigh(name: String, api: Int)
-    case invalid
+    /// Rejected, with a reason to log. A rejected plugin has no menu entry and
+    /// no notice, so without this the author sees nothing at all — the failure
+    /// mode a `command`/`script` typo in the published guide used to produce.
+    case invalid(reason: String)
 }
 
 extension PluginManifest {
@@ -50,28 +53,42 @@ extension PluginManifest {
 
     static func load(from directory: URL) -> ManifestLoadResult {
         let manifestURL = directory.appendingPathComponent("manifest.json")
-        guard let data = try? Data(contentsOf: manifestURL),
-              let raw = try? JSONDecoder().decode(Raw.self, from: data)
-        else { return .invalid }
+        guard let data = try? Data(contentsOf: manifestURL) else {
+            return .invalid(reason: "manifest.json is missing or unreadable")
+        }
+        let raw: Raw
+        do {
+            raw = try JSONDecoder().decode(Raw.self, from: data)
+        } catch {
+            // The decoder's message names the offending key, which is the
+            // whole point: a manifest using the wrong field name should say so.
+            return .invalid(reason: "manifest.json did not parse: \(error)")
+        }
 
         if raw.api > maxAPI {
             return .apiTooHigh(name: raw.name, api: raw.api)
         }
 
         guard let outputMode = PluginOutputMode(rawValue: raw.output) else {
-            return .invalid
+            return .invalid(reason: "unknown output mode \"\(raw.output)\"")
         }
 
         let accepts = raw.accepts.compactMap { PluginInputType(rawValue: $0) }
-        guard !accepts.isEmpty else { return .invalid }
+        guard !accepts.isEmpty else {
+            return .invalid(
+                reason: "no recognized input type in accepts \(raw.accepts)")
+        }
 
         let scriptURL = directory.appendingPathComponent(raw.script)
             .standardized
         let dirPrefix = directory.standardized.path + "/"
-        guard scriptURL.path.hasPrefix(dirPrefix),
-              FileManager.default.isExecutableFile(atPath: scriptURL.path)
-        else {
-            return .invalid
+        guard scriptURL.path.hasPrefix(dirPrefix) else {
+            return .invalid(
+                reason: "script \"\(raw.script)\" resolves outside the plugin folder")
+        }
+        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+            return .invalid(
+                reason: "script \"\(raw.script)\" is missing or not executable (chmod +x)")
         }
 
         let exts = Set((raw.extensions ?? []).map { $0.lowercased() })

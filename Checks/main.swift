@@ -724,8 +724,9 @@ struct Check {
         let noScriptDir = writePlugin("no-script", manifest: """
         {"api":1,"name":"no-script","accepts":["text"],"output":"capture","script":"missing.sh"}
         """)
-        if case .invalid = PluginManifest.load(from: noScriptDir) {
-            check(true, "missing script → .invalid")
+        if case .invalid(let reason) = PluginManifest.load(from: noScriptDir) {
+            check(reason.contains("not executable") || reason.contains("missing"),
+                  "missing script → .invalid naming the script (\(reason))")
         } else {
             check(false, "manifest with missing script should be .invalid")
         }
@@ -734,10 +735,24 @@ struct Check {
         let escapeDir = writePlugin("escape", manifest: """
         {"api":1,"name":"escape","accepts":["text"],"output":"capture","script":"../../etc/passwd"}
         """, script: "#!/bin/bash\necho hi")
-        if case .invalid = PluginManifest.load(from: escapeDir) {
-            check(true, "script escaping plugin dir → .invalid")
+        if case .invalid(let reason) = PluginManifest.load(from: escapeDir) {
+            check(reason.contains("outside the plugin folder"),
+                  "script escaping plugin dir → .invalid saying so (\(reason))")
         } else {
             check(false, "manifest with escaping script path should be .invalid")
+        }
+
+        // The M4 failure itself: a manifest using the field name the guide
+        // used to document. It must be rejected with a reason that names the
+        // key, not vanish silently.
+        let wrongKeyDir = writePlugin("wrong-key", manifest: """
+        {"api":1,"name":"wrong-key","accepts":["text"],"output":"capture","command":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .invalid(let reason) = PluginManifest.load(from: wrongKeyDir) {
+            check(reason.contains("did not parse") && reason.contains("script"),
+                  "manifest using \"command\" instead of \"script\" → .invalid naming the key")
+        } else {
+            check(false, "manifest with \"command\" instead of \"script\" should be .invalid")
         }
 
         // Default timeout.

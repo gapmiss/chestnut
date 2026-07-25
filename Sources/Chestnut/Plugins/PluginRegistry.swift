@@ -93,8 +93,11 @@ final class PluginRegistry {
                 }
             case .apiTooHigh(let name, let api):
                 onAPINotice?(name, api)
-            case .invalid:
-                break
+            case .invalid(let reason):
+                // No notice: a rejected manifest shouldn't nag on every
+                // rescan. But it must leave a trail, or the author sees a
+                // plugin that simply never appears.
+                DebugLog.log("plugin \"\(entry.lastPathComponent)\" rejected: \(reason)")
             }
         }
 

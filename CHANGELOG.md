@@ -8,6 +8,15 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **The plugin guide documented the wrong field name, so every copy-pasted
+  manifest silently failed to load.** The manifest reference and both worked
+  examples called the script field `command`; the parser has always required
+  `script`. A plugin built by following the guide never appeared in the
+  Plugins menu and produced no error anywhere. The docs are corrected, and a
+  manifest Chestnut rejects now writes the reason to the debug log — naming
+  the offending key, the unknown output mode, or the script it could not
+  execute — instead of disappearing without a word.
+
 - **A plugin's attachments no longer follow you to an unrelated capture.**
   If a plugin queued a file and you dismissed the capture panel instead of
   submitting, that file stayed queued for the rest of the session and was

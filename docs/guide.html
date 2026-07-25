@@ -182,7 +182,7 @@
           <tr><td><code>api</code></td><td>number</td><td>Always <code>1</code>.</td></tr>
           <tr><td><code>name</code></td><td>string</td><td>Display name (shown in menus and the picker).</td></tr>
           <tr><td><code>description</code></td><td>string</td><td>Short description (shown under the name in the Plugins menu).</td></tr>
-          <tr><td><code>command</code></td><td>string</td><td>Path to the script, relative to the plugin folder. Must be executable (shebang + <code>chmod +x</code>).</td></tr>
+          <tr><td><code>script</code></td><td>string</td><td>Path to the script, relative to the plugin folder. Must be executable (shebang + <code>chmod +x</code>).</td></tr>
           <tr><td><code>accepts</code></td><td>string[]</td><td>Input types this plugin handles. See <a href="#input-types">input types</a>.</td></tr>
           <tr><td><code>extensions</code></td><td>string[]</td><td>Optional. Narrows <code>file</code> matching to specific extensions (e.g. <code>["csv", "txt"]</code>). Omit to accept all files.</td></tr>
           <tr><td><code>output</code></td><td>string</td><td>Output mode. See <a href="#output-modes">output modes</a>.</td></tr>
@@ -315,7 +315,7 @@
   "api": 1,
   "name": "Bookmark",
   "description": "Save a URL as a markdown note",
-  "command": "./save-bookmark.sh",
+  "script": "./save-bookmark.sh",
   "accepts": ["url"],
   "output": "save"
 }</code></pre>
