@@ -561,8 +561,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <p>
       See <a href="#getting-started">Getting started</a>. The quickest fix is
       the <code>xattr</code> command. Homebrew's <code>--no-quarantine</code>
-      flag avoids this entirely.
+      flag avoids it on install.
     </p>
+    <p>
+      <code>brew upgrade</code> does not carry that flag forward, so a blocked
+      launch can come back after upgrading. Run the <code>xattr</code> command
+      again, or upgrade by reinstalling:
+    </p>
+    <pre><code class="language-bash">brew reinstall --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
 
     <h3>Hotkeys don't work</h3>
     <p>

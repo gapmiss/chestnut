@@ -62,6 +62,14 @@ launch. To allow it:
 xattr -dr com.apple.quarantine /Applications/Chestnut.app
 ```
 
+`brew upgrade` does not carry `--no-quarantine` forward, so a blocked launch
+can come back after upgrading. Run the `xattr` command above, or upgrade by
+reinstalling:
+
+```bash
+brew reinstall --cask --no-quarantine gapmiss/tap/chestnut
+```
+
 To start automatically, right-click the pet and toggle Launch at Login.
 
 ## Requirements
