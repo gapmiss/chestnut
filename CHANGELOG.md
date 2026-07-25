@@ -17,6 +17,20 @@ Notable, user-facing changes to Chestnut. The format follows
   the file is dropped; rewrite the draft into something else and nothing
   follows. Dismissing still keeps your draft exactly as before.
 
+- **Undo Last Capture now reverses the attachments as well as the text.**
+  Undoing a capture that a plugin had added images to used to report success,
+  remove the text, and leave every image sitting in your vault with no record
+  they belonged to it. Those files now go to the Trash along with the text,
+  never deleted. An undo that refuses because the note changed underneath it
+  leaves the files alone, as before.
+
+- **A capture that fails no longer leaves files behind, or loses what you
+  typed.** Attachments used to be copied into the vault before the note was
+  written, so a failed capture stranded them with nothing referring to them.
+  The note is written first now. And because submitting cleared the draft
+  before the write, "Capture failed" used to take your text with it; the draft
+  and any attachments now come back, so you can retry or copy the text out.
+
 ## [0.4.0] — 2026-07-25
 
 ### Added

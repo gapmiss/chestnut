@@ -407,50 +407,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.lastCaptureVaultPath = vault.path
         state.save()
 
-        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
-
         // Only files the note refers to are copied; see
         // partitionAttachmentsByReference. A draft that survived a dismissed
         // panel and was then rewritten carries none of the old plugin's files.
+        // The split is pure — nothing is copied or deleted until the note is
+        // safely written, so a failed capture leaves the vault and the queued
+        // temp files exactly as they were.
         let (referenced, unreferenced) =
             partitionAttachmentsByReference(attachments, inText: text)
-        if !unreferenced.isEmpty {
-            DebugLog.log("capture: dropping \(unreferenced.count) unreferenced attachment(s)")
-            for att in unreferenced where att.source.hasPrefix(tempPrefix) {
-                try? FileManager.default.removeItem(
-                    at: URL(fileURLWithPath: att.source))
-            }
-        }
-
-        if !referenced.isEmpty {
-            let vaultURL = URL(fileURLWithPath: vault.path)
-            let attDir = Courier().attachmentFolder(of: vaultURL)
-            try? FileManager.default.createDirectory(
-                at: attDir, withIntermediateDirectories: true
-            )
-            for att in referenced {
-                let dest = Courier.availableURL(
-                    for: attDir.appendingPathComponent(att.filename)
-                )
-                guard Courier.isContained(dest, inVault: vault.path) else {
-                    presentAlert(
-                        "Attachment save failed",
-                        "Target path would escape the vault root or write inside .obsidian/."
-                    )
-                    return
-                }
-                do {
-                    let src = URL(fileURLWithPath: att.source).standardizedFileURL
-                    try FileManager.default.copyItem(at: src, to: dest)
-                    if att.source.hasPrefix(tempPrefix) {
-                        try? FileManager.default.removeItem(at: src)
-                    }
-                } catch {
-                    presentAlert("Attachment save failed", error.localizedDescription)
-                    return
-                }
-            }
-        }
 
         let capture = self.capture
         let vaultURL = URL(fileURLWithPath: vault.path)
@@ -461,8 +425,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }.value
             guard let self else { return }
             switch result {
-            case .success(let record):
+            case .success(var record):
                 DebugLog.log("capture: success → \(record.notePath), created=\(record.createdFile)")
+                let copied = self.copyCaptureAttachments(referenced, toVault: vault)
+                self.discardTempAttachments(unreferenced)
+                record.attachmentPaths = copied.isEmpty ? nil : copied
                 do {
                     try self.captureJournal.append(record)
                 } catch {
@@ -478,8 +445,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     ObsidianBridge.openNote(path: record.notePath, vaultPath: record.vaultPath)
                 }
             case .failure(let error):
+                // The panel cleared the draft when it submitted. Put it and
+                // the queued attachments back, so a failed capture doesn't
+                // discard what the user wrote — reopening shows it again.
+                self.captureDraft = text
+                self.captureAttachments = attachments
                 self.presentAlert("Capture failed", error.localizedDescription)
             }
+        }
+    }
+
+    /// Copies a capture's referenced attachments into the vault's attachment
+    /// folder, returning where each landed so undo can trash them. Called only
+    /// after the note is written. A failure part-way still returns the paths
+    /// that did land, so undo can clean up what exists.
+    private func copyCaptureAttachments(
+        _ attachments: [PluginAttachment], toVault vault: Vault
+    ) -> [String] {
+        guard !attachments.isEmpty else { return [] }
+        let attDir = Courier().attachmentFolder(of: URL(fileURLWithPath: vault.path))
+        try? FileManager.default.createDirectory(
+            at: attDir, withIntermediateDirectories: true
+        )
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        var copied: [String] = []
+        for att in attachments {
+            let dest = Courier.availableURL(
+                for: attDir.appendingPathComponent(att.filename)
+            )
+            guard Courier.isContained(dest, inVault: vault.path) else {
+                presentAlert(
+                    "Attachment save failed",
+                    "Target path would escape the vault root or write inside .obsidian/."
+                )
+                return copied
+            }
+            do {
+                let src = URL(fileURLWithPath: att.source).standardizedFileURL
+                try FileManager.default.copyItem(at: src, to: dest)
+                copied.append(dest.path)
+                if att.source.hasPrefix(tempPrefix) {
+                    try? FileManager.default.removeItem(at: src)
+                }
+            } catch {
+                presentAlert("Attachment save failed", error.localizedDescription)
+                return copied
+            }
+        }
+        return copied
+    }
+
+    /// Removes the temp files behind attachments the note didn't refer to.
+    private func discardTempAttachments(_ attachments: [PluginAttachment]) {
+        guard !attachments.isEmpty else { return }
+        DebugLog.log("capture: dropping \(attachments.count) unreferenced attachment(s)")
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        for att in attachments where att.source.hasPrefix(tempPrefix) {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: att.source))
         }
     }
 

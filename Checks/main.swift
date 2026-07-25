@@ -347,6 +347,32 @@ struct Check {
             // Note edited after capture → undo refuses rather than guesses.
             write("v3/Inbox.md", "no newline\nstray\nedited later\n")
             check((try? engine.undo(inboxed)) == nil, "undo refuses when the note changed")
+
+            // --- Undo reverses attachments too ---
+            write("v1/files/shot.png", "PNG")
+            var withAtt = try engine.capture("![[shot.png]]", toVault: v1, date: date)
+            withAtt.attachmentPaths = [base.appendingPathComponent("v1/files/shot.png").path]
+            try engine.undo(withAtt)
+            check(!exists("v1/files/shot.png"),
+                  "capture undo trashes the capture's attachments")
+
+            // A refused undo must not touch the files: the text is the thing
+            // the user asked to reverse, and it is still there.
+            write("v3/Inbox.md", "no newline\nstray\nedited later\n")
+            write("v3/files/keep.png", "PNG")
+            var refused = inboxed
+            refused.attachmentPaths = [base.appendingPathComponent("v3/files/keep.png").path]
+            check((try? engine.undo(refused)) == nil, "undo still refuses when the note changed")
+            check(exists("v3/files/keep.png"),
+                  "a refused undo leaves attachments alone")
+
+            // Records journaled before attachments were tracked must decode.
+            let legacy = #"{"date":"2026-07-14T00:00:00Z","vaultPath":"/v","notePath":"/v/n.md","appended":"x","createdFile":false}"#
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let old = try? decoder.decode(CaptureRecord.self, from: Data(legacy.utf8))
+            check(old != nil && old?.attachmentPaths == nil,
+                  "capture record without attachmentPaths still decodes (no migration)")
         } catch {
             check(false, "capture round trip threw: \(error)")
         }

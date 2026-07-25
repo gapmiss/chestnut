@@ -9,6 +9,10 @@ struct CaptureRecord: Codable, Equatable {
     let appended: String
     /// The note was created by this capture (undo trashes it if unchanged).
     let createdFile: Bool
+    /// Where this capture's attachments landed, so undo can trash them.
+    /// Nil in records journaled before attachments were tracked, and in
+    /// captures that had none — the decoder treats both the same.
+    var attachmentPaths: [String]?
 }
 
 /// Splits a plugin's queued attachments by whether the note text refers to
@@ -112,12 +116,32 @@ struct Capture {
         let appended = Data(record.appended.utf8)
         if record.createdFile, data == appended {
             try fm.trashItem(at: note, resultingItemURL: nil)
+            trashAttachments(of: record)
             return
         }
         guard data.count >= appended.count, data.suffix(appended.count) == appended else {
             throw CaptureError.noteChanged(record.notePath)
         }
         try data.dropLast(appended.count).write(to: note, options: .atomic)
+        trashAttachments(of: record)
+    }
+
+    /// Attachments copied by a capture go to the Trash on undo, never deleted
+    /// — mirroring `Courier.undo`. Called only once the text has been
+    /// reversed, so an undo that refuses leaves the files alone.
+    ///
+    /// A file that won't trash is skipped silently. The note is already
+    /// reversed by this point, so throwing would report the whole undo as
+    /// failed when the part the user asked about succeeded; and this runs off
+    /// the main actor, where `DebugLog.log` isn't reachable. The file simply
+    /// stays put, which is the same outcome as before attachments were
+    /// journaled at all.
+    private func trashAttachments(of record: CaptureRecord) {
+        for path in (record.attachmentPaths ?? []).reversed() {
+            let url = URL(fileURLWithPath: path)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            try? fm.trashItem(at: url, resultingItemURL: nil)
+        }
     }
 
     // MARK: - Direct-FS append
