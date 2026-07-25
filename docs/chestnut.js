@@ -806,7 +806,7 @@ function showNotice(title, subtitle, hint) {
   noticeTimer = setTimeout(() => {
     noticeEl.style.opacity = "0";
     noticeTimer = setTimeout(() => { noticeEl.hidden = true; }, 320);
-  }, 5000);
+  }, menuState.noticeDuration * 1000);
 }
 
 noticeEl.addEventListener("click", () => {
@@ -816,8 +816,9 @@ noticeEl.addEventListener("click", () => {
 
 // ---------------------------------------------------------------------------
 // Right-click menu — re-creation of the app's context menu (PetWindow.showMenu).
-// Size/Theme/Opacity really restyle the canvas pet, Vaults…/Capture… open the
-// demo panels, and the ↗ rows are real browser links, just like the app's.
+// Size, Theme and Settings → Opacity really restyle the canvas pet,
+// Vaults…/Capture… open the demo panels, and the ↗ rows are real browser links,
+// just like the app's.
 // ---------------------------------------------------------------------------
 
 const stageEl = document.getElementById("stage");
@@ -828,6 +829,7 @@ const SIZE_SCALES = { Small: 5, Medium: 8, Large: 11 };
 const menuState = {
   size: "Medium",
   opacity: 1,
+  noticeDuration: 5,
   copyOnDrop: true,
   showInFullScreen: true,
   launchAtLogin: true,
@@ -840,6 +842,9 @@ const HEART_SVG =
   '<path d="M8 13.5C4.8 11 1.8 8.6 1.8 5.7 1.8 4 3.2 2.6 4.9 2.6c1.2 0 2.4.7 3.1 1.8' +
   '.7-1.1 1.9-1.8 3.1-1.8 1.7 0 3.1 1.4 3.1 3.1 0 2.9-3 5.3-6.2 7.8z"/></svg>';
 
+// `badge: true` renders the opens-in-browser arrow; a string renders as-is, so
+// Check for Updates… can carry the version too (the app's NSMenuItem allows
+// only one badge, hence the combined string).
 function menuItem({ label, check, hint, badge, icon, disabled, submenu, action }) {
   const item = document.createElement("div");
   item.className = "menu-item" + (disabled ? " disabled" : "");
@@ -847,10 +852,14 @@ function menuItem({ label, check, hint, badge, icon, disabled, submenu, action }
   if (icon) html += `<span class="menu-icon">${icon}</span>`;
   html += `<span class="menu-label"></span>`;
   if (hint) html += `<span class="menu-hint">${hint}</span>`;
-  if (badge) html += `<span class="menu-badge">↗</span>`;
+  if (badge) html += `<span class="menu-badge"></span>`;
   if (submenu) html += `<span class="menu-arrow">›</span>`;
   item.innerHTML = html;
+  if (check !== undefined) item.classList.add("checkable");
   item.querySelector(".menu-label").textContent = label;
+  if (badge) {
+    item.querySelector(".menu-badge").textContent = badge === true ? "↗" : badge;
+  }
   if (submenu) item.appendChild(submenu);
   if (action) {
     item.addEventListener("click", (ev) => {
@@ -871,11 +880,72 @@ function submenuOf(children) {
   const sub = document.createElement("div");
   sub.className = "menu submenu";
   children.forEach((c) => sub.appendChild(c));
+  applyCheckColumn(sub);
   return sub;
+}
+
+// Indent every row of a menu only if one of them can carry a checkmark, the way
+// AppKit sizes the state column. Keeps the top level flush.
+function applyCheckColumn(menu) {
+  const checkable = Array.from(menu.children)
+    .some((c) => c.classList.contains("checkable"));
+  menu.classList.toggle("has-checks", checkable);
+}
+
+// One row shape for both sliders, like the app's: label, slider, value readout.
+// Fixed label and readout widths keep the two rows aligned with each other.
+function sliderRow({ label, hint, min, max, value, format, onInput }) {
+  const row = document.createElement("div");
+  row.className = "menu-slider";
+  row.innerHTML =
+    '<span class="menu-slider-label"></span>' +
+    `<input type="range" min="${min}" max="${max}">` +
+    '<span class="menu-readout"></span>';
+  const input = row.querySelector("input");
+  const readout = row.querySelector(".menu-readout");
+  row.querySelector(".menu-slider-label").textContent = label;
+  row.title = hint; // the app puts the same hint in the row's tooltip
+  input.setAttribute("aria-label", label);
+  input.value = String(value);
+  readout.textContent = format(Number(input.value));
+  input.addEventListener("input", () => {
+    const n = Number(input.value);
+    readout.textContent = format(n);
+    onInput(n);
+  });
+  row.addEventListener("click", (ev) => ev.stopPropagation());
+  return row;
 }
 
 function renderMenu() {
   menuEl.innerHTML = "";
+
+  menuEl.appendChild(menuItem({
+    label: "Vaults…", hint: "⌃⌥V",
+    action() { closePanels(); openHopper(); },
+  }));
+  menuEl.appendChild(menuItem({
+    label: "Capture…", hint: "⌃⌥Space",
+    action() { closePanels(); openCapture(); },
+  }));
+
+  menuEl.appendChild(menuSeparator());
+  menuEl.appendChild(menuItem({
+    label: "Undo Last Delivery",
+    action() {
+      closeMenu();
+      showNotice("Nothing to undo", "No notes were couriered today");
+    },
+  }));
+  menuEl.appendChild(menuItem({
+    label: "Undo Last Capture",
+    action() {
+      closeMenu();
+      showNotice("Nothing to undo", "Demo captures aren't real writes");
+    },
+  }));
+
+  menuEl.appendChild(menuSeparator());
 
   const sizeSub = submenuOf(Object.keys(SIZE_SCALES).map((size) =>
     menuItem({
@@ -903,60 +973,53 @@ function renderMenu() {
   ));
   menuEl.appendChild(menuItem({ label: "Theme", submenu: themeSub }));
 
-  // Opacity: slider row, dim icon → slider → solid icon, like the app's.
-  const opacityRow = document.createElement("div");
-  opacityRow.className = "menu-slider";
-  opacityRow.innerHTML =
-    '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" ' +
-    'stroke="currentColor" stroke-width="1.4" opacity="0.45"/></svg>' +
-    '<input type="range" min="10" max="100" aria-label="Opacity">' +
-    '<svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.7" fill="currentColor"/></svg>';
-  const slider = opacityRow.querySelector("input");
-  slider.value = String(Math.round(menuState.opacity * 100));
-  slider.addEventListener("input", () => {
-    menuState.opacity = slider.value / 100;
-    canvas.style.opacity = menuState.opacity;
-  });
-  opacityRow.addEventListener("click", (ev) => ev.stopPropagation());
-  menuEl.appendChild(menuItem({ label: "Opacity", submenu: submenuOf([opacityRow]) }));
-
-  menuEl.appendChild(menuItem({ label: "Reset Position", action: closeMenu }));
-
-  menuEl.appendChild(menuSeparator());
-  menuEl.appendChild(menuItem({
-    label: "Vaults…", hint: "⌃⌥V",
-    action() { closePanels(); openHopper(); },
-  }));
-  menuEl.appendChild(menuItem({
-    label: "Capture…", hint: "⌃⌥Space",
-    action() { closePanels(); openCapture(); },
-  }));
-
-  menuEl.appendChild(menuSeparator());
-  menuEl.appendChild(menuItem({
-    label: "Undo Last Delivery",
-    action() {
-      closeMenu();
-      showNotice("Nothing to undo", "No notes were couriered today");
-    },
-  }));
-  menuEl.appendChild(menuItem({
-    label: "Undo Last Capture",
-    action() {
-      closeMenu();
-      showNotice("Nothing to undo", "Demo captures aren't real writes");
-    },
-  }));
-  menuEl.appendChild(menuItem({
-    label: "Copy on Drop",
-    check: menuState.copyOnDrop,
-    action() { menuState.copyOnDrop = !menuState.copyOnDrop; closeMenu(); },
-  }));
-  menuEl.appendChild(menuItem({
-    label: "Show in Full Screen",
-    check: menuState.showInFullScreen,
-    action() { menuState.showInFullScreen = !menuState.showInFullScreen; closeMenu(); },
-  }));
+  // Settings: the set-once rows, one level deep and flat. The opacity slider
+  // really does fade the canvas pet, and the notice slider really does retime
+  // the demo's speech bubbles.
+  const settingsSub = submenuOf([
+    sliderRow({
+      label: "Opacity", hint: "How solid Chestnut looks", min: 10, max: 100,
+      value: Math.round(menuState.opacity * 100),
+      format: (n) => n + "%",
+      onInput(n) {
+        menuState.opacity = n / 100;
+        canvas.style.opacity = menuState.opacity;
+      },
+    }),
+    sliderRow({
+      label: "Notice Bubble", hint: "How long a notice bubble stays on screen",
+      min: 1, max: 30, value: menuState.noticeDuration,
+      format: (n) => n + "s",
+      onInput(n) { menuState.noticeDuration = n; },
+    }),
+    menuSeparator(),
+    menuItem({
+      label: "Copy on Drop",
+      check: menuState.copyOnDrop,
+      action() { menuState.copyOnDrop = !menuState.copyOnDrop; closeMenu(); },
+    }),
+    menuItem({
+      label: "Show in Full Screen",
+      check: menuState.showInFullScreen,
+      action() { menuState.showInFullScreen = !menuState.showInFullScreen; closeMenu(); },
+    }),
+    menuItem({
+      label: "Launch at Login",
+      check: menuState.launchAtLogin,
+      action() { menuState.launchAtLogin = !menuState.launchAtLogin; closeMenu(); },
+    }),
+    menuSeparator(),
+    menuItem({ label: "Reset Position", action: closeMenu }),
+    menuItem({
+      label: "Edit Configuration…",
+      action() {
+        closeMenu();
+        showNotice("Opened config.json", "Changes apply after a relaunch",
+          "Demo only, there's no file to open here");
+      },
+    }),
+  ]);
+  menuEl.appendChild(menuItem({ label: "Settings", submenu: settingsSub }));
 
   const pluginItems = [
     { name: "Bookmark", desc: "Save a URL as a markdown note" },
@@ -990,11 +1053,7 @@ function renderMenu() {
 
   menuEl.appendChild(menuSeparator());
   menuEl.appendChild(menuItem({
-    label: `Chestnut ${S.version || "dev"}`,
-    disabled: true,
-  }));
-  menuEl.appendChild(menuItem({
-    label: "Check for Updates…", badge: true,
+    label: "Check for Updates…", badge: `${S.version || "dev"} ↗`,
     action() {
       closeMenu();
       window.open("https://github.com/gapmiss/chestnut/releases", "_blank", "noopener");
@@ -1010,11 +1069,6 @@ function renderMenu() {
 
   menuEl.appendChild(menuSeparator());
   menuEl.appendChild(menuItem({
-    label: "Launch at Login",
-    check: menuState.launchAtLogin,
-    action() { menuState.launchAtLogin = !menuState.launchAtLogin; closeMenu(); },
-  }));
-  menuEl.appendChild(menuItem({
     label: "Quit Chestnut",
     action() {
       closeMenu();
@@ -1027,6 +1081,8 @@ function renderMenu() {
         "Demo only, the real menu item does quit");
     },
   }));
+
+  applyCheckColumn(menuEl);
 }
 
 // Stage-relative coordinates; flips upward when it would run past the stage

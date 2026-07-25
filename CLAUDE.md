@@ -109,27 +109,43 @@ Checks/
   Idle CPU ~2%.
 - **Two settings files**, both in `~/Library/Application Support/Chestnut/`:
   `config.json` (`Config`) is user-owned and hand-edited — hotkeys, custom
-  themes, capture destination, `noticeDuration`, `debug`. `state.json`
-  (`AppState`) is app-owned — window position, size, opacity, theme,
-  copy-on-drop, full-screen, pinned vault, last capture vault,
-  `disabledPlugins`. **The app never writes `config.json`** except
-  `createIfMissing()` on first run and the one-time 0.3 migration; that
-  invariant is what keeps a window drag from clobbering a hand-edited hotkey.
-  Anything gaining a UI moves to `AppState`.
-  `AppState.migrateFromLegacyConfig()` splits a pre-0.3 single-file config,
-  triggered by the *absence* of `state.json` (no version stamp), keeping the
-  original at `config.json.pre-0.3` and stripping moved keys via
-  `JSONSerialization` so unmodelled keys survive. Unparseable files are
-  *moved* to the first free `.bak`/`.bak.N`, never copied over an earlier
-  backup. `CGPoint` encodes as `[x, y]`, not `{"x":…}`.
-  `noticeDuration` (seconds, floor 1) controls how long notice bubbles stay.
+  themes, capture destination, `debug`. `state.json` (`AppState`) is app-owned
+  — window position, size, opacity, theme, copy-on-drop, full-screen,
+  `noticeDuration`, pinned vault, last capture vault, `disabledPlugins`.
+  **The app never writes `config.json`** except `createIfMissing()` on first
+  run, which only fires when no file exists. No other write path exists, and
+  none should be added; that invariant is what keeps a window drag from
+  clobbering a hand-edited hotkey. Anything gaining a UI moves to `AppState`.
+- **No settings migrations.** Both decoders are tolerant: unknown and stale
+  keys are ignored, missing keys take defaults, so a key can move between the
+  files without migration code. Moving one costs the user the value (it
+  reverts to default) but never a broken launch. That trade holds because
+  everything in `AppState` is a menu click away — reconsider only if a value
+  becomes expensive to recreate or its loss would be *invisible*. The 0.3
+  split shipped with a migration; it was deleted in 0.4 rather than carried.
+  Unparseable files are *moved* to the first free `.bak`/`.bak.N`, never
+  copied over an earlier backup. `CGPoint` encodes as `[x, y]`, not `{"x":…}`.
+  `noticeDuration` (seconds, clamped to 1–30) is set from the menu and applies
+  to the next bubble without a relaunch.
+- **Right-click menu** (`PetWindow.showMenu`) is ordered actions first, then
+  the pet's identity, then about: Vaults…/Capture… · Undo Delivery/Undo
+  Capture · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
+  (version + ↗ in one badge) / Support Chestnut · Quit. Size and Theme stay
+  top-level deliberately; everything set-once lives in Settings ▸, which is
+  flat — **the menu never reaches a third level**. `showMenu` is an assembly
+  list; one builder method per group. Both slider rows go through
+  `sliderRow(label:value:range:action:readout:)` and must declare the same
+  width, since `NSMenu` sizes to its widest item. Sliders persist on mouse-up
+  only, never on drag ticks. The website re-creates this menu by hand
+  (`docs/chestnut.js`, `renderMenu`) and nothing checks the two agree — change
+  them together. Rationale and rejected alternatives: `MENU-PLAN.md`.
 - **Hotkeys:** ⌃⌥Space (capture), ⌃⌥V (hopper), ⌃⌥C (paste — plugin dispatch
   from clipboard), ⌃⌥O (notice action — registered only while an actionable
   bubble is visible). All configurable via config.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
-- **Launch at login:** `SMAppService.mainApp`, toggled in right-click menu.
-- **Full-screen visibility:** `collectionBehavior`-based, toggled in menu.
+- **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
+- **Full-screen visibility:** `collectionBehavior`-based, toggled in Settings.
   orderOut/orderFront on toggle to force window-server re-evaluation.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
   fallback. Trusted path lookup only (never `$PATH`).
@@ -144,7 +160,7 @@ Checks/
   exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
-  submenu (persisted in `config.json` as `disabledPlugins`). Manifests support an
+  submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
   within a broad `accepts` category — unmatched files fall through to the courier.
   Folder drops route to a `folder` plugin when one exists; otherwise the courier

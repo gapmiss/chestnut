@@ -344,17 +344,23 @@ struct Check {
               "captureFolder round-trips")
         check(decode(##"{"petPalette":{"m":"#FF0000"}}"##)?.petPalette == ["m": "#FF0000"],
               "custom palette override survives decode verbatim")
-        check(decode(#"{}"#)?.noticeDuration == 5.0, "config without noticeDuration defaults to 5")
-        check(decode(#"{"noticeDuration":0.2}"#)?.noticeDuration == 1.0,
-              "hand-edited noticeDuration below the floor is clamped")
-
-        // Keys that moved to AppState in 0.3 are ignored, not resurrected.
-        let legacy = decode(#"{"opacity":0.4,"size":"large","noticeDuration":10}"#)
-        check(legacy?.noticeDuration == 10, "a pre-0.3 config still decodes its own keys")
+        // Keys that have moved to AppState are ignored, not resurrected: a
+        // config left over from an older version decodes cleanly and
+        // re-encodes without them. This tolerance is what stands in for
+        // migration code — there is none, so a stale key must stay inert.
+        let movedKeys = [
+            "position", "size", "opacity", "courierCopyByDefault",
+            "showInFullScreen", "petTheme", "lastCaptureVaultPath",
+            "pinnedVaultPath", "disabledPlugins", "noticeDuration",
+        ]
+        let stale = decode(
+            #"{"opacity":0.4,"size":"large","noticeDuration":10,"captureFolder":"c"}"#
+        )
+        check(stale?.captureFolder == "c", "a stale config still decodes its own keys")
         let reencoded = String(
-            data: try! JSONEncoder().encode(legacy!), encoding: .utf8
+            data: try! JSONEncoder().encode(stale!), encoding: .utf8
         )!
-        for key in AppState.legacyStateKeys {
+        for key in movedKeys {
             check(!reencoded.contains(key), "config no longer encodes the moved key \(key)")
         }
 
@@ -397,37 +403,24 @@ struct Check {
         let encoded = String(data: try! JSONEncoder().encode(empty), encoding: .utf8)!
         check(!encoded.contains("disabledPlugins"), "an empty disabledPlugins is not encoded")
 
-        // A pre-0.3 config decodes straight into AppState: that is the
-        // migration, and every app-owned key has to survive the move.
-        let pre03 = """
-        {"captureInboxName":"Later.md","courierCopyByDefault":true,\
-        "disabledPlugins":["img-ocr"],"hotkeys":{"paste":"control+option+p"},\
-        "lastCaptureVaultPath":"/Vaults/Master","noticeDuration":10,\
-        "opacity":0.8,"petTheme":"dracula","pinnedVaultPath":"/Vaults/Work",\
-        "position":[12,34],"showInFullScreen":false,"size":"large"}
-        """
-        let migrated = decode(pre03)
-        check(migrated?.size == .large, "migration carries size across")
-        check(migrated?.opacity == 0.8, "migration carries opacity across")
-        check(migrated?.petTheme == "dracula", "migration carries theme across")
-        check(migrated?.courierCopyByDefault == true, "migration carries copy-on-drop across")
-        check(migrated?.showInFullScreen == false, "migration carries full-screen across")
-        check(migrated?.pinnedVaultPath == "/Vaults/Work", "migration carries pinned vault across")
-        check(migrated?.lastCaptureVaultPath == "/Vaults/Master",
-              "migration carries last capture vault across")
-        check(migrated?.disabledPlugins == ["img-ocr"], "migration carries disabled plugins across")
-        check(migrated?.position?.x == 12 && migrated?.position?.y == 34,
-              "migration carries window position across")
+        // Notice duration: menu-owned, so the clamp is the only guard against
+        // a hand-edited state.json asking for a bubble that never leaves.
+        check(decode(#"{}"#)?.noticeDuration == AppState.defaultNoticeDuration,
+              "state without noticeDuration defaults to 5")
+        check(decode(#"{"noticeDuration":12}"#)?.noticeDuration == 12,
+              "state noticeDuration round-trips")
+        check(decode(#"{"noticeDuration":0.2}"#)?.noticeDuration
+              == AppState.noticeDurationRange.lowerBound,
+              "noticeDuration below the floor is clamped")
+        check(decode(#"{"noticeDuration":900}"#)?.noticeDuration
+              == AppState.noticeDurationRange.upperBound,
+              "noticeDuration above the ceiling is clamped")
 
-        // The same file still decodes its user-owned half into Config.
-        let keptConfig = try? JSONDecoder().decode(Config.self, from: Data(pre03.utf8))
-        check(keptConfig?.captureInboxName == "Later.md", "migration leaves the inbox name to Config")
-        check(keptConfig?.noticeDuration == 10, "migration leaves noticeDuration to Config")
-        check(keptConfig?.hotkeys.paste == "control+option+p",
-              "migration leaves hotkeys to Config")
-
-        check(Set(AppState.legacyStateKeys).count == AppState.legacyStateKeys.count,
-              "legacy key list has no duplicates")
+        // A state.json from a build that predates a key decodes to defaults
+        // rather than failing: the same tolerance Config relies on.
+        let older = decode(#"{"opacity":0.6,"size":"small"}"#)
+        check(older?.opacity == 0.6 && older?.noticeDuration == AppState.defaultNoticeDuration,
+              "a state file missing newer keys decodes with defaults for them")
     }
 
     // MARK: - Custom themes

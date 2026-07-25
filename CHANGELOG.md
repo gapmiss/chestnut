@@ -4,6 +4,64 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — 2026-07-25
+
+### Added
+
+- **Notice duration is now a menu control.** Right-click → Settings → Notice
+  Bubble, a slider from 1 to 30 seconds with a live readout. It applies to the next
+  speech bubble, with no relaunch, which makes it possible to actually tune
+  by watching instead of by editing a file and restarting.
+
+- **Right-click → Settings → Edit Configuration…** opens `config.json` in
+  whatever you edit JSON with, and says that changes apply on next launch. If
+  nothing is registered for `.json`, it reveals the file in Finder instead.
+
+### Changed
+
+- **The right-click menu is reorganized: 16 top-level rows down to 11.**
+  Nothing was taken away and everything is still reachable. Actions come first
+  now, ordered by how often they're used, so Vaults…, Capture… and the two Undo
+  rows sit at the top instead of below four appearance settings.
+
+  Size and Theme have not moved. The set-once settings collect into a new
+  **Settings** submenu: Opacity, Notice Bubble, Copy on Drop, Show in Full
+  Screen, Launch at Login, Reset Position and Edit Configuration…. Five of those
+  moved down a level; Notice Bubble and Edit Configuration… are new in this
+  release. Opacity is a plain row there rather than a submenu of its own, with a
+  label and a live percentage, so nothing in the menu opens a third level.
+
+  The version dropped its own greyed-out row and rides along as a badge on
+  Check for Updates…, where it's still there to quote in a bug report.
+
+- `noticeDuration` moved from `config.json` to `state.json`, following the
+  rule that anything with a UI is Chestnut's to write.
+
+- **Settings are no longer migrated between versions, and the 0.3 migration
+  has been removed.** What that costs depends on where you upgrade from:
+
+  - **From 0.3.0:** notice duration resets, because it moved from
+    `config.json` to `state.json`. Window position, size, opacity, theme,
+    copy-on-drop, full-screen, pinned vault and disabled plugins are all in
+    `state.json` already and survive untouched.
+  - **From 0.2.x or earlier:** all of those reset to defaults. The 0.3
+    migration that split the old single-file `config.json` is gone, so nothing
+    carries the values across.
+
+  Every one of them is a right-click menu control, so setting them again takes
+  seconds.
+
+  **Nothing hand-edited is affected.** Hotkeys, custom themes, capture format
+  and folder, inbox name, and palette overrides all live in `config.json`,
+  which Chestnut still never writes. A key it no longer reads (such as a
+  leftover `noticeDuration`) is ignored, not deleted; remove it yourself or
+  leave it.
+
+  Both decoders stay tolerant of unknown and missing keys, so a stale file
+  can never break a launch. That tolerance is what makes the migration code
+  unnecessary, and dropping it keeps the write invariant exception-free:
+  Chestnut writes `config.json` only when creating it from scratch.
+
 ## [0.3.0] — 2026-07-24
 
 ### Changed
@@ -97,6 +155,8 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.4.0]: https://github.com/gapmiss/chestnut/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/gapmiss/chestnut/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gapmiss/chestnut/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/gapmiss/chestnut/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/gapmiss/chestnut/releases/tag/v0.1.0

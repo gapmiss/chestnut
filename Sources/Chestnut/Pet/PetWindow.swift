@@ -37,8 +37,14 @@ final class PetWindow: NSPanel {
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
+    /// Menu → Edit Configuration…; the delegate opens config.json.
+    var onEditConfiguration: (() -> Void)?
 
     private var state: AppState
+    /// Value readouts on the two Settings slider rows, updated live during a
+    /// drag. Weak: the menu owns them, and they die with the menu.
+    private weak var noticeDurationReadout: NSTextField?
+    private weak var opacityReadout: NSTextField?
     /// Hand-edited settings: read-only here, never written back.
     private let config: Config
 
@@ -215,102 +221,143 @@ final class PetWindow: NSPanel {
         onFilesDropped?(urls, courierDragOperation == .copy)
     }
 
+    /// Actions first, ordered by how often they're used; settings collapse into
+    /// one submenu. Size and Theme stay top-level on purpose — they're the
+    /// pet's identity and the most rewarding thing to find early.
     func showMenu(with event: NSEvent, in view: NSView) {
         // Visual changes here should be mirrored in the website's re-creation
         // (docs/chestnut.js, renderMenu).
         let menu = NSMenu()
 
-        let sizeMenu = NSMenu()
+        menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
+        menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
+
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Undo Last Delivery", #selector(undoDelivery)))
+        menu.addItem(menuItem("Undo Last Capture", #selector(undoCapture)))
+
+        menu.addItem(.separator())
+        menu.addItem(sizeMenuItem())
+        menu.addItem(themeMenuItem())
+        menu.addItem(settingsMenuItem())
+        menu.addItem(pluginsMenuItem())
+
+        menu.addItem(.separator())
+        menu.addItem(updatesMenuItem())
+        let supportItem = menuItem("Support Chestnut", #selector(openSupport))
+        supportItem.image = NSImage(
+            systemSymbolName: "heart", accessibilityDescription: "GitHub Sponsors"
+        )
+        supportItem.badge = NSMenuItemBadge(string: Self.opensInBrowser)
+        menu.addItem(supportItem)
+
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Quit Chestnut", #selector(quitApp)))
+
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    /// A plain action row targeting this window, optionally showing the key
+    /// equivalent of a configured hotkey.
+    private func menuItem(
+        _ title: String, _ action: Selector, hotkey: String? = nil
+    ) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        if let hotkey, let (key, mods) = Self.menuEquivalent(for: hotkey) {
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = mods
+        }
+        return item
+    }
+
+    private static func submenuItem(_ title: String, _ submenu: NSMenu) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.submenu = submenu
+        return item
+    }
+
+    private func sizeMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
         for size in AppState.PetSize.allCases {
-            let item = NSMenuItem(title: size.title, action: #selector(selectSize(_:)), keyEquivalent: "")
-            item.target = self
+            let item = menuItem(size.title, #selector(selectSize(_:)))
             item.representedObject = size.rawValue
             item.state = size == state.size ? .on : .off
-            sizeMenu.addItem(item)
+            submenu.addItem(item)
         }
-        let sizeItem = NSMenuItem(title: "Size", action: nil, keyEquivalent: "")
-        sizeItem.submenu = sizeMenu
-        menu.addItem(sizeItem)
+        return Self.submenuItem("Size", submenu)
+    }
 
-        let themeMenu = NSMenu()
+    private func themeMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
         for theme in SpriteTheme.all {
-            let item = NSMenuItem(title: theme.title, action: #selector(selectTheme(_:)), keyEquivalent: "")
-            item.target = self
+            let item = menuItem(theme.title, #selector(selectTheme(_:)))
             item.representedObject = theme.id
             item.state = theme.id == state.petTheme ? .on : .off
-            themeMenu.addItem(item)
+            submenu.addItem(item)
         }
-        let themeItem = NSMenuItem(title: "Theme", action: nil, keyEquivalent: "")
-        themeItem.submenu = themeMenu
-        menu.addItem(themeItem)
+        return Self.submenuItem("Theme", submenu)
+    }
 
-        let opacityMenu = NSMenu()
-        opacityMenu.addItem(opacitySliderItem())
-        let opacityItem = NSMenuItem(title: "Opacity", action: nil, keyEquivalent: "")
-        opacityItem.submenu = opacityMenu
-        menu.addItem(opacityItem)
+    /// Everything you set once: two sliders, three toggles, two escape hatches.
+    /// Deliberately flat — nothing in here opens a further submenu, so the menu
+    /// never reaches a third level.
+    private func settingsMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
 
-        let resetItem = NSMenuItem(title: "Reset Position", action: #selector(resetPosition), keyEquivalent: "")
-        resetItem.target = self
-        menu.addItem(resetItem)
-
-        menu.addItem(.separator())
-        let vaultsItem = NSMenuItem(title: "Vaults…", action: #selector(toggleHopper), keyEquivalent: "")
-        vaultsItem.target = self
-        if let (key, mods) = Self.menuEquivalent(for: config.hotkeys.hopper) {
-            vaultsItem.keyEquivalent = key
-            vaultsItem.keyEquivalentModifierMask = mods
-        }
-        menu.addItem(vaultsItem)
-        let captureItem = NSMenuItem(title: "Capture…", action: #selector(beginCapture), keyEquivalent: "")
-        captureItem.target = self
-        if let (key, mods) = Self.menuEquivalent(for: config.hotkeys.capture) {
-            captureItem.keyEquivalent = key
-            captureItem.keyEquivalentModifierMask = mods
-        }
-        menu.addItem(captureItem)
-
-        menu.addItem(.separator())
-        let undoItem = NSMenuItem(
-            title: "Undo Last Delivery", action: #selector(undoDelivery), keyEquivalent: ""
+        let opacity = sliderRow(
+            label: "Opacity",
+            hint: "How solid Chestnut looks",
+            value: state.opacity,
+            range: AppState.opacityRange,
+            action: #selector(opacityChanged(_:)),
+            readout: Self.percentLabel
         )
-        undoItem.target = self
-        menu.addItem(undoItem)
-        let undoCaptureItem = NSMenuItem(
-            title: "Undo Last Capture", action: #selector(undoCapture), keyEquivalent: ""
+        opacityReadout = opacity.readout
+        submenu.addItem(opacity.item)
+
+        let notice = sliderRow(
+            label: "Notice Bubble",
+            hint: "How long a notice bubble stays on screen",
+            value: state.noticeDuration,
+            range: AppState.noticeDurationRange,
+            action: #selector(noticeDurationChanged(_:)),
+            readout: Self.secondsLabel
         )
-        undoCaptureItem.target = self
-        menu.addItem(undoCaptureItem)
-        let copyItem = NSMenuItem(
-            title: "Copy on Drop", action: #selector(toggleCopyDefault), keyEquivalent: ""
-        )
-        copyItem.target = self
+        noticeDurationReadout = notice.readout
+        submenu.addItem(notice.item)
+
+        submenu.addItem(.separator())
+        let copyItem = menuItem("Copy on Drop", #selector(toggleCopyDefault))
         copyItem.state = state.courierCopyByDefault ? .on : .off
-        menu.addItem(copyItem)
-        let fullScreenItem = NSMenuItem(
-            title: "Show in Full Screen", action: #selector(toggleShowInFullScreen), keyEquivalent: ""
-        )
-        fullScreenItem.target = self
+        submenu.addItem(copyItem)
+        let fullScreenItem = menuItem("Show in Full Screen", #selector(toggleShowInFullScreen))
         fullScreenItem.state = state.showInFullScreen ? .on : .off
-        menu.addItem(fullScreenItem)
+        submenu.addItem(fullScreenItem)
+        let loginItem = menuItem("Launch at Login", #selector(toggleLaunchAtLogin))
+        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        submenu.addItem(loginItem)
 
-        let pluginsMenu = NSMenu()
-        pluginsMenu.autoenablesItems = false
+        submenu.addItem(.separator())
+        submenu.addItem(menuItem("Reset Position", #selector(resetPosition)))
+        submenu.addItem(menuItem("Edit Configuration…", #selector(editConfiguration)))
+
+        return Self.submenuItem("Settings", submenu)
+    }
+
+    private func pluginsMenuItem() -> NSMenuItem {
+        let submenu = NSMenu()
+        submenu.autoenablesItems = false
         let plugins = installedPlugins?() ?? []
         if plugins.isEmpty {
             let noneItem = NSMenuItem(
                 title: "No plugins installed", action: nil, keyEquivalent: ""
             )
             noneItem.isEnabled = false
-            pluginsMenu.addItem(noneItem)
+            submenu.addItem(noneItem)
         } else {
             for plugin in plugins.sorted(by: { $0.name < $1.name }) {
-                let item = NSMenuItem(
-                    title: plugin.name,
-                    action: #selector(togglePluginAction(_:)),
-                    keyEquivalent: ""
-                )
-                item.target = self
+                let item = menuItem(plugin.name, #selector(togglePluginAction(_:)))
                 item.representedObject = plugin.name
                 let enabled = isPluginEnabled?(plugin.name) ?? true
                 item.state = enabled ? .on : .off
@@ -328,93 +375,111 @@ final class PetWindow: NSPanel {
                     ))
                     item.attributedTitle = title
                 }
-                pluginsMenu.addItem(item)
+                submenu.addItem(item)
             }
         }
-        pluginsMenu.addItem(.separator())
-        let openFolderItem = NSMenuItem(
-            title: "Open Plugins Folder", action: #selector(openPluginsFolder), keyEquivalent: ""
-        )
-        openFolderItem.target = self
-        pluginsMenu.addItem(openFolderItem)
-        let pluginsItem = NSMenuItem(title: "Plugins", action: nil, keyEquivalent: "")
-        pluginsItem.submenu = pluginsMenu
-        menu.addItem(pluginsItem)
-
-        menu.addItem(.separator())
-        // No action/target: stays disabled, a plain "what version am I on" line.
-        menu.addItem(NSMenuItem(
-            title: "Chestnut \(AppInfo.version)", action: nil, keyEquivalent: ""
-        ))
-        let updatesItem = NSMenuItem(
-            title: "Check for Updates…", action: #selector(openReleases), keyEquivalent: ""
-        )
-        updatesItem.target = self
-        updatesItem.badge = Self.opensInBrowserBadge()
-        menu.addItem(updatesItem)
-        let supportItem = NSMenuItem(
-            title: "Support Chestnut", action: #selector(openSupport), keyEquivalent: ""
-        )
-        supportItem.target = self
-        supportItem.image = NSImage(
-            systemSymbolName: "heart", accessibilityDescription: "GitHub Sponsors"
-        )
-        supportItem.badge = Self.opensInBrowserBadge()
-        menu.addItem(supportItem)
-
-        menu.addItem(.separator())
-        let loginItem = NSMenuItem(
-            title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: ""
-        )
-        loginItem.target = self
-        loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
-        menu.addItem(loginItem)
-        let quitItem = NSMenuItem(title: "Quit Chestnut", action: #selector(quitApp), keyEquivalent: "")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        submenu.addItem(.separator())
+        submenu.addItem(menuItem("Open Plugins Folder", #selector(openPluginsFolder)))
+        return Self.submenuItem("Plugins", submenu)
     }
 
-    /// Slider row for the Opacity submenu, brightness-slider style:
-    /// dim icon → slider → solid icon, no text.
-    private func opacitySliderItem() -> NSMenuItem {
+    /// The version rides along as a badge rather than a dead disabled row: it
+    /// stays quotable in a bug report without spending a line. NSMenuItem
+    /// allows only one badge, so the opens-in-browser ↗ joins the string.
+    private func updatesMenuItem() -> NSMenuItem {
+        let item = menuItem("Check for Updates…", #selector(openReleases))
+        item.badge = NSMenuItemBadge(string: "\(AppInfo.version) \(Self.opensInBrowser)")
+        return item
+    }
+
+    /// One row shape for both sliders: label, slider, value. Fixed label and
+    /// readout widths (and monospaced digits) keep the two sliders aligned with
+    /// each other and stop `1s` → `30s` from shoving the track sideways.
+    /// `hint` becomes the row's tooltip — a slider row has no room to explain
+    /// itself, and "Opacity" is self-evident where a duration isn't.
+    private func sliderRow(
+        label: String,
+        hint: String,
+        value: Double,
+        range: ClosedRange<Double>,
+        action: Selector,
+        readout: (Double) -> String
+    ) -> (item: NSMenuItem, readout: NSTextField) {
         let slider = NSSlider(
-            value: state.opacity,
-            minValue: AppState.opacityRange.lowerBound,
-            maxValue: AppState.opacityRange.upperBound,
+            value: value,
+            minValue: range.lowerBound,
+            maxValue: range.upperBound,
             target: self,
-            action: #selector(opacityChanged(_:))
+            action: action
         )
         slider.isContinuous = true
 
-        func icon(_ symbolName: String) -> NSImageView {
-            let view = NSImageView(
-                image: NSImage(systemSymbolName: symbolName, accessibilityDescription: "Opacity")
-                    ?? NSImage()
-            )
-            view.contentTintColor = .secondaryLabelColor
-            return view
-        }
+        let title = NSTextField(labelWithString: label)
+        title.font = .menuFont(ofSize: 0)
+        title.widthAnchor.constraint(equalToConstant: Self.sliderLabelWidth).isActive = true
 
-        let row = NSStackView(views: [icon("circle.dotted"), slider, icon("circle.fill")])
-        row.edgeInsets = NSEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
-        row.frame = NSRect(x: 0, y: 0, width: 180, height: 24)
+        let valueLabel = NSTextField(labelWithString: readout(value))
+        valueLabel.font = .monospacedDigitSystemFont(
+            ofSize: NSFont.smallSystemFontSize, weight: .regular
+        )
+        valueLabel.textColor = .secondaryLabelColor
+        valueLabel.alignment = .right
+        valueLabel.widthAnchor.constraint(equalToConstant: Self.sliderReadoutWidth).isActive = true
+
+        let row = NSStackView(views: [title, slider, valueLabel])
+        row.toolTip = hint
+        // Taller than a normal menu row on purpose: a slider knob is ~20pt, so
+        // at 24pt two stacked rows put their knobs 4pt apart and read as one
+        // mashed block. The vertical air is what makes them legible as a pair.
+        row.edgeInsets = NSEdgeInsets(top: 6, left: 21, bottom: 6, right: 14)
+        // NSMenu sizes itself to its widest item: the two rows must declare the
+        // same width or the submenu jumps between them.
+        row.frame = NSRect(x: 0, y: 0, width: Self.sliderRowWidth, height: 32)
         row.autoresizingMask = [.width]
 
         let item = NSMenuItem()
         item.view = row
-        return item
+        return (item, valueLabel)
+    }
+
+    private static let sliderRowWidth: CGFloat = 290
+    private static let sliderLabelWidth: CGFloat = 96
+    private static let sliderReadoutWidth: CGFloat = 34
+
+    /// Whole seconds only: a bubble that lingers 7.4s isn't a distinct choice
+    /// from one that lingers 7.
+    private static func secondsLabel(_ seconds: Double) -> String {
+        "\(Int(seconds.rounded()))s"
+    }
+
+    private static func percentLabel(_ fraction: Double) -> String {
+        "\(Int((fraction * 100).rounded()))%"
     }
 
     @objc private func opacityChanged(_ sender: NSSlider) {
         alphaValue = sender.doubleValue
+        opacityReadout?.stringValue = Self.percentLabel(sender.doubleValue)
         state.opacity = sender.doubleValue
         // The action fires for every tick of a drag; persist only on the final
         // event (mouse-up, or a direct click on the track).
         if NSApp.currentEvent?.type != .leftMouseDragged {
             onStateChange?(state)
         }
+    }
+
+    @objc private func noticeDurationChanged(_ sender: NSSlider) {
+        let seconds = sender.doubleValue.rounded()
+        noticeDurationReadout?.stringValue = Self.secondsLabel(seconds)
+        state.noticeDuration = seconds
+        // Like the opacity slider: the action fires on every tick of a drag,
+        // so persist only on the final event (mouse-up, or a click on the track).
+        if NSApp.currentEvent?.type != .leftMouseDragged {
+            onStateChange?(state)
+        }
+    }
+
+    @objc private func editConfiguration() {
+        onEditConfiguration?()
     }
 
     @objc private func selectSize(_ sender: NSMenuItem) {
@@ -511,12 +576,10 @@ final class PetWindow: NSPanel {
         }
     }
 
-    /// Trailing ↗ marking items that leave the app for the browser. A badge
-    /// (macOS 14+) rather than an attributed title: the system renders it
+    /// Trailing ↗ marking items that leave the app for the browser. Carried in a
+    /// badge (macOS 14+) rather than an attributed title: the system renders it
     /// right-aligned in secondary color and re-tints it correctly on highlight.
-    private static func opensInBrowserBadge() -> NSMenuItemBadge {
-        NSMenuItemBadge(string: "↗")
-    }
+    private static let opensInBrowser = "↗"
 
     @objc private func togglePluginAction(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }

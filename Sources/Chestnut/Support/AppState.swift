@@ -46,13 +46,22 @@ struct AppState: Codable, Equatable {
     var pinnedVaultPath: String?
     /// Plugins switched off in the right-click menu → Plugins submenu.
     var disabledPlugins: Set<String> = []
+    /// How long notice bubbles stay on screen, in seconds. Set from the
+    /// right-click menu → Notice Duration; applies to the next bubble, with
+    /// no relaunch.
+    var noticeDuration = defaultNoticeDuration
 
     private enum CodingKeys: String, CodingKey {
         case position, size, opacity, courierCopyByDefault, showInFullScreen
         case petTheme, lastCaptureVaultPath, pinnedVaultPath, disabledPlugins
+        case noticeDuration
     }
 
     static let opacityRange = 0.1...1.0
+    /// Slider bounds in the Notice Duration submenu, and the clamp on anything
+    /// read from disk. The floor keeps a bubble readable at all.
+    static let noticeDurationRange = 1.0...30.0
+    static let defaultNoticeDuration = 5.0
 
     init() {}
 
@@ -78,6 +87,9 @@ struct AppState: Codable, Equatable {
         disabledPlugins = Set(
             try c.decodeIfPresent([String].self, forKey: .disabledPlugins) ?? []
         )
+        let rawNotice = try c.decodeIfPresent(Double.self, forKey: .noticeDuration)
+            ?? Self.defaultNoticeDuration
+        noticeDuration = rawNotice.clamped(to: Self.noticeDurationRange)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -93,6 +105,7 @@ struct AppState: Codable, Equatable {
         if !disabledPlugins.isEmpty {
             try c.encode(disabledPlugins.sorted(), forKey: .disabledPlugins)
         }
+        try c.encode(noticeDuration, forKey: .noticeDuration)
     }
 
     static var fileURL: URL {
@@ -100,12 +113,11 @@ struct AppState: Codable, Equatable {
             .appendingPathComponent("state.json")
     }
 
-    /// Loads `state.json`, migrating from a pre-0.3 single-file `config.json`
-    /// the first time (see `migrateFromLegacyConfig`).
+    /// Loads `state.json`, falling back to defaults when it's missing or
+    /// unreadable. Settings from a version that stored things elsewhere are
+    /// not carried over — decoding is tolerant, so an unknown or stale key is
+    /// ignored rather than fatal, and everything here is a menu click away.
     static func load() -> AppState {
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return migrateFromLegacyConfig() ?? AppState()
-        }
         guard let data = try? Data(contentsOf: fileURL) else { return AppState() }
         do {
             return try JSONDecoder().decode(AppState.self, from: data)
@@ -135,55 +147,5 @@ struct AppState: Codable, Equatable {
         } catch {
             NSLog("State save failed: %@", error.localizedDescription)
         }
-    }
-
-    // MARK: - Migration from the pre-0.3 single-file config
-
-    /// Keys that lived in `config.json` before 0.3 split app-owned state out
-    /// of the hand-edited config.
-    static let legacyStateKeys = [
-        "position", "size", "opacity", "courierCopyByDefault",
-        "showInFullScreen", "petTheme", "lastCaptureVaultPath",
-        "pinnedVaultPath", "disabledPlugins",
-    ]
-
-    /// One-time split of a pre-0.3 `config.json`: app-owned keys move here,
-    /// the rest stays put. Triggered by the *absence* of `state.json` rather
-    /// than a version stamp, so it can't run twice or drift out of sync.
-    ///
-    /// Returns nil when there's nothing to migrate (a fresh install).
-    static func migrateFromLegacyConfig() -> AppState? {
-        let configURL = Config.fileURL
-        guard let data = try? Data(contentsOf: configURL),
-              let object = try? JSONSerialization.jsonObject(with: data),
-              var json = object as? [String: Any]
-        else { return nil }
-        guard json.keys.contains(where: legacyStateKeys.contains) else { return nil }
-
-        let migrated = (try? JSONDecoder().decode(AppState.self, from: data)) ?? AppState()
-        // Written first: a crash before the rewrite below leaves the legacy
-        // keys in config.json, where they are simply ignored from now on.
-        migrated.save()
-
-        let backup = Config.availableBackupURL(
-            base: configURL.appendingPathExtension("pre-0.3"),
-            exists: { FileManager.default.fileExists(atPath: $0.path) }
-        )
-        do {
-            try data.write(to: backup, options: .atomic)
-            // Strip via the raw JSON, not a re-encoded Config, so any key
-            // Chestnut doesn't model survives the rewrite.
-            for key in legacyStateKeys { json.removeValue(forKey: key) }
-            let stripped = try JSONSerialization.data(
-                withJSONObject: json, options: [.prettyPrinted, .sortedKeys]
-            )
-            try stripped.write(to: configURL, options: .atomic)
-            NSLog("Migrated pre-0.3 config: app state moved to %@, original kept at %@",
-                  fileURL.path, backup.path)
-        } catch {
-            NSLog("Config migration: state.json written but config.json could not be rewritten (%@) — legacy keys will be ignored",
-                  error.localizedDescription)
-        }
-        return migrated
     }
 }

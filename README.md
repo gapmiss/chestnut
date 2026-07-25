@@ -15,6 +15,20 @@ modified.
 Native Swift and SpriteKit: ~1 MB download, under 2 MB installed, ~2% idle
 CPU. No Electron, no bundled browser, no network calls.
 
+## Project status
+
+Chestnut is pre-1.0 and moving quickly. Expect frequent releases.
+
+Settings are not migrated between versions. When one of the values Chestnut
+manages for itself moves between the two settings files — which is how a
+setting graduates into a menu control — it reverts to its default on upgrade.
+0.4.0 does this to notice duration. Each of those values is a right-click menu
+control, so setting it again takes seconds.
+
+Nothing you hand-edit is affected: `config.json` is never rewritten. And
+whatever else changes, Chestnut never modifies Obsidian's own files and never
+writes to a vault unless you ask it to.
+
 ## Features
 
 - **Vault Hopper** lists all your registered vaults. ⏎ opens, ⌘⏎ goes to
@@ -70,7 +84,7 @@ reinstalling:
 brew reinstall --cask --no-quarantine gapmiss/tap/chestnut
 ```
 
-To start automatically, right-click the pet and toggle Launch at Login.
+To start automatically, right-click the pet and toggle Settings → Launch at Login.
 
 ## Requirements
 
@@ -116,16 +130,18 @@ Sources/Chestnut/
 
 Two files in `~/Library/Application Support/Chestnut/`:
 
-- **`config.json`** is yours: hotkeys, capture destination, notice duration,
-  custom sprite themes. Chestnut never writes to it, apart from creating it on
-  first run. Hand-editable; changes take effect on next launch.
-- **`state.json`** is Chestnut's: window position, size, opacity, theme, pinned
-  vault, disabled plugins. Everything in it has a control in the right-click
-  menu.
+- **`config.json`** is yours: hotkeys, capture destination, custom sprite
+  themes. Chestnut never writes to it, apart from creating it on first run.
+  Hand-editable; changes take effect on next launch. Right-click → Settings →
+  Edit Configuration… opens it.
+- **`state.json`** is Chestnut's: window position, size, opacity, theme, notice
+  duration, pinned vault, disabled plugins. Everything in it has a control in
+  the right-click menu.
 
 Keeping them apart means editing `config.json` while Chestnut is running is
-safe. Upgrading from 0.2.x splits the old single file automatically and keeps
-the original as `config.json.pre-0.3`. See the
+safe. Settings are not migrated between versions: if a setting moves from one
+file to the other, it reverts to its default and you re-pick it from the menu.
+Nothing hand-edited is ever rewritten or lost. See the
 [User Guide](https://gapmiss.github.io/chestnut/guide.html#configuration)
 for the full reference.
 
