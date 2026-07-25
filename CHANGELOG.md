@@ -17,6 +17,17 @@ Notable, user-facing changes to Chestnut. The format follows
   the offending key, the unknown output mode, or the script it could not
   execute — instead of disappearing without a word.
 
+- **The structured-envelope reference described three fields wrongly.**
+  `vault` was documented as a name hint, and the worked example used a vault
+  name, which matches nothing and raises "Unknown vault" — the working values
+  are `pinned`, `last`, `ask` or an absolute vault path, none of which were
+  documented. `filename` was documented as defaulting to the first line of the
+  content; a structured envelope that omits it actually gets `Untitled.md`.
+  And attachments were documented as landing in the note's folder or the vault
+  root, when both paths use the vault's configured attachment folder. The
+  input-types table was also missing `pdf` and `any`, though `pdf` is used by
+  a shipped example.
+
 - **A plugin's attachments no longer follow you to an unrelated capture.**
   If a plugin queued a file and you dismissed the capture panel instead of
   submitting, that file stayed queued for the rest of the session and was

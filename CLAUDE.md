@@ -155,8 +155,12 @@ Checks/
   modes: capture (pre-fill), save (to vault), clipboard, notify, or structured
   JSON envelope for runtime control. Structured envelope supports `attachments`
   array for saving additional files (images, PDFs) alongside a note; attachments
-  work with both `save` and `capture` actions (capture copies them to the vault
-  root when the user submits the capture panel). Scripts are
+  work with both `save` and `capture` actions. Both copy into the vault's
+  configured attachment folder (`Courier.attachmentFolder(of:)` reads
+  `attachmentFolderPath` from `.obsidian/app.json`, falling back to the vault
+  root only when it's unset) — the envelope's `folder` field moves the note but
+  not its attachments. On `capture`, only attachments the submitted note refers
+  to by filename are copied; see `partitionAttachmentsByReference`. Scripts are
   exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the

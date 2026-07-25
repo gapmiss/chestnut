@@ -200,7 +200,9 @@
           <tr><td><code>url</code></td><td>A URL on the clipboard or dropped as a web location.</td></tr>
           <tr><td><code>image</code></td><td>An image on the clipboard (TIFF/PNG data) or an image file drop.</td></tr>
           <tr><td><code>file</code></td><td>A non-markdown file drop. Narrow with <code>extensions</code>.</td></tr>
+          <tr><td><code>pdf</code></td><td>A PDF file drop, matched on the <code>.pdf</code> extension.</td></tr>
           <tr><td><code>folder</code></td><td>A folder drop.</td></tr>
+          <tr><td><code>any</code></td><td>Wildcard: matches every input type above. Still narrowable with <code>extensions</code>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -252,7 +254,7 @@
   "action": "save",
   "content": "# My Note\n\nBody text here.",
   "filename": "My Note.md",
-  "vault": "Work",
+  "vault": "ask",
   "folder": "imported",
   "notify": "Saved to Work",
   "attachments": [
@@ -265,11 +267,11 @@
         <tbody>
           <tr><td><code>action</code></td><td>yes</td><td>One of <code>capture</code>, <code>save</code>, <code>clipboard</code>, <code>notify</code>.</td></tr>
           <tr><td><code>content</code></td><td>no</td><td>The note body or text to output.</td></tr>
-          <tr><td><code>filename</code></td><td>no</td><td>Filename for <code>save</code> (default: first line of content).</td></tr>
-          <tr><td><code>vault</code></td><td>no</td><td>Target vault name hint.</td></tr>
+          <tr><td><code>filename</code></td><td>no</td><td>Filename for <code>save</code>. Defaults to <code>Untitled.md</code>, so it is worth setting. Unlike the plain <code>save</code> output mode, the envelope's first line is not used as a title, and the content is not split.</td></tr>
+          <tr><td><code>vault</code></td><td>no</td><td>Where to save. One of <code>"pinned"</code>, <code>"last"</code> (the vault you captured to most recently), <code>"ask"</code> to show the vault picker, or the absolute path of a vault. A vault <em>name</em> will not match: Chestnut keys vaults by path, because names collide. Omitting the field behaves like <code>"ask"</code>.</td></tr>
           <tr><td><code>folder</code></td><td>no</td><td>Subfolder within the vault.</td></tr>
           <tr><td><code>notify</code></td><td>no</td><td>Speech bubble text shown after the action completes.</td></tr>
-          <tr><td><code>attachments</code></td><td>no</td><td>Array of <code>{ source, filename }</code> objects. Each <code>source</code> is an absolute path to a file; it's copied into the vault. Works with <code>save</code> (into the note's folder) and <code>capture</code> (into the vault root on submit).</td></tr>
+          <tr><td><code>attachments</code></td><td>no</td><td>Array of <code>{ source, filename }</code> objects. Each <code>source</code> is an absolute path to a file. Copies go into the vault's attachment folder, meaning the <code>attachmentFolderPath</code> from that vault's Obsidian settings, or the vault root when it isn't set. Note that <code>folder</code> moves the note but not its attachments. With <code>capture</code>, a file is copied only if the submitted note refers to it by filename, so write a <code>![[filename]]</code> link into <code>content</code>.</td></tr>
         </tbody>
       </table>
     </div>
