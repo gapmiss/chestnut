@@ -100,18 +100,27 @@ enum ObsidianBridge {
     /// but working switch is harmless. Every exit is silent-safe: no CLI, a
     /// CLI error, or a still-launching vault just leaves the URL open's
     /// behavior untouched.
+    ///
+    /// Runs on a global dispatch queue rather than in a `Task`: `ObsidianCLI.run`
+    /// blocks on a semaphore for the length of its timeout, and the cooperative
+    /// pool is sized to the core count and does not grow when its threads
+    /// block. Every hopper click starts one of these, so a hung Obsidian could
+    /// otherwise park the whole pool for ~11s at a time. Global queues
+    /// overcommit, which is what blocking work wants.
     private static func raiseIfFocusFailed(vaultPath: String) {
-        Task.detached {
+        DispatchQueue.global().async {
             guard ObsidianCLI.url != nil else { return }
             for _ in 0..<2 {
-                try? await Task.sleep(for: .milliseconds(250))
+                Thread.sleep(forTimeInterval: 0.25)
                 guard let active = runCLI(["vault", "info=path"])?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 else { return }
                 if active == vaultPath { return }
             }
             let result = runCLI(["eval", "code=\(focusScript(vaultPath: vaultPath))"], timeout: 5)
-            await DebugLog.log("obsidian bridge: focus fallback for \(vaultPath) → \(result ?? "CLI error")")
+            Task { @MainActor in
+                DebugLog.log("obsidian bridge: focus fallback for \(vaultPath) → \(result ?? "CLI error")")
+            }
         }
     }
 
@@ -172,18 +181,23 @@ enum ObsidianBridge {
     /// which the CLI errors ("no CLI reply") or the script finds no window.
     /// Deadline-bounded and silent-safe: expiry just leaves the URL-opened
     /// vault as-is.
+    ///
+    /// On a global queue for the reason given at `raiseIfFocusFailed` — more
+    /// so here, since this one holds its thread for up to the full 12s.
     private static func presentWhenReady(script: String, vaultPath: String) {
-        Task.detached {
+        DispatchQueue.global().async {
             guard !script.isEmpty, ObsidianCLI.url != nil else { return }
             let deadline = Date().addingTimeInterval(12)
             var result: String?
             repeat {
-                try? await Task.sleep(for: .milliseconds(400))
+                Thread.sleep(forTimeInterval: 0.4)
                 result = runCLI(["eval", "code=\(script)"], timeout: 5)?
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 if let result, !result.contains("no-") { break }
             } while Date() < deadline
-            await DebugLog.log("obsidian bridge: present in \(vaultPath) → \(result ?? "no CLI reply")")
+            Task { @MainActor in
+                DebugLog.log("obsidian bridge: present in \(vaultPath) → \(result ?? "no CLI reply")")
+            }
         }
     }
 
