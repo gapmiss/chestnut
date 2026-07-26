@@ -1499,20 +1499,13 @@ struct Check {
             check(heavy.last()?.notePath == "/v/big5.md",
                   "byte-trimmed journal still returns the newest record")
 
-            // --- T6: a malformed trailing line, pinned as-is ---
-            // The audit (L10) asked for last() to walk back to the newest
-            // decodable record. That fix was not made and this is not it: it
-            // states the strict behavior so the next reader knows the nil is
-            // deliberate. Since M6 made appends whole-file atomic writes, the
-            // app cannot produce a half-line — only a journal damaged by a
-            // pre-M6 build can be in this state.
-            //
-            // Tolerating it is not the one-line change it looks like.
-            // removeLast() drops the last *line*, not the last decodable
-            // record, so a last() that walked backwards would hand undo a
-            // record that removeLast then failed to remove — and the next
-            // click would reverse the same operation a second time, against
-            // real files. Both would have to move together.
+            // --- T6 / L10: a malformed trailing line does not jam undo ---
+            // Appends are whole-file atomic writes since M6, so this build
+            // cannot produce a half-line — but every journal written by an
+            // earlier build could, and those files are still on disk. A strict
+            // last() returned nil there, which reads as "nothing to undo": the
+            // row disables, and a disabled row can't be clicked, so U2's
+            // Discard Entry couldn't reach it either.
             let torn = base.appendingPathComponent("torn.jsonl")
             let good = Journal<CaptureRecord>(fileURL: torn)
             try good.append(CaptureRecord(
@@ -1522,24 +1515,31 @@ struct Check {
             try! (intact + #"{"vaultPath":"/v","notePa"# + "\n")
                 .write(to: torn, atomically: true, encoding: .utf8)
 
-            check(good.last() == nil,
-                  "a malformed trailing line makes last() nil rather than guessing")
-            // Substring, not the full path: JSONEncoder escapes "/" as "\/".
-            check((try! String(contentsOf: torn, encoding: .utf8)).contains("kept.md"),
-                  "the readable record beneath it is left on disk, not discarded")
+            check(good.last()?.notePath == "/v/kept.md",
+                  "last() walks back past a malformed trailing line")
 
-            // The next append pushes a good record past the bad line, so undo
-            // comes back on its own — until enough undos walk back to it.
-            try good.append(CaptureRecord(
-                date: Date(), vaultPath: "/v", notePath: "/v/newer.md",
-                appended: "x", createdFile: false))
-            check(good.last()?.notePath == "/v/newer.md",
-                  "a later append restores undo without repairing the bad line")
-
-            // Line-based, not record-based: the trap described above.
+            // The trap the walk has to avoid: a line-counting removeLast would
+            // drop the damage and leave kept.md on top, so the next click would
+            // reverse the same operation a second time against real files.
+            // Both resolve the top through topIndex, so they can't disagree.
             try good.removeLast()
             check(good.last() == nil,
-                  "removeLast drops one line, so the bad line resurfaces as last")
+                  "removeLast drops the record last() named, not the line above it")
+            let swept = try! String(contentsOf: torn, encoding: .utf8)
+            check(swept.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  "the malformed line is swept along with the record beneath it")
+
+            // Nothing decodable at all: there is genuinely nothing to undo, so
+            // the disabled row is correct and removeLast is a no-op.
+            let allBad = base.appendingPathComponent("allbad.jsonl")
+            try! (#"{"notePa"# + "\n" + #"{"vaultP"# + "\n")
+                .write(to: allBad, atomically: true, encoding: .utf8)
+            let unreadable = Journal<CaptureRecord>(fileURL: allBad)
+            check(unreadable.last() == nil,
+                  "a journal with no decodable line has nothing to undo")
+            try unreadable.removeLast()
+            check(unreadable.last() == nil,
+                  "removeLast on an unreadable journal is a no-op, not a throw")
 
             try courier.undo(op)
             try journal.removeLast()

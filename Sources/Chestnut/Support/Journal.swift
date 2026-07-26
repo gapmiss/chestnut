@@ -49,15 +49,39 @@ struct Journal<Record: Codable> {
 
     /// The most recent record, if any (undo candidate).
     func last() -> Record? {
-        lines().last.flatMap { try? JournalCoding.decoder.decode(Record.self, from: $0) }
+        let lines = lines()
+        return topIndex(lines).flatMap {
+            try? JournalCoding.decoder.decode(Record.self, from: lines[$0])
+        }
     }
 
-    /// Drop the most recent record (after its undo succeeded).
+    /// Drop the most recent record (after its undo succeeded), along with any
+    /// unreadable lines sitting on top of it — the file is rewritten whole
+    /// anyway, so the sweep is free.
     func removeLast() throws {
-        var remaining = lines()
-        guard !remaining.isEmpty else { return }
-        remaining.removeLast()
-        try Self.write(remaining, to: fileURL)
+        let lines = lines()
+        guard let top = topIndex(lines) else { return }
+        try Self.write(Array(lines[..<top]), to: fileURL)
+    }
+
+    /// Index of the newest line that still decodes.
+    ///
+    /// Appends are whole-file atomic writes, so this build cannot leave a
+    /// half-written line — but every journal on disk today was written by a
+    /// build that appended in place, where a crash could. Without the walk, one
+    /// torn line makes `last()` nil, which reads as "nothing to undo": the row
+    /// disables, and a disabled row can't be clicked, so the Discard Entry
+    /// escape hatch can't reach it either. Everything older is stuck for good.
+    ///
+    /// `last()` and `removeLast()` both resolve the top through here, and that
+    /// is the load-bearing part. If one counted records and the other counted
+    /// lines, undo would reverse a record that `removeLast` then failed to
+    /// remove, and the next click would reverse the same operation a second
+    /// time against real files.
+    private func topIndex(_ lines: [Data]) -> Int? {
+        lines.indices.reversed().first {
+            (try? JournalCoding.decoder.decode(Record.self, from: lines[$0])) != nil
+        }
     }
 
     private func lines() -> [Data] {

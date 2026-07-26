@@ -261,7 +261,15 @@ Checks/
   every operation is journaled for undo. Journals are capped
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
-  `NoteRewrite.original`, so both limits are load-bearing. Undo depth is
+  `NoteRewrite.original`, so both limits are load-bearing. **`last()` and
+  `removeLast()` both resolve the top record through `Journal.topIndex`**,
+  which walks back past any line that won't decode. Atomic appends mean this
+  build can't tear a line, but every journal written by a pre-0.5 build could
+  be, and a strict `last()` returned nil there — which reads as "nothing to
+  undo", disables the row, and so puts Discard Entry out of reach too. Keep
+  them resolving the top the same way: one counting records while the other
+  counted lines would reverse a single operation twice against real files.
+  Undo depth is
   *not* a feature to grow: a record whose undo fails is kept by default, and
   until it is dealt with it blocks every older record behind it. The failure
   alert therefore offers **Keep** (default) or **Discard Entry**; discarding
