@@ -224,11 +224,21 @@ Checks/
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
   `NoteRewrite.original`, so both limits are load-bearing. Undo depth is
-  *not* a feature to grow: a record whose undo fails is kept by default (the
-  files are in an unknown state, and forgetting them silently would strand
-  them), and until it is dealt with it blocks every older record behind it.
-  The failure alert therefore offers **Keep** (default) or **Discard Entry**;
-  discarding calls `removeLast()` and touches no files. Undo is for "take back
+  *not* a feature to grow: a record whose undo fails is kept by default, and
+  until it is dealt with it blocks every older record behind it. The failure
+  alert therefore offers **Keep** (default) or **Discard Entry**; discarding
+  calls `removeLast()` and touches no files.
+  **`Courier.undo` attempts every transfer exactly once** — one that can't be
+  reversed (usually a delivered file the user has since deleted or renamed in
+  Obsidian) is collected, not fatal, and the rest still come home. Hard-stopping
+  stranded every transfer behind the failure with nothing saying which. It then
+  throws `CourierError.partiallyUndone(restored:unreachable:)`, which names the
+  files that stayed put; `Capture.undo` needs no equivalent because it only ever
+  throws *before* touching anything (`trashAttachments` already skips what it
+  can't trash, for the same reason). The alert distinguishes the two: only a
+  refusal may promise "nothing was changed", and a partial undo says instead
+  that retrying won't finish the job — the record is spent, since a second pass
+  can only re-fail on the transfers already reversed. Undo is for "take back
   what I just did". Each Undo row names the record it would reverse on a second line
   (`NSMenuItem.subtitle`, from `CourierOperation.undoMenuSubtitle` /
   `CaptureRecord.undoMenuSubtitle`) — undo pops one record per click, so a

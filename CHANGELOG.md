@@ -47,6 +47,15 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **Undoing a delivery no longer gives up at the first file it can't move
+  back.** If you had deleted or renamed one of the delivered files in Obsidian,
+  undo stopped dead there: the files it had already returned stayed returned,
+  everything behind that one stayed in the destination vault, and the message
+  said only "Undo failed" with no clue which files were where. Undo now tries
+  every file in the delivery and brings back all the ones it still can, then
+  tells you which it couldn't and why. Nothing is deleted or overwritten to do
+  it, and a file that is genuinely gone is still never conjured back.
+
 - **An undo that fails no longer blocks every earlier one.** When an undo
   can't be reversed — most often because the note has been edited since, which
   Chestnut refuses to guess at — the operation was kept on top of the stack

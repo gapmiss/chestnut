@@ -1420,38 +1420,48 @@ struct Check {
                   "rollback clears the partial delivery from the destination")
         }
 
-        // --- T3: undo is not transactional within one operation ---
-        // Pinning today's behavior, not endorsing it. `undo` walks transfers
-        // in reverse with no rollback, so a throw part-way leaves the earlier
-        // entries reversed and the rest not. The realistic trigger is the user
-        // having deleted a delivered file in Obsidian before hitting Undo.
-        write("u/src/first.md", "FIRST")
-        write("u/src/second.md", "SECOND")
+        // --- T3/U3: one unreversible transfer must not strand the rest ---
+        // The realistic trigger is a delivered file the user has since deleted
+        // or renamed in Obsidian. Three notes, with the *middle* one deleted
+        // from the destination: undo walks in reverse, so a hard stop on it
+        // would leave `a.md` stranded at the destination with nothing saying
+        // so. Every transfer is attempted, and the ones that can't be are
+        // named in the error.
+        write("u/src/a.md", "A")
+        write("u/src/b.md", "B")
+        write("u/src/c.md", "C")
         try! fm.createDirectory(at: base.appendingPathComponent("u/dst"), withIntermediateDirectories: true)
         do {
             let op = try courier.deliver(
-                files: [base.appendingPathComponent("u/src/first.md"),
-                        base.appendingPathComponent("u/src/second.md")],
+                files: ["a.md", "b.md", "c.md"].map {
+                    base.appendingPathComponent("u/src/\($0)")
+                },
                 toVault: base.appendingPathComponent("u/dst"),
                 sourceVault: base.appendingPathComponent("u/src"), copy: false
             )
-            check(op.transfers.count == 2 && op.transfers[0].to.hasSuffix("first.md"),
-                  "two notes deliver as two transfers, in drop order")
+            check(op.transfers.count == 3 && op.transfers[0].to.hasSuffix("a.md"),
+                  "three notes deliver as three transfers, in drop order")
 
-            // Delete the *first* transfer's destination. Undo walks in
-            // reverse, so this one is handled last and every other transfer
-            // has already been reversed by the time it throws.
-            try! fm.removeItem(at: base.appendingPathComponent("u/dst/first.md"))
+            try! fm.removeItem(at: base.appendingPathComponent("u/dst/b.md"))
             do {
                 try courier.undo(op)
-                check(false, "T3: undo of a deleted delivered file should throw")
+                check(false, "undo of a deleted delivered file should report it")
             } catch {
-                check(read("u/src/second.md") == "SECOND",
-                      "T3: undo leaves already-reversed transfers reversed — there is no rollback")
-                check(!exists("u/dst/second.md"),
-                      "T3: the reversed half is gone from the destination, so the record is half-spent")
-                check(!exists("u/src/first.md"),
-                      "T3: the transfer that threw is not restored")
+                if case let CourierError.partiallyUndone(restored, unreachable) = error {
+                    check(restored == 2 && unreachable == ["b.md"],
+                          "partial undo counts what came home and names what didn't")
+                    check(error.localizedDescription.contains("b.md")
+                            && error.localizedDescription.contains("Brought back 2 files"),
+                          "the message tells the user which files stayed put")
+                } else {
+                    check(false, "undo threw \(error), not partiallyUndone")
+                }
+                check(read("u/src/a.md") == "A" && read("u/src/c.md") == "C",
+                      "a transfer that can't be reversed doesn't strand the ones behind it")
+                check(!exists("u/dst/a.md") && !exists("u/dst/c.md"),
+                      "everything reversible is cleared from the destination")
+                check(!exists("u/src/b.md"),
+                      "the file the user deleted is not conjured back")
             }
         } catch {
             check(false, "T3 fixture failed to deliver: \(error)")

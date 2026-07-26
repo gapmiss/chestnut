@@ -353,7 +353,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try journal.removeLast()
             petWindow?.petScene.celebrateDelivery()
         } catch {
-            if presentUndoFailure("Undo failed", error.localizedDescription) {
+            // A partial undo did reverse something, so it gets the honest
+            // title and the alert drops its "nothing was changed" promise.
+            let partial: Bool
+            if case CourierError.partiallyUndone = error { partial = true } else { partial = false }
+            let title = partial ? "Undo finished part-way" : "Undo failed"
+            if presentUndoFailure(title, error.localizedDescription, changedFiles: partial) {
                 discardUndoRecord { try journal.removeLast() }
             }
         }
@@ -819,11 +824,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// on every click, so everything older becomes unreachable. Discarding
     /// touches no files; it only stops Chestnut offering this one again.
     /// Returns true when the caller should drop the record.
-    private func presentUndoFailure(_ title: String, _ reason: String) -> Bool {
+    /// `changedFiles` is the difference between "undo refused" and "undo got
+    /// part of the way". Both keep the record, but only the first can honestly
+    /// promise nothing moved, and only the second is pointless to retry.
+    private func presentUndoFailure(
+        _ title: String, _ reason: String, changedFiles: Bool = false
+    ) -> Bool {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = """
+        alert.informativeText = changedFiles
+            ? """
+            \(reason)
+            What could be brought back already has been, so undoing again \
+            won't finish the job. Discarding this entry forgets the operation \
+            — no files are touched — so the next undo reaches the one before it.
+            """
+            : """
             \(reason)
             Nothing was changed. Keeping this entry means Chestnut offers the \
             same operation the next time you undo; discarding it forgets the \
