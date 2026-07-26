@@ -24,6 +24,12 @@
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept in your Downloads folder.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>
