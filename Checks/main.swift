@@ -270,6 +270,16 @@ struct Check {
                 == v3.appendingPathComponent("Later.md").path,
               "configurable inbox name is honored")
 
+        // The inbox is the one target with no further fallback, so Capture
+        // sanitizes it on the way in rather than checking containment on the
+        // way out. v3 has daily notes off, so destination lands on the inbox.
+        let inboxDefault = v3.appendingPathComponent("Inbox.md").path
+        for bad in ["..", ".", "", "sub/Later.md", "../escape.md"] {
+            check(Capture(inboxFileName: bad).destination(inVault: v3, date: date).path
+                    == inboxDefault,
+                  "inbox name \"\(bad)\" is sanitized at construction, not trusted")
+        }
+
         // --- Chestnut-native captureFormat/captureFolder ---
         let v6 = vault("v6")
         write("v6/.obsidian/core-plugins.json", #"{"daily-notes":false}"#)
@@ -395,6 +405,14 @@ struct Check {
               "config inbox name round-trips")
         check(decode(#"{"captureInboxName":"../evil.md"}"#)?.captureInboxName == "Inbox.md",
               "inbox name with a path separator is rejected")
+        check(decode(#"{"captureInboxName":".."}"#)?.captureInboxName == "Inbox.md",
+              "inbox name of \"..\" is rejected (no separator to catch it)")
+        check(decode(#"{"captureInboxName":"."}"#)?.captureInboxName == "Inbox.md",
+              "inbox name of \".\" is rejected")
+        check(decode(#"{"captureInboxName":""}"#)?.captureInboxName == "Inbox.md",
+              "empty inbox name is rejected")
+        check(decode(#"{"captureInboxName":"sub/Later.md"}"#)?.captureInboxName == "Inbox.md",
+              "inbox name naming a subfolder is rejected")
         check(decode(#"{}"#)?.captureFormat == nil, "config without captureFormat defaults to nil")
         check(decode(#"{"captureFormat":"YYYY-MM-DD"}"#)?.captureFormat == "YYYY-MM-DD",
               "captureFormat round-trips")

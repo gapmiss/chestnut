@@ -40,6 +40,19 @@ struct Config: Codable, Equatable {
 
     static let defaultInboxName = "Inbox.md"
 
+    /// A bare file name, or the default. Lives here rather than on `Capture`
+    /// because `Config.swift` is compiled standalone by the site generator
+    /// (see the `site-gen` target) and can't reach into `Actions/`.
+    ///
+    /// `/` would reach into a subfolder and `.`/`..` name directories, so both
+    /// are rejected. `Capture.init` applies this too: the config decoder and
+    /// that initializer are the two ways an inbox name gets in, and neither
+    /// can vouch for the other.
+    static func sanitizedInboxName(_ raw: String) -> String {
+        raw.isEmpty || raw.contains("/") || raw == "." || raw == ".."
+            ? defaultInboxName : raw
+    }
+
     init() {}
 
     /// Tolerant decoding: configs written by older builds lack newer keys, and
@@ -51,8 +64,7 @@ struct Config: Codable, Equatable {
         let rawInbox = try c.decodeIfPresent(String.self, forKey: .captureInboxName)
             ?? Self.defaultInboxName
         // Hand-edited configs: a path here could climb out of the vault.
-        captureInboxName = rawInbox.isEmpty || rawInbox.contains("/")
-            ? Self.defaultInboxName : rawInbox
+        captureInboxName = Self.sanitizedInboxName(rawInbox)
         captureFormat = try c.decodeIfPresent(String.self, forKey: .captureFormat)
         captureFolder = try c.decodeIfPresent(String.self, forKey: .captureFolder)
         petPalette = try c.decodeIfPresent([String: String].self, forKey: .petPalette)

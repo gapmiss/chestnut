@@ -77,8 +77,16 @@ struct Capture {
     // the main actor to keep the CLI's blocking waits from freezing the UI.
     private var fm: FileManager { .default }
 
-    init(inboxFileName: String = "Inbox.md", captureFormat: String? = nil, captureFolder: String? = nil) {
-        self.inboxFileName = inboxFileName
+    /// `destination` returns the inbox as its last resort, with nothing left
+    /// to fall back to, so the inbox is kept safe by *construction* rather
+    /// than by a containment check there — sanitizing here means a bare file
+    /// name, which can only ever name a child of the vault root.
+    init(
+        inboxFileName: String = Config.defaultInboxName,
+        captureFormat: String? = nil,
+        captureFolder: String? = nil
+    ) {
+        self.inboxFileName = Config.sanitizedInboxName(inboxFileName)
         self.captureFormat = captureFormat
         self.captureFolder = captureFolder
     }
@@ -171,6 +179,12 @@ struct Capture {
     /// vault root. Tries Obsidian's daily-notes plugin first, then Chestnut's
     /// own captureFormat/captureFolder, then the static inbox. Anything
     /// suspicious (escaping the vault, `.obsidian/`) lands on the inbox.
+    ///
+    /// Both daily-note branches are containment-checked because their input is
+    /// a path that can carry folders — Obsidian's `daily-notes.json` or the
+    /// user's `captureFormat`. The inbox is not, and does not need to be:
+    /// `Config.sanitizedInboxName` has already reduced it to a bare file name,
+    /// so it names a child of the vault root structurally.
     func destination(inVault vault: URL, date: Date = Date()) -> URL {
         let inbox = vault.appendingPathComponent(inboxFileName)
         if let relative = Self.dailyNoteRelativePath(vault: vault, date: date) {
