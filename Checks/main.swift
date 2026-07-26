@@ -492,6 +492,30 @@ struct Check {
               == AppState.noticeDurationRange.upperBound,
               "noticeDuration above the ceiling is clamped")
 
+        // --- Settings ▸ Opacity / Notice Bubble presets ---
+        // These replaced sliders outright, so a preset that can't be selected
+        // is a value the user simply cannot reach.
+        let op = AppState.opacityPresets
+        let nd = AppState.noticeDurationPresets
+        check(op.allSatisfy { AppState.opacityRange.contains($0) },
+              "every opacity preset survives the clamp applied on read")
+        check(nd.allSatisfy { AppState.noticeDurationRange.contains($0) },
+              "every notice-duration preset survives the clamp applied on read")
+        check(Set(op).count == op.count && Set(nd).count == nd.count,
+              "no duplicate presets, which would check two rows at once")
+        check(op.contains(1.0), "opacity presets include fully opaque, the recovery value")
+        check(nd.contains(AppState.defaultNoticeDuration),
+              "notice-duration presets include the default, so it stays selectable")
+
+        // The checkmark: exact match only, since a nearest-match would claim a
+        // value the app isn't using.
+        check(AppState.isPreset(0.8, matching: 0.8), "a preset in effect is checked")
+        check(!AppState.isPreset(0.8, matching: 0.6), "a preset not in effect is unchecked")
+        check(!op.contains { AppState.isPreset($0, matching: 0.73) },
+              "a value between stops checks nothing rather than the nearest stop")
+        check(op.filter { AppState.isPreset($0, matching: 0.6) }.count == 1,
+              "exactly one preset is checked for a value that is one")
+
         // A state.json from a build that predates a key decodes to defaults
         // rather than failing: the same tolerance Config relies on.
         let older = decode(#"{"opacity":0.6,"size":"small"}"#)
@@ -609,6 +633,13 @@ struct Check {
               "config hotkey override round-trips")
         check(decode(#"{"hotkeys":{"capture":"cmd+shift+c"}}"#)?.hotkeys.hopper == "control+option+v",
               "partial hotkeys object keeps defaults for missing keys")
+
+        // The menu binding is the only keyboard route to Settings, Undo and
+        // Quit, so a config written before it existed must still get one.
+        check(decode(#"{"hotkeys":{"capture":"cmd+shift+c"}}"#)?.hotkeys.menu == "control+option+m",
+              "a config predating the menu hotkey still gets the default binding")
+        check(HotkeySpec(HotkeyConfig().menu) != nil,
+              "the default menu binding parses")
     }
 
     // MARK: - Sprite themes

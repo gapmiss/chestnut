@@ -6,6 +6,35 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **A hotkey that opens the menu: ⌃⌥M.** Every setting Chestnut has lived
+  behind a right-click that had to land on the sprite itself, and because the
+  pet window never takes keyboard focus, no menu shortcut could fire either.
+  That made Size, Theme, Settings, Plugins, both Undo items and **Quit**
+  reachable by exactly one gesture. It also meant anyone who couldn't make
+  that click had no way out of the app: Chestnut has no Dock icon and no menu
+  bar item, and an app like that doesn't appear in Force Quit, so quitting
+  meant Activity Monitor or a terminal. ⌃⌥M now opens the same menu at
+  Chestnut, and arrow keys and Return work in it. Rebindable as `menu` in
+  `config.json`.
+
+### Changed
+
+- **Opacity and Notice Bubble are now lists of choices, not sliders.** A
+  slider in a menu is a custom view, and macOS skips those when you move
+  through a menu with the arrow keys, so neither value could be changed
+  without a mouse even once ⌃⌥M opened the menu. Opacity was the one that
+  could strand you: faded to its minimum Chestnut is nearly invisible, and the
+  only control that could restore it was a slider you had to find and drag on
+  a sprite you could no longer see. Each now opens a short list with the
+  current value checked, reachable by keyboard or mouse: opacity at 100, 80,
+  60, 40 and 20 percent, and notice bubbles at 3, 5, 10, 20 and 30 seconds.
+  The trade is deliberate, and it is the reason these are the only two places
+  the menu goes three levels deep. If you had picked a value between those
+  stops, it is kept and keeps working, but no row is checked until you pick
+  one of the listed values.
+
 ### Fixed
 
 - **The undo journals no longer grow without limit.** Every delivery and

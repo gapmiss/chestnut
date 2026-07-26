@@ -132,16 +132,39 @@ Checks/
   Capture · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
   (version + ↗ in one badge) / Support Chestnut · Quit. Size and Theme stay
   top-level deliberately; everything set-once lives in Settings ▸, which is
-  flat — **the menu never reaches a third level**. `showMenu` is an assembly
-  list; one builder method per group. Both slider rows go through
-  `sliderRow(label:value:range:action:readout:)` and must declare the same
-  width, since `NSMenu` sizes to its widest item. Sliders persist on mouse-up
-  only, never on drag ticks. The website re-creates this menu by hand
+  flat. `showMenu` is an assembly list; one builder method per group.
+  **The menu reaches a third level in exactly two places** — Settings ▸
+  Opacity ▸ and Settings ▸ Notice Bubble ▸ — and nowhere else. Both were
+  sliders; a slider is an `NSMenuItem.view`, and **AppKit skips view items in
+  a menu's key loop**, so neither value could be set without a mouse. That
+  matters most for opacity: at its floor the sprite is nearly invisible, and
+  the only control that restored it was a slider you had to drag on a pet you
+  could no longer see. Discrete preset items are keyboard-reachable and are
+  one control per value rather than a slider shadowed by a stand-in. **Do not
+  reintroduce a view-based row** without solving this. Presets live in
+  `AppState`, not `PetWindow`, so `make check` can reach them
+  (`PetWindow.swift` is not in the check target); the checkmark is an exact
+  match, so a value persisted between stops shows none.
+  `showMenuFromHotkey` is the keyboard entry point: it must call
+  `NSApp.activate` or menu tracking reads keys from whatever is frontmost, and
+  it positions via `menuOrigin`, which flips the menu above the sprite when it
+  won't fit below. **The `menu` hotkey is unregistered for as long as the menu
+  tracks** (`setMenuHotkeyEnabled`, driven by `onMenuTrackingChange`): Carbon
+  captures the keystroke but its nested loop won't dispatch during tracking, so
+  a registered key queues every press and replays them the moment Esc
+  dismisses the menu, reopening it once per press. The website re-creates this
+  menu by hand
   (`docs/chestnut.js`, `renderMenu`) and nothing checks the two agree — change
   them together.
 - **Hotkeys:** ⌃⌥Space (capture), ⌃⌥V (hopper), ⌃⌥C (paste — plugin dispatch
   from clipboard), ⌃⌥O (notice action — registered only while an actionable
-  bubble is visible). All configurable via config.
+  bubble is visible), ⌃⌥M (menu). All configurable via config. The menu
+  binding is load-bearing for reachability, not a convenience: `canBecomeKey`
+  is false so no menu key equivalent ever fires, `hitTest` limits the
+  right-click to opaque sprite pixels, and an `LSUIElement` app is absent from
+  Force Quit — without it there is no keyboard route to Settings, Undo, or
+  Quit. `showMenuFromHotkey` must activate the app first or menu tracking
+  reads key events from whatever is frontmost instead.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.

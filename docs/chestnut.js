@@ -870,6 +870,10 @@ function menuItem({ label, check, hint, badge, icon, disabled, submenu, action }
   return item;
 }
 
+// Mirrors AppState.opacityPresets / noticeDurationPresets, in menu order.
+const OPACITY_PRESETS = [1.0, 0.8, 0.6, 0.4, 0.2];
+const NOTICE_PRESETS = [3, 5, 10, 20, 30];
+
 function menuSeparator() {
   const sep = document.createElement("div");
   sep.className = "menu-sep";
@@ -973,24 +977,37 @@ function renderMenu() {
   ));
   menuEl.appendChild(menuItem({ label: "Theme", submenu: themeSub }));
 
-  // Settings: the set-once rows, one level deep and flat. The opacity slider
-  // really does fade the canvas pet, and the notice slider really does retime
-  // the demo's speech bubbles.
+  // Settings: the set-once rows. Opacity and Notice Bubble are the only rows
+  // that open a further level; they were sliders, and a slider in a menu can't
+  // be reached with the keyboard. Picking an opacity really does fade the
+  // canvas pet, and a notice duration really does retime the demo's bubbles.
   const settingsSub = submenuOf([
-    sliderRow({
-      label: "Opacity", hint: "How solid Chestnut looks", min: 10, max: 100,
-      value: Math.round(menuState.opacity * 100),
-      format: (n) => n + "%",
-      onInput(n) {
-        menuState.opacity = n / 100;
-        canvas.style.opacity = menuState.opacity;
-      },
+    menuItem({
+      label: "Opacity",
+      hint: "How solid Chestnut looks",
+      badge: Math.round(menuState.opacity * 100) + "%",
+      submenu: submenuOf(OPACITY_PRESETS.map((p) => menuItem({
+        label: Math.round(p * 100) + "%",
+        check: Math.abs(p - menuState.opacity) < 0.000001,
+        action() {
+          menuState.opacity = p;
+          canvas.style.opacity = p;
+          closeMenu();
+        },
+      }))),
     }),
-    sliderRow({
-      label: "Notice Bubble", hint: "How long a notice bubble stays on screen",
-      min: 1, max: 30, value: menuState.noticeDuration,
-      format: (n) => n + "s",
-      onInput(n) { menuState.noticeDuration = n; },
+    menuItem({
+      label: "Notice Bubble",
+      hint: "How long a notice bubble stays on screen",
+      badge: menuState.noticeDuration + "s",
+      submenu: submenuOf(NOTICE_PRESETS.map((p) => menuItem({
+        label: p + "s",
+        check: p === menuState.noticeDuration,
+        action() {
+          menuState.noticeDuration = p;
+          closeMenu();
+        },
+      }))),
     }),
     menuSeparator(),
     menuItem({

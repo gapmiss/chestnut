@@ -63,6 +63,28 @@ struct AppState: Codable, Equatable {
     static let noticeDurationRange = 1.0...30.0
     static let defaultNoticeDuration = 5.0
 
+    /// The choices offered by Settings ▸ Opacity and Settings ▸ Notice Bubble.
+    ///
+    /// These are the whole of each setting, not shortcuts alongside a slider.
+    /// A slider in a menu is an `NSMenuItem.view`, and AppKit skips view items
+    /// when navigating a menu by keyboard, so a slider could only ever be set
+    /// with a mouse. Discrete items are reachable by both. The cost is that
+    /// values between stops are no longer offered.
+    ///
+    /// Ordered as they appear in the menu. Both arrays must stay inside their
+    /// range: a preset outside it would be clamped on the next read, so picking
+    /// it would silently do nothing.
+    static let opacityPresets: [Double] = [1.0, 0.8, 0.6, 0.4, 0.2]
+    static let noticeDurationPresets: [Double] = [3, 5, 10, 20, 30]
+
+    /// Whether a preset is the one currently in effect, for the checkmark.
+    /// Exact rather than nearest: a value written between stops by an older
+    /// build should show no checkmark instead of pointing at a stop the app
+    /// isn't actually using.
+    static func isPreset(_ preset: Double, matching value: Double) -> Bool {
+        abs(preset - value) < 0.000_001
+    }
+
     init() {}
 
     /// Tolerant decoding: files written by older builds lack newer keys.

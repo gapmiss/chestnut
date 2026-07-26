@@ -73,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onPaste = { [weak self] in
             self?.handlePasteHotkey()
         }
+        hotkeys.onMenu = { [weak self] in
+            self?.petWindow?.showMenuFromHotkey()
+        }
         hotkeys.start(config: config.hotkeys)
 
         pluginRegistry.onAPINotice = { [weak self] name, api in
@@ -166,6 +169,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.onEditConfiguration = { [weak self] in
             self?.openConfigForEditing()
+        }
+        window.onMenuTrackingChange = { [weak self] tracking in
+            self?.hotkeys.setMenuHotkeyEnabled(!tracking)
         }
         controller.onStateChange = { [weak window] state in
             window?.petScene.play(state)

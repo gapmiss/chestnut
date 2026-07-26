@@ -123,16 +123,19 @@ final class HotkeyCenter {
     var onHopper: (() -> Void)?
     var onNotice: (() -> Void)?
     var onPaste: (() -> Void)?
+    var onMenu: (() -> Void)?
 
     private var registeredKeys: [UInt32: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
     private var noticeSpec: HotkeySpec?
+    private var menuSpec: HotkeySpec?
 
     private static let signature = OSType(0x4348_4E54)  // "CHNT"
     private static let captureID: UInt32 = 1
     private static let hopperID: UInt32 = 2
     private static let noticeID: UInt32 = 3
     private static let pasteID: UInt32 = 4
+    private static let menuID: UInt32 = 5
 
     func start(config: HotkeyConfig) {
         var eventType = EventTypeSpec(
@@ -164,6 +167,9 @@ final class HotkeyCenter {
         register(config.hopper, id: Self.hopperID, label: "hopper")
         register(config.paste, id: Self.pasteID, label: "paste")
 
+        menuSpec = HotkeySpec(config.menu)
+        register(config.menu, id: Self.menuID, label: "menu")
+
         // The notice hotkey is registered on demand — only while an
         // actionable bubble is visible — so Chestnut doesn't consume the
         // combo system-wide around the clock. Parse (and complain) once here.
@@ -182,6 +188,24 @@ final class HotkeyCenter {
             guard registeredKeys[Self.noticeID] == nil, let spec = noticeSpec else { return }
             register(spec, id: Self.noticeID, label: "notice")
         } else if let ref = registeredKeys.removeValue(forKey: Self.noticeID) {
+            UnregisterEventHotKey(ref)
+        }
+    }
+
+    /// Unregistered for as long as the menu is on screen.
+    ///
+    /// `RegisterEventHotKey` *consumes* the keystroke, and while a menu tracks,
+    /// its nested run loop doesn't dispatch our Carbon handler — so presses are
+    /// captured, queued, and delivered the instant tracking ends. Left
+    /// registered, pressing the menu hotkey while the menu is open does nothing
+    /// visible and then reopens the menu right after Esc dismisses it, once per
+    /// press. Giving the key back to the system for the duration is what stops
+    /// it being captured at all. Idempotent in both directions.
+    func setMenuHotkeyEnabled(_ enabled: Bool) {
+        if enabled {
+            guard registeredKeys[Self.menuID] == nil, let spec = menuSpec else { return }
+            register(spec, id: Self.menuID, label: "menu")
+        } else if let ref = registeredKeys.removeValue(forKey: Self.menuID) {
             UnregisterEventHotKey(ref)
         }
     }
@@ -228,6 +252,7 @@ final class HotkeyCenter {
         case Self.hopperID: label = "hopper"; onHopper?()
         case Self.noticeID: label = "notice"; onNotice?()
         case Self.pasteID: label = "paste"; onPaste?()
+        case Self.menuID: label = "menu"; onMenu?()
         default: return
         }
         DebugLog.log("hotkey: dispatched \(label)")

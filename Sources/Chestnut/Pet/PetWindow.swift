@@ -39,12 +39,11 @@ final class PetWindow: NSPanel {
     var onOpenPluginsFolder: (() -> Void)?
     /// Menu → Edit Configuration…; the delegate opens config.json.
     var onEditConfiguration: (() -> Void)?
+    /// True while the right-click menu is on screen. The delegate releases the
+    /// `menu` hotkey for that window; see `HotkeyCenter.setMenuHotkeyEnabled`.
+    var onMenuTrackingChange: ((Bool) -> Void)?
 
     private var state: AppState
-    /// Value readouts on the two Settings slider rows, updated live during a
-    /// drag. Weak: the menu owns them, and they die with the menu.
-    private weak var noticeDurationReadout: NSTextField?
-    private weak var opacityReadout: NSTextField?
     /// Hand-edited settings: read-only here, never written back.
     private let config: Config
 
@@ -176,6 +175,7 @@ final class PetWindow: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+
     /// macOS pins a window's top edge below the menu bar; with our transparent
     /// top margin that held the visible pet ~56pt short of the screen top
     /// (while the slim bottom margin let it nearly touch the bottom edge).
@@ -225,9 +225,58 @@ final class PetWindow: NSPanel {
     /// one submenu. Size and Theme stay top-level on purpose — they're the
     /// pet's identity and the most rewarding thing to find early.
     func showMenu(with event: NSEvent, in view: NSView) {
+        NSMenu.popUpContextMenu(buildMenu(), with: event, for: view)
+    }
+
+    /// Keyboard route to the same menu (the `menu` hotkey). Two things this
+    /// needs that the click path gets for free: a location, since there's no
+    /// event to take one from, and app activation — menu tracking pulls key
+    /// events from *our* queue, and while Chestnut is a background accessory
+    /// app they go to whatever is frontmost instead, so the menu would appear
+    /// but not respond to arrow keys. macOS constrains the menu onto a screen,
+    /// so an off-screen sprite still yields a usable menu.
+    func showMenuFromHotkey() {
+        NSApp.activate(ignoringOtherApps: true)
+        let sprite = spriteFrame
+        let menu = buildMenu()
+        let screen = NSScreen.screens.first { $0.frame.intersects(sprite) } ?? NSScreen.main
+        menu.popUp(
+            positioning: nil,
+            at: Self.menuOrigin(for: menu.size, at: sprite, in: screen?.visibleFrame),
+            in: nil
+        )
+    }
+
+    /// Where to put a hotkey-invoked menu so the whole thing is on screen.
+    ///
+    /// `popUp(positioning:at:in:)` hangs the menu's top-left corner off the
+    /// given point and grows *down*, and when that doesn't fit it scrolls
+    /// rather than flipping the way a real context menu does. The pet defaults
+    /// to the bottom-right corner, so anchoring at the sprite's top hides most
+    /// of the menu behind a scroll arrow. Open downward when there's room and
+    /// flip above the sprite when there isn't, then clamp both axes.
+    /// Pure geometry, so it can be reasoned about without a screen: `visible`
+    /// is the target screen's visible frame, nil when there is none to consult.
+    static func menuOrigin(for menuSize: NSSize, at sprite: NSRect, in visible: NSRect?) -> NSPoint {
+        let below = NSPoint(x: sprite.midX, y: sprite.maxY)
+        guard let visible, menuSize.height > 0 else { return below }
+
+        // Open downward from the sprite's top when the menu fits; otherwise sit
+        // it on the bottom edge of the screen, which puts it above the sprite.
+        let y = below.y - menuSize.height < visible.minY
+            ? min(visible.maxY, visible.minY + menuSize.height)
+            : below.y
+        let rightmost = max(visible.minX, visible.maxX - menuSize.width)
+        return NSPoint(x: min(max(below.x, visible.minX), rightmost), y: y)
+    }
+
+    private func buildMenu() -> NSMenu {
         // Visual changes here should be mirrored in the website's re-creation
         // (docs/chestnut.js, renderMenu).
         let menu = NSMenu()
+        // Only the root menu gets the delegate: submenus opening and closing
+        // aren't the menu itself opening and closing.
+        menu.delegate = self
 
         menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
         menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
@@ -254,7 +303,7 @@ final class PetWindow: NSPanel {
         menu.addItem(.separator())
         menu.addItem(menuItem("Quit Chestnut", #selector(quitApp)))
 
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        return menu
     }
 
     /// A plain action row targeting this window, optionally showing the key
@@ -299,33 +348,39 @@ final class PetWindow: NSPanel {
         return Self.submenuItem("Theme", submenu)
     }
 
-    /// Everything you set once: two sliders, three toggles, two escape hatches.
-    /// Deliberately flat — nothing in here opens a further submenu, so the menu
-    /// never reaches a third level.
+    /// Everything you set once: two value pickers, three toggles, two escape
+    /// hatches.
+    ///
+    /// Opacity and Notice Bubble are the only rows that open a third level, and
+    /// they are why the "never a third level" rule now has an exception. They
+    /// were sliders, which are `NSMenuItem.view`s, and AppKit skips view items
+    /// in a menu's key loop — so neither value could be changed without a
+    /// mouse. For opacity that could strand you: faded to its floor, the sprite
+    /// is nearly invisible, and the only control that restored it was a slider
+    /// you had to find and drag on a pet you could no longer see. Discrete
+    /// items are ordinary items: arrow keys reach them, Return picks one, the
+    /// checkmark is the current value, and there is one control per value
+    /// rather than a slider shadowed by a keyboard stand-in. The cost is the
+    /// fine control the slider had, spent deliberately.
     private func settingsMenuItem() -> NSMenuItem {
         let submenu = NSMenu()
 
-        let opacity = sliderRow(
-            label: "Opacity",
+        submenu.addItem(presetMenuItem(
+            title: "Opacity",
             hint: "How solid Chestnut looks",
-            value: state.opacity,
-            range: AppState.opacityRange,
-            action: #selector(opacityChanged(_:)),
-            readout: Self.percentLabel
-        )
-        opacityReadout = opacity.readout
-        submenu.addItem(opacity.item)
-
-        let notice = sliderRow(
-            label: "Notice Bubble",
+            presets: AppState.opacityPresets,
+            current: state.opacity,
+            action: #selector(selectOpacity(_:)),
+            label: Self.percentLabel
+        ))
+        submenu.addItem(presetMenuItem(
+            title: "Notice Bubble",
             hint: "How long a notice bubble stays on screen",
-            value: state.noticeDuration,
-            range: AppState.noticeDurationRange,
-            action: #selector(noticeDurationChanged(_:)),
-            readout: Self.secondsLabel
-        )
-        noticeDurationReadout = notice.readout
-        submenu.addItem(notice.item)
+            presets: AppState.noticeDurationPresets,
+            current: state.noticeDuration,
+            action: #selector(selectNoticeDuration(_:)),
+            label: Self.secondsLabel
+        ))
 
         submenu.addItem(.separator())
         let copyItem = menuItem("Copy on Drop", #selector(toggleCopyDefault))
@@ -392,59 +447,35 @@ final class PetWindow: NSPanel {
         return item
     }
 
-    /// One row shape for both sliders: label, slider, value. Fixed label and
-    /// readout widths (and monospaced digits) keep the two sliders aligned with
-    /// each other and stop `1s` → `30s` from shoving the track sideways.
-    /// `hint` becomes the row's tooltip — a slider row has no room to explain
-    /// itself, and "Opacity" is self-evident where a duration isn't.
-    private func sliderRow(
-        label: String,
+    /// One row shape for both value pickers: a parent naming the setting, and a
+    /// submenu of preset choices with the current one checked. The parent
+    /// carries the value as a badge so the setting can be read without opening
+    /// it, and `hint` becomes its tooltip — "Opacity" is self-evident where a
+    /// duration isn't.
+    ///
+    /// The checkmark is an exact match, so a value persisted between stops by
+    /// an older build shows none. That's deliberate: checking the nearest stop
+    /// would claim a value the app isn't using. Picking any preset resolves it.
+    private func presetMenuItem(
+        title: String,
         hint: String,
-        value: Double,
-        range: ClosedRange<Double>,
+        presets: [Double],
+        current: Double,
         action: Selector,
-        readout: (Double) -> String
-    ) -> (item: NSMenuItem, readout: NSTextField) {
-        let slider = NSSlider(
-            value: value,
-            minValue: range.lowerBound,
-            maxValue: range.upperBound,
-            target: self,
-            action: action
-        )
-        slider.isContinuous = true
-
-        let title = NSTextField(labelWithString: label)
-        title.font = .menuFont(ofSize: 0)
-        title.widthAnchor.constraint(equalToConstant: Self.sliderLabelWidth).isActive = true
-
-        let valueLabel = NSTextField(labelWithString: readout(value))
-        valueLabel.font = .monospacedDigitSystemFont(
-            ofSize: NSFont.smallSystemFontSize, weight: .regular
-        )
-        valueLabel.textColor = .secondaryLabelColor
-        valueLabel.alignment = .right
-        valueLabel.widthAnchor.constraint(equalToConstant: Self.sliderReadoutWidth).isActive = true
-
-        let row = NSStackView(views: [title, slider, valueLabel])
-        row.toolTip = hint
-        // Taller than a normal menu row on purpose: a slider knob is ~20pt, so
-        // at 24pt two stacked rows put their knobs 4pt apart and read as one
-        // mashed block. The vertical air is what makes them legible as a pair.
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 21, bottom: 6, right: 14)
-        // NSMenu sizes itself to its widest item: the two rows must declare the
-        // same width or the submenu jumps between them.
-        row.frame = NSRect(x: 0, y: 0, width: Self.sliderRowWidth, height: 32)
-        row.autoresizingMask = [.width]
-
-        let item = NSMenuItem()
-        item.view = row
-        return (item, valueLabel)
+        label: (Double) -> String
+    ) -> NSMenuItem {
+        let submenu = NSMenu()
+        for preset in presets {
+            let item = menuItem(label(preset), action)
+            item.representedObject = preset
+            item.state = AppState.isPreset(preset, matching: current) ? .on : .off
+            submenu.addItem(item)
+        }
+        let parent = Self.submenuItem(title, submenu)
+        parent.badge = NSMenuItemBadge(string: label(current))
+        parent.toolTip = hint
+        return parent
     }
-
-    private static let sliderRowWidth: CGFloat = 290
-    private static let sliderLabelWidth: CGFloat = 96
-    private static let sliderReadoutWidth: CGFloat = 34
 
     /// Whole seconds only: a bubble that lingers 7.4s isn't a distinct choice
     /// from one that lingers 7.
@@ -456,26 +487,20 @@ final class PetWindow: NSPanel {
         "\(Int((fraction * 100).rounded()))%"
     }
 
-    @objc private func opacityChanged(_ sender: NSSlider) {
-        alphaValue = sender.doubleValue
-        opacityReadout?.stringValue = Self.percentLabel(sender.doubleValue)
-        state.opacity = sender.doubleValue
-        // The action fires for every tick of a drag; persist only on the final
-        // event (mouse-up, or a direct click on the track).
-        if NSApp.currentEvent?.type != .leftMouseDragged {
-            onStateChange?(state)
-        }
+    /// Both pickers persist immediately. The sliders they replaced had to wait
+    /// for mouse-up to avoid writing on every drag tick; a discrete choice is a
+    /// single event, so there's nothing to defer.
+    @objc private func selectOpacity(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        alphaValue = value
+        state.opacity = value
+        onStateChange?(state)
     }
 
-    @objc private func noticeDurationChanged(_ sender: NSSlider) {
-        let seconds = sender.doubleValue.rounded()
-        noticeDurationReadout?.stringValue = Self.secondsLabel(seconds)
-        state.noticeDuration = seconds
-        // Like the opacity slider: the action fires on every tick of a drag,
-        // so persist only on the final event (mouse-up, or a click on the track).
-        if NSApp.currentEvent?.type != .leftMouseDragged {
-            onStateChange?(state)
-        }
+    @objc private func selectNoticeDuration(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        state.noticeDuration = value
+        onStateChange?(state)
     }
 
     @objc private func editConfiguration() {
@@ -662,6 +687,20 @@ final class PetWindow: NSPanel {
             return canUndoCapture?() == true
         }
         return true
+    }
+}
+
+/// Reports menu tracking so the `menu` hotkey can be released for its duration
+/// — see `HotkeyCenter.setMenuHotkeyEnabled` for why holding it is worse than
+/// useless. Both entry points route through `buildMenu`, so a right-click is
+/// covered as well as the hotkey.
+extension PetWindow: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        onMenuTrackingChange?(true)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        onMenuTrackingChange?(false)
     }
 }
 
