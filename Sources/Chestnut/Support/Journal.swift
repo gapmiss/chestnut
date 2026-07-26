@@ -76,13 +76,42 @@ extension Journal where Record == CaptureRecord {
 }
 
 /// How much history a journal keeps. Undo serves "take back the thing I just
-/// did": the menu names no particular record, and a record that refuses to
-/// reverse is kept and blocks everything older than it, so depth past a
-/// handful is unreachable in practice. Keeping less also means less of the
-/// user's note text sitting in Application Support.
+/// did": a record that refuses to reverse is kept and blocks everything older
+/// than it, so depth past a handful is unreachable in practice. Keeping less
+/// also means less of the user's note text sitting in Application Support.
 enum JournalLimits {
     static let maxRecords = 20
     static let maxBytes = 1_000_000
+}
+
+/// One Undo menu row, resolved from the record it would reverse.
+///
+/// The name goes in `NSMenuItem.subtitle` rather than the title, and that is a
+/// width decision, not a style one: `NSMenu` sizes itself to its widest row, so
+/// a name in the title made every row as wide as the longest note name — 248pt
+/// → 331pt for a 13-character name, 476pt at the old budget. A subtitle is set
+/// in a smaller font on its own line and only widens the menu past what the
+/// other rows already demand, which measured as 248pt unchanged for names up to
+/// ~20 characters and 261pt at the worst case.
+struct UndoRow {
+    /// Second line naming what would be reversed. Nil for a record journaled
+    /// before names were kept, which draws as a plain row.
+    let subtitle: String?
+}
+
+/// How a journaled record names itself in its Undo row (see
+/// `CourierOperation.undoMenuSubtitle`, `CaptureRecord.undoMenuSubtitle`).
+/// Shared so the two rows read alike, and here rather than in `PetWindow` so
+/// `make check` can reach it.
+enum UndoName {
+    /// A note name has no length limit and a menu row doesn't wrap. Past this
+    /// the name is cut; see `UndoRow` for the widths behind the number.
+    static let budget = 24
+
+    static func cut(_ name: String) -> String {
+        guard name.count > budget else { return name }
+        return name.prefix(budget - 1) + "…"
+    }
 }
 
 /// Generic types can't hold stored statics; the shared coders live here.

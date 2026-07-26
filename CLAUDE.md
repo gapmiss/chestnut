@@ -128,8 +128,9 @@ Checks/
   `noticeDuration` (seconds, clamped to 1–30) is set from the menu and applies
   to the next bubble without a relaunch.
 - **Right-click menu** (`PetWindow.showMenu`) is ordered actions first, then
-  the pet's identity, then about: Vaults…/Capture… · Undo Delivery/Undo
-  Capture · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
+  the pet's identity, then about: Vaults…/Capture… · Undo Last Delivery/Undo
+  Last Capture, each carrying the name of the record it reverses as a subtitle
+  · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
   (version + ↗ in one badge) / Support Chestnut · Quit. Size and Theme stay
   top-level deliberately; everything set-once lives in Settings ▸, which is
   flat. `showMenu` is an assembly list; one builder method per group.
@@ -223,9 +224,19 @@ Checks/
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
   `NoteRewrite.original`, so both limits are load-bearing. Undo depth is
-  *not* a feature to grow: the menu names no particular record, and a record
-  whose undo fails is deliberately kept, which blocks every older record
-  behind it. Undo is for "take back what I just did".
+  *not* a feature to grow: a record whose undo fails is deliberately kept,
+  which blocks every older record behind it. Undo is for "take back what I
+  just did". Each Undo row names the record it would reverse on a second line
+  (`NSMenuItem.subtitle`, from `CourierOperation.undoMenuSubtitle` /
+  `CaptureRecord.undoMenuSubtitle`) — undo pops one record per click, so a
+  bare title refers to a different, older operation from the second click on.
+  **The name belongs in the subtitle, not the title**: `NSMenu` sizes to its
+  widest row, and a name in the title took the menu from 248pt to 331pt for a
+  13-character note name and 476pt at worst. As a subtitle it measured 248pt
+  unchanged up to ~20 characters. `subtitle` needs macOS 14.4 while the floor
+  is 14.0, so 14.0–14.3 draws the row unnamed. `CourierOperation.deliveredNames`
+  carries the dropped file names and is optional, so pre-0.5 records decode
+  with it nil and also draw unnamed.
 - **Vault containment is lexical, and that is the whole promise.** Plugin
   writes refuse paths that *lexically* resolve outside the vault root
   (standardized-path `hasPrefix`). Symlinks are not resolved. Do not "harden"

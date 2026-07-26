@@ -21,6 +21,26 @@ struct CourierOperation: Codable, Equatable {
     let isCopy: Bool
     let transfers: [FileTransfer]
     let rewrites: [NoteRewrite]
+    /// What the user dropped, by source file name, so the Undo row can say
+    /// which delivery it takes back. Source names rather than delivered ones:
+    /// a conflict suffix (" 1") is Chestnut's bookkeeping, not what the user
+    /// recognises. `transfers` can't answer this — attachments are placed
+    /// before their note and several notes interleave. Nil in records
+    /// journaled before the menu named anything.
+    var deliveredNames: [String]?
+}
+
+extension CourierOperation {
+    /// Second line for the Undo row that reverses this delivery. Undo walks
+    /// back through history one record per click, so an unnamed row leaves the
+    /// user firing blind from the second click on. Nil for records journaled
+    /// before `deliveredNames`.
+    var undoMenuSubtitle: String? {
+        guard let names = deliveredNames, !names.isEmpty else { return nil }
+        if names.count == 1 { return UndoName.cut(names[0]) }
+        let allNotes = names.allSatisfy { ($0 as NSString).pathExtension.lowercased() == "md" }
+        return "\(names.count) \(allNotes ? "notes" : "files")"
+    }
 }
 
 enum CourierError: LocalizedError {
@@ -84,7 +104,8 @@ struct Courier {
         }
 
         return CourierOperation(
-            date: Date(), isCopy: copy, transfers: transfers, rewrites: rewrites
+            date: Date(), isCopy: copy, transfers: transfers, rewrites: rewrites,
+            deliveredNames: files.map(\.lastPathComponent)
         )
     }
 

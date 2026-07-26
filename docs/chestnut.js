@@ -934,6 +934,10 @@ function renderMenu() {
   }));
 
   menuEl.appendChild(menuSeparator());
+  // In the app each of these rows carries a second line naming the delivery
+  // or capture it would reverse ("note.md", "3 notes"). The demo has no
+  // journal, so it draws them unnamed, which is what a fresh install shows
+  // too. If the titles change in PetWindow, change them here.
   menuEl.appendChild(menuItem({
     label: "Undo Last Delivery",
     action() {

@@ -28,11 +28,13 @@ final class PetWindow: NSPanel {
     var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
     var hasPluginForType: ((PluginInputType) -> Bool)?
     var onUndoDelivery: (() -> Void)?
-    var canUndoDelivery: (() -> Bool)?
+    /// The Undo Last Delivery row, resolved from the record it would reverse;
+    /// nil when there's nothing journaled, which is also what disables it.
+    var undoDeliveryRow: (() -> UndoRow?)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
     var onCapture: (() -> Void)?
     var onUndoCapture: (() -> Void)?
-    var canUndoCapture: (() -> Bool)?
+    var undoCaptureRow: (() -> UndoRow?)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
@@ -46,6 +48,11 @@ final class PetWindow: NSPanel {
     private var state: AppState
     /// Hand-edited settings: read-only here, never written back.
     private let config: Config
+
+    /// Whether each Undo row had a record when the menu was last built; see
+    /// `validateMenuItem`.
+    private var undoDeliveryAvailable = false
+    private var undoCaptureAvailable = false
 
     /// Transparent margins around the sprite: room for the hop and z-drift
     /// above, future panels at the sides, a whisker below the baseline.
@@ -282,8 +289,12 @@ final class PetWindow: NSPanel {
         menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
 
         menu.addItem(.separator())
-        menu.addItem(menuItem("Undo Last Delivery", #selector(undoDelivery)))
-        menu.addItem(menuItem("Undo Last Capture", #selector(undoCapture)))
+        let delivery = undoDeliveryRow?()
+        let capture = undoCaptureRow?()
+        undoDeliveryAvailable = delivery != nil
+        undoCaptureAvailable = capture != nil
+        menu.addItem(undoMenuItem("Undo Last Delivery", #selector(undoDelivery), delivery))
+        menu.addItem(undoMenuItem("Undo Last Capture", #selector(undoCapture), capture))
 
         menu.addItem(.separator())
         menu.addItem(sizeMenuItem())
@@ -317,6 +328,22 @@ final class PetWindow: NSPanel {
             item.keyEquivalent = key
             item.keyEquivalentModifierMask = mods
         }
+        return item
+    }
+
+    /// An Undo row. The title is fixed; the record it would reverse names
+    /// itself on the second line, because undo pops one record per click and
+    /// after the first click a bare title refers to a different, older
+    /// operation with nothing on screen to say so. Subtitle rather than title
+    /// so a long note name can't set the width of every row in the menu —
+    /// see `UndoRow`. A record from before names were kept draws plain, as
+    /// does every row on 14.0–14.3, where `subtitle` doesn't exist yet: the
+    /// row still works, it just goes back to being unnamed.
+    private func undoMenuItem(
+        _ title: String, _ action: Selector, _ row: UndoRow?
+    ) -> NSMenuItem {
+        let item = menuItem(title, action)
+        if #available(macOS 14.4, *) { item.subtitle = row?.subtitle }
         return item
     }
 
@@ -680,12 +707,10 @@ final class PetWindow: NSPanel {
         }
     }
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(undoDelivery) {
-            return canUndoDelivery?() == true
-        }
-        if menuItem.action == #selector(undoCapture) {
-            return canUndoCapture?() == true
-        }
+        // Answered from what buildMenu resolved a moment ago, rather than
+        // reading the journal a second time for every right-click.
+        if menuItem.action == #selector(undoDelivery) { return undoDeliveryAvailable }
+        if menuItem.action == #selector(undoCapture) { return undoCaptureAvailable }
         return true
     }
 }

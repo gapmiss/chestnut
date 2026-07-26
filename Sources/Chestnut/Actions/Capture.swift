@@ -15,6 +15,15 @@ struct CaptureRecord: Codable, Equatable {
     var attachmentPaths: [String]?
 }
 
+extension CaptureRecord {
+    /// Second line for the Undo row that reverses this capture — see
+    /// `CourierOperation.undoMenuSubtitle` for why the row names its record.
+    var undoMenuSubtitle: String? {
+        let name = (notePath as NSString).lastPathComponent
+        return name.isEmpty ? nil : UndoName.cut(name)
+    }
+}
+
 /// Splits a plugin's queued attachments by whether the note text refers to
 /// them, so only referenced files are copied into the vault.
 ///

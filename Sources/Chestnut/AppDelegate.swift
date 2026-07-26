@@ -126,8 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onPluginDrop = { [weak self] type, input in
             self?.handlePluginInput(type: type, input: input)
         }
-        window.canUndoDelivery = { [weak self] in
-            self?.journal.last() != nil
+        window.undoDeliveryRow = { [weak self] in
+            self?.journal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
         }
         window.onUndoDelivery = { [weak self] in
             self?.undoLastDelivery()
@@ -135,8 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onCapture = { [weak self] in
             self?.toggleCapture()
         }
-        window.canUndoCapture = { [weak self] in
-            self?.captureJournal.last() != nil
+        window.undoCaptureRow = { [weak self] in
+            self?.captureJournal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
         }
         window.onUndoCapture = { [weak self] in
             self?.undoLastCapture()

@@ -21,6 +21,16 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Changed
 
+- **The Undo rows now say what they will undo.** They read "Undo Last
+  Delivery" and "Undo Last Capture" no matter what was in the journal, and
+  every click reverses one more operation, so from the second click on the
+  row referred to something older than the thing you had in mind, with
+  nothing on screen to say so. Each row now carries the name of what it would
+  reverse on a second line: `recipe.md`, `3 notes`, `2026-07-25.md`. Rows
+  stay unnamed when there is nothing to undo, on operations recorded before
+  this release, and on macOS 14.0 to 14.3, which has no second line to put
+  them on.
+
 - **Opacity and Notice Bubble are now lists of choices, not sliders.** A
   slider in a menu is a custom view, and macOS skips those when you move
   through a menu with the arrow keys, so neither value could be changed

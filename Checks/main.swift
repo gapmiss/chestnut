@@ -147,6 +147,7 @@ struct Check {
         watcher.stop()
 
         courierChecks()
+        undoMenuRowChecks()
         captureChecks()
         configChecks()
         appStateChecks()
@@ -1299,6 +1300,10 @@ struct Check {
             check(restored?.transfers == op.transfers && restored?.rewrites == op.rewrites
                     && restored?.isCopy == op.isCopy,
                   "journal encodes and decodes the operation")
+            check(restored?.deliveredNames == ["note.md", "second.md"],
+                  "delivery records what was dropped, in order, for the Undo row")
+            check(restored?.undoMenuSubtitle == "2 notes",
+                  "a real delivery names itself in the menu")
 
             // --- Retention: journals are capped, not grown forever ---
             let capped = Journal<CaptureRecord>(
@@ -1431,6 +1436,62 @@ struct Check {
             check(resolved.standardizedFileURL == expectedURL.standardizedFileURL,
                   "attachmentFolderPath \(setting) → \(expected.isEmpty ? "vault root" : expected)")
         }
+    }
+
+    // MARK: - Undo menu rows
+
+    /// U1: the Undo rows name the record they'd reverse, on a second line.
+    /// Pure string work, and it lives beside the records rather than in
+    /// PetWindow (not in this check target) precisely so it can be asserted
+    /// here.
+    static func undoMenuRowChecks() {
+        func delivery(_ names: [String]?) -> CourierOperation {
+            CourierOperation(date: Date(), isCopy: false, transfers: [], rewrites: [],
+                             deliveredNames: names)
+        }
+        func capture(_ notePath: String) -> CaptureRecord {
+            CaptureRecord(date: Date(), vaultPath: "/v", notePath: notePath,
+                          appended: "x", createdFile: false)
+        }
+
+        check(delivery(["recipe.md"]).undoMenuSubtitle == "recipe.md",
+              "one delivered note is named in the row")
+        check(delivery(["a.md", "b.md", "c.md"]).undoMenuSubtitle == "3 notes",
+              "several notes are counted")
+        check(delivery(["a.md", "photo.png"]).undoMenuSubtitle == "2 files",
+              "a mixed drop counts files, not notes")
+        check(delivery(["photo.png"]).undoMenuSubtitle == "photo.png",
+              "a bare attachment drop is named too")
+
+        // Records journaled before deliveredNames existed, and the empty case
+        // deliver() can't produce: both draw a plain row rather than naming
+        // nothing. Note nil here means "unnamed", not "nothing to undo" —
+        // that distinction is UndoRow's, and it's why the row stays enabled.
+        check(delivery(nil).undoMenuSubtitle == nil,
+              "a record from before names were kept draws a plain row")
+        check(delivery([]).undoMenuSubtitle == nil,
+              "an empty name list draws a plain row")
+        let legacy = #"{"date":"2026-07-01T00:00:00Z","isCopy":false,"rewrites":[],"transfers":[]}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = try? decoder.decode(CourierOperation.self, from: Data(legacy.utf8))
+        check(old != nil && old?.deliveredNames == nil,
+              "a pre-U1 journal line still decodes (no migration)")
+
+        check(capture("/v/2026-07-25.md").undoMenuSubtitle == "2026-07-25.md",
+              "capture names its target note")
+        check(capture("").undoMenuSubtitle == nil,
+              "a capture with no note path draws a plain row")
+
+        // A note name has no length limit; a menu row does.
+        let long = String(repeating: "n", count: 80) + ".md"
+        let cut = delivery([long]).undoMenuSubtitle
+        check(cut == String(repeating: "n", count: UndoName.budget - 1) + "…",
+              "an over-long name is cut to the budget")
+        check(cut?.count == UndoName.budget, "the cut name is exactly the budget")
+        let exact = String(repeating: "n", count: UndoName.budget)
+        check(delivery([exact]).undoMenuSubtitle == exact,
+              "a name exactly at the budget is left whole")
     }
 
     // MARK: - Obsidian link parsing
