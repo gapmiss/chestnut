@@ -162,9 +162,120 @@ struct Check {
         await pluginRunnerEndToEndChecks()
         pluginDispatchChecks()
         obsidianLinkChecks()
+        docsContractChecks()
 
         print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
         exit(failures == 0 ? 0 : 1)
+    }
+
+    // MARK: - T7: docs / code contract
+
+    /// Holds the published plugin reference to what the parser actually reads.
+    ///
+    /// Every other check here proves the app works. This one proves the
+    /// *instructions* work, which is a different failure and the one that bit:
+    /// the guide named the script field `command` where the parser requires
+    /// `script`, so every copy-pasted manifest silently failed to load, in the
+    /// reference table and both worked examples at once. Nothing in the app was
+    /// broken, so nothing in the app could have caught it.
+    ///
+    /// Located from `#filePath` rather than the working directory, so it holds
+    /// wherever the binary is run from.
+    static func docsContractChecks() {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let docs = repoRoot.appendingPathComponent("docs")
+
+        func html(_ name: String) -> String {
+            (try? String(contentsOf: docs.appendingPathComponent(name), encoding: .utf8)) ?? ""
+        }
+        let guide = html("guide.html")
+        let index = html("index.html")
+        check(!guide.isEmpty && !index.isEmpty,
+              "docs/guide.html and docs/index.html are readable from #filePath")
+
+        // --- Reference tables vs the types they describe ---
+        // First-column <code> terms of the table following a marker.
+        func tableTerms(in page: String, after marker: String) -> Set<String> {
+            guard let start = page.range(of: marker),
+                  let open = page.range(of: "<tbody>", range: start.upperBound..<page.endIndex),
+                  let close = page.range(of: "</tbody>", range: open.upperBound..<page.endIndex)
+            else { return [] }
+            let body = page[open.upperBound..<close.lowerBound]
+            return Set(body.components(separatedBy: "<tr>").compactMap { row in
+                guard let o = row.range(of: "<code>"),
+                      let c = row.range(of: "</code>", range: o.upperBound..<row.endIndex)
+                else { return nil }
+                return String(row[o.upperBound..<c.lowerBound])
+            })
+        }
+
+        let documentedFields = tableTerms(in: guide, after: "manifest.json reference")
+        check(documentedFields == PluginManifest.manifestFields,
+              "the manifest reference table names exactly the parser's fields "
+              + "(documented-only: \(documentedFields.subtracting(PluginManifest.manifestFields).sorted()), "
+              + "undocumented: \(PluginManifest.manifestFields.subtracting(documentedFields).sorted()))")
+
+        let documentedInputs = tableTerms(in: guide, after: #"id="input-types""#)
+        let realInputs = Set(PluginInputType.allCases.map(\.rawValue))
+        check(documentedInputs == realInputs,
+              "the input-types table lists exactly PluginInputType's cases "
+              + "(missing: \(realInputs.subtracting(documentedInputs).sorted()))")
+
+        let documentedOutputs = tableTerms(in: guide, after: #"id="output-modes""#)
+        let realOutputs = Set(PluginOutputMode.allCases.map(\.rawValue))
+        check(documentedOutputs == realOutputs,
+              "the output-modes table lists exactly PluginOutputMode's cases "
+              + "(missing: \(realOutputs.subtracting(documentedOutputs).sorted()))")
+
+        // --- The copy-pasteable examples ---
+        // A reader trusts these more than the table, and they were wrong too.
+        func jsonBlocks(in page: String) -> [[String: Any]] {
+            page.components(separatedBy: #"<code class="language-json">"#).dropFirst()
+                .compactMap { chunk -> [String: Any]? in
+                    guard let end = chunk.range(of: "</code>") else { return nil }
+                    let text = String(chunk[chunk.startIndex..<end.lowerBound])
+                        .replacingOccurrences(of: "&quot;", with: "\"")
+                        .replacingOccurrences(of: "&lt;", with: "<")
+                        .replacingOccurrences(of: "&gt;", with: ">")
+                        .replacingOccurrences(of: "&amp;", with: "&")
+                    return (try? JSONSerialization.jsonObject(with: Data(text.utf8)))
+                        as? [String: Any]
+                }
+        }
+
+        var manifestExamples = 0
+        var envelopeExamples = 0
+        for (page, name) in [(guide, "guide.html"), (index, "index.html")] {
+            for object in jsonBlocks(in: page) {
+                let keys = Set(object.keys)
+                // A manifest declares `api`; an envelope declares `action`.
+                if object["api"] != nil {
+                    manifestExamples += 1
+                    check(keys.isSubset(of: PluginManifest.manifestFields),
+                          "\(name): manifest example uses only real fields "
+                          + "(stray: \(keys.subtracting(PluginManifest.manifestFields).sorted()))")
+                    let accepts = Set((object["accepts"] as? [String]) ?? [])
+                    check(accepts.isSubset(of: realInputs),
+                          "\(name): manifest example accepts only real input types "
+                          + "(stray: \(accepts.subtracting(realInputs).sorted()))")
+                    check(realOutputs.contains((object["output"] as? String) ?? ""),
+                          "\(name): manifest example declares a real output mode")
+                } else if object["action"] != nil {
+                    envelopeExamples += 1
+                    check(keys.isSubset(of: PluginEnvelope.envelopeFields),
+                          "\(name): envelope example uses only real fields "
+                          + "(stray: \(keys.subtracting(PluginEnvelope.envelopeFields).sorted()))")
+                }
+            }
+        }
+
+        // Without this the loops above pass by finding nothing — the failure
+        // mode of every scraper, and worse here than the drift it looks for.
+        check(manifestExamples >= 2,
+              "found the manifest examples to check (got \(manifestExamples), expected the guide's and the landing page's)")
+        check(envelopeExamples >= 1,
+              "found at least one structured-envelope example (got \(envelopeExamples))")
     }
 
     // MARK: - Capture
