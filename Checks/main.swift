@@ -583,6 +583,16 @@ struct Check {
         check(HotkeySpec("control+option+a+b") == nil, "two keys returns nil")
         check(HotkeySpec("control+bogus+a") == nil, "unknown token returns nil")
 
+        // A registered hotkey consumes the keystroke everywhere, so a binding
+        // has to carry one of ⌃⌥⌘. Shift on its own doesn't make one.
+        check(HotkeySpec("space") == nil, "bare key without a modifier returns nil")
+        check(HotkeySpec("a") == nil, "bare letter without a modifier returns nil")
+        check(HotkeySpec("f12") == nil, "bare F-key without a modifier returns nil")
+        check(HotkeySpec("shift+a") == nil, "shift alone is not enough of a modifier")
+        check(HotkeySpec("control+shift+k") != nil, "shift alongside control still parses")
+        check(HotkeySpec("option+shift+space") != nil, "shift alongside option still parses")
+        check(HotkeySpec.display("space") == nil, "display of a modifier-less binding is nil")
+
         check(HotkeySpec.display("control+option+o") == "⌃⌥O", "display renders ⌃⌥O")
         check(HotkeySpec.display("cmd+shift+k") == "⇧⌘K", "display orders modifiers ⌃⌥⇧⌘")
         check(HotkeySpec.display("control+option+space") == "⌃⌥Space", "display labels space")

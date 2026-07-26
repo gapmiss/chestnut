@@ -61,6 +61,15 @@ Notable, user-facing changes to Chestnut. The format follows
   before the write, "Capture failed" used to take your text with it; the draft
   and any attachments now come back, so you can retry or copy the text out.
 
+- **A hotkey without a real modifier is now refused instead of taking over
+  the key.** `"capture": "space"` was accepted and registered, and because a
+  global hotkey takes the keystroke away from every other application, it left
+  you without a space bar anywhere on the system until you quit Chestnut. A
+  binding now needs at least one of control, option or command; shift can be
+  added to those but doesn't count on its own, since `shift+a` is just A.
+  Bindings that don't qualify are ignored and the reason is written to the
+  log, the same as any other unparseable binding.
+
 ## [0.4.0] — 2026-07-25
 
 ### Added

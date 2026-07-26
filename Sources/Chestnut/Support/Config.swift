@@ -28,6 +28,8 @@ struct Config: Codable, Equatable {
     /// User-defined sprite themes (appear in the right-click Theme menu).
     var customThemes: [CustomThemeConfig]?
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
+    /// At least one of control/option/command is required (shift alone
+    /// doesn't count); a binding without one is rejected and logged.
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
     var debug = false

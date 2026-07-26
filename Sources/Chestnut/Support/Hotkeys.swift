@@ -30,9 +30,16 @@ struct HotkeySpec {
         }
 
         guard let k = key else { return nil }
+        // At least one of ⌃⌥⌘. A registered hotkey *consumes* the keystroke
+        // system-wide, so "space" or "a" would kill that key in every
+        // application for as long as Chestnut runs. Shift doesn't count on
+        // its own — "shift+a" is just A — but is fine alongside another.
+        guard mods & Self.requiredModifiers != 0 else { return nil }
         keyCode = k
         modifiers = mods
     }
+
+    private static let requiredModifiers = UInt32(controlKey | optionKey | cmdKey)
 
     /// "control+option+o" → "⌃⌥O", for UI hints. Nil when the binding is
     /// empty, disabled, or malformed. Modifiers render in the macOS

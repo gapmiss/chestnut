@@ -402,6 +402,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       Modifiers: <code>control</code>/<code>ctrl</code>,
       <code>option</code>/<code>alt</code>,
       <code>command</code>/<code>cmd</code>, <code>shift</code>.
+      Every binding needs at least one of <code>control</code>,
+      <code>option</code> or <code>command</code>. <code>shift</code> can be
+      added to those but doesn't count on its own, since a global hotkey takes
+      the keystroke away from every other app: a binding of <code>"space"</code>
+      would leave you without a space bar. Bindings without a modifier are
+      ignored, and the reason is written to the log.
       Set a binding to <code>""</code> or <code>"none"</code> to disable it.
     </p>
 
