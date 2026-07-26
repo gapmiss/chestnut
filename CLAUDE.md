@@ -108,11 +108,30 @@ Checks/
   FSEvents.
 - **FPS management:** 10fps steady-state, 60fps only during hop/gulp gestures.
   Idle CPU ~2%.
+- **Reduce Motion** is honored, and it is the *effect* that is conditional, not
+  the frame rate. `PetScene.setMotionFrozen` stops everything that moves or
+  scales — breathing (which otherwise runs in every state, forever), the sleep
+  z-drift, the click hop, and the gulp's squash — while leaving the texture
+  swaps running, so the eye peek, the writing chatter and the chew loop still
+  say which state the pet is in. The rate stays at `FrameRate.calm`: those
+  swaps run as fast as 0.2s a frame, so dropping it would turn them into a
+  stutter. Stillness is what this buys; battery is not. The effective value is
+  `AppState.motionFrozen(app:system:)` — Chestnut's own Settings ▸ Reduce
+  Motion **OR** `NSWorkspace.accessibilityDisplayShouldReduceMotion`, so the
+  menu can add stillness but never take it away, and the row draws checked and
+  disabled while the system asks. Ticking Chestnut's row never writes the
+  system setting. `PetWindow` observes
+  `accessibilityDisplayOptionsDidChangeNotification` (on
+  `NSWorkspace.shared.notificationCenter`, not the default centre) and drops
+  the observer in `close()` beside the mouse monitors, since a theme or size
+  change rebuilds the window. `docs/chestnut.js` mirrors all of this against
+  `prefers-reduced-motion`.
 - **Two settings files**, both in `~/Library/Application Support/Chestnut/`:
   `config.json` (`Config`) is user-owned and hand-edited — hotkeys, custom
   themes, capture destination, `debug`. `state.json` (`AppState`) is app-owned
   — window position, size, opacity, theme, copy-on-drop, full-screen,
-  `noticeDuration`, pinned vault, last capture vault, `disabledPlugins`.
+  `noticeDuration`, `reduceMotion`, pinned vault, last capture vault,
+  `disabledPlugins`.
   **The app never writes `config.json`** except `createIfMissing()` on first
   run, which only fires when no file exists. No other write path exists, and
   none should be added; that invariant is what keeps a window drag from
@@ -134,7 +153,8 @@ Checks/
   · Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ · Check for Updates…
   (version + ↗ in one badge) / Support Chestnut · Quit. Size and Theme stay
   top-level deliberately; everything set-once lives in Settings ▸, which is
-  flat. `showMenu` is an assembly list; one builder method per group.
+  flat: Opacity ▸, Notice Bubble ▸, then Reduce Motion / Copy on Drop / Show in
+  Full Screen / Launch at Login, then Reset Position / Edit Configuration…. `showMenu` is an assembly list; one builder method per group.
   **The menu reaches a third level in exactly two places** — Settings ▸
   Opacity ▸ and Settings ▸ Notice Bubble ▸ — and nowhere else. Both were
   sliders; a slider is an `NSMenuItem.view`, and **AppKit skips view items in

@@ -33,6 +33,10 @@ struct AppState: Codable, Equatable {
     var size: PetSize = .medium
     /// Pet window opacity; the floor keeps the pet findable.
     var opacity = 1.0
+    /// Settings ▸ Reduce Motion: hold the pet still. Chestnut's own setting,
+    /// *not* a mirror of the system one — see `motionFrozen` for how the two
+    /// combine.
+    var reduceMotion = false
     /// Courier: drops copy instead of move by default (⌥ flips either way).
     var courierCopyByDefault = false
     /// Show the pet window over full-screen apps.
@@ -52,9 +56,25 @@ struct AppState: Codable, Equatable {
     var noticeDuration = defaultNoticeDuration
 
     private enum CodingKeys: String, CodingKey {
-        case position, size, opacity, courierCopyByDefault, showInFullScreen
-        case petTheme, lastCaptureVaultPath, pinnedVaultPath, disabledPlugins
-        case noticeDuration
+        case position, size, opacity, reduceMotion, courierCopyByDefault
+        case showInFullScreen, petTheme, lastCaptureVaultPath, pinnedVaultPath
+        case disabledPlugins, noticeDuration
+    }
+
+    /// Whether the pet holds still.
+    ///
+    /// Chestnut's setting and the system's are OR-ed rather than layered into
+    /// an override. The system one is a standing request the user has already
+    /// made of every app on the machine, so the menu may add stillness but
+    /// never take it away — an always-on-top window is the last place that
+    /// request should be undone by a checkbox someone finds by accident. The
+    /// cost is that a user who runs Reduce Motion system-wide can't have a
+    /// lively Chestnut; the menu row says why by drawing checked and disabled,
+    /// rather than looking broken. The two share a name because they mean the
+    /// same thing to the user; ticking Chestnut's own never writes the
+    /// system's, which the app has no business touching.
+    static func motionFrozen(app: Bool, system: Bool) -> Bool {
+        app || system
     }
 
     static let opacityRange = 0.1...1.0
@@ -94,6 +114,7 @@ struct AppState: Codable, Equatable {
         size = try c.decodeIfPresent(PetSize.self, forKey: .size) ?? .medium
         let rawOpacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1.0
         opacity = rawOpacity.clamped(to: Self.opacityRange)
+        reduceMotion = try c.decodeIfPresent(Bool.self, forKey: .reduceMotion) ?? false
         courierCopyByDefault =
             try c.decodeIfPresent(Bool.self, forKey: .courierCopyByDefault) ?? false
         showInFullScreen =
@@ -119,6 +140,7 @@ struct AppState: Codable, Equatable {
         try c.encodeIfPresent(position, forKey: .position)
         try c.encode(size, forKey: .size)
         try c.encode(opacity, forKey: .opacity)
+        try c.encode(reduceMotion, forKey: .reduceMotion)
         try c.encode(courierCopyByDefault, forKey: .courierCopyByDefault)
         try c.encode(showInFullScreen, forKey: .showInFullScreen)
         try c.encode(petTheme, forKey: .petTheme)

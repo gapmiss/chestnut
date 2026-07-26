@@ -56,6 +56,14 @@ final class PetScene: SKScene {
     private var chewing = false
     private var poseLocked: Bool { openWide || chewing }
 
+    /// When set, nothing in the scene moves or changes size: no breathing, no
+    /// drifting z, no click hop, no gulp squash. Texture swaps continue — the
+    /// eye peek, the writing chatter and the chew loop all change the sprite in
+    /// place, so the pet still shows which state it's in without travelling.
+    /// That's the Reduce Motion bargain: drop the movement, keep the
+    /// information. Set from `AppState.motionFrozen`.
+    private var motionFrozen = false
+
     init(size: CGSize, pixelScale: CGFloat, palette: [Character: SpriteTheme.RGBA]) {
         self.pixelScale = pixelScale
         tex = Textures(palette: palette)
@@ -88,6 +96,42 @@ final class PetScene: SKScene {
 
     private func applyStateFrameRate() {
         view?.preferredFramesPerSecond = FrameRate.calm
+    }
+
+    // MARK: - Motion
+
+    /// Freeze or release the pet, taking effect on the pose already showing.
+    ///
+    /// The frame rate is deliberately left at `FrameRate.calm`. Freezing looks
+    /// like it should be a chance to drop it further, but the texture swaps
+    /// that survive run as fast as 0.2s a frame (chatter) and 0.3s (chew), so a
+    /// lower rate would render them as a stutter. Steady-state CPU is unchanged
+    /// at ~2%; this setting buys stillness, not battery.
+    func setMotionFrozen(_ frozen: Bool) {
+        guard motionFrozen != frozen else { return }
+        motionFrozen = frozen
+        if frozen {
+            // A hop caught mid-flight leaves the sprite off its baseline, and
+            // play() only restores scale — nothing else would put it back down.
+            pet.removeAction(forKey: ActionKey.hop)
+            restPose()
+            // Z pixels own their own actions and outlive the spawner.
+            for node in children where node !== pet { node.removeFromParent() }
+        }
+        // Re-enter the pose so the change shows now rather than at the next
+        // state change. play() early-returns while a pose is held, so the
+        // locked poses re-enter themselves; open-wide is static either way.
+        if chewing {
+            startChewPose()
+        } else if !openWide {
+            play(currentState)
+        }
+    }
+
+    /// Sprite back to unscaled, both feet on the baseline.
+    private func restPose() {
+        pet.setScale(1)
+        pet.position = CGPoint(x: size.width / 2, y: Self.baselineY)
     }
 
     // MARK: - State animations
@@ -189,13 +233,24 @@ final class PetScene: SKScene {
         pet.removeAction(forKey: ActionKey.eyePeek)
         pet.removeAction(forKey: ActionKey.breathe)
         removeAction(forKey: ActionKey.zSpawner)
-        view?.preferredFramesPerSecond = FrameRate.gesture  // play() restores
+        if !motionFrozen {
+            view?.preferredFramesPerSecond = FrameRate.gesture  // play() restores
+        }
+        // Frozen, the swallow keeps its texture beats and loses its squash: a
+        // delivery is worth acknowledging, and the mouth opening and closing
+        // says so without the sprite changing size. The wait holds the rhythm
+        // the squash used to occupy so the beats don't run together.
+        let swallow: [SKAction] = motionFrozen
+            ? [SKAction.wait(forDuration: 0.22)]
+            : [
+                SKAction.scaleY(to: 0.9, duration: 0.1).with(timing: .easeIn),
+                SKAction.scaleY(to: 1.0, duration: 0.12).with(timing: .easeOut),
+            ]
         let gulp = SKAction.sequence([
             SKAction.setTexture(tex.chatterOpen),
             SKAction.wait(forDuration: 0.15),
             SKAction.setTexture(tex.base),
-            SKAction.scaleY(to: 0.9, duration: 0.1).with(timing: .easeIn),
-            SKAction.scaleY(to: 1.0, duration: 0.12).with(timing: .easeOut),
+        ] + swallow + [
             SKAction.setTexture(tex.glint),
             SKAction.wait(forDuration: 0.4),
             SKAction.run { [weak self] in
@@ -208,6 +263,10 @@ final class PetScene: SKScene {
 
     /// Click reaction: squash-and-stretch hop, then back to the current state.
     func handleClick() {
+        // Nothing but movement in a hop, so frozen there's nothing to play.
+        // The click still counts as interaction and still opens the hopper —
+        // that's the window's business, not the scene's.
+        guard !motionFrozen else { return }
         guard pet.action(forKey: ActionKey.hop) == nil else { return }
         pet.removeAction(forKey: ActionKey.breathe)
         view?.preferredFramesPerSecond = FrameRate.gesture  // play() restores
@@ -245,6 +304,10 @@ final class PetScene: SKScene {
     }
 
     private func startBreathing(period: TimeInterval, amount: CGFloat) {
+        // The one motion that runs in every state, so the one that matters most
+        // to suppress. Callers reset the scale before calling, so there's
+        // nothing to undo here.
+        guard !motionFrozen else { return }
         let breathe = SKAction.sequence([
             SKAction.scaleY(to: amount, duration: period / 2).with(timing: .easeInEaseOut),
             SKAction.scaleY(to: 1.0, duration: period / 2).with(timing: .easeInEaseOut),
@@ -269,6 +332,9 @@ final class PetScene: SKScene {
 
     /// Sleep: "z" pixels drift up from the lid and fade.
     private func startZDrift() {
+        // Each z translates and fades, so the whole effect is motion — frozen,
+        // sleep is just the asleep frame.
+        guard !motionFrozen else { return }
         let spawn = SKAction.run { [weak self] in self?.spawnZ() }
         let loop = SKAction.sequence([SKAction.wait(forDuration: 1.6), spawn])
         run(.repeatForever(loop), withKey: ActionKey.zSpawner)

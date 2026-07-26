@@ -69,6 +69,11 @@ final class PetWindow: NSPanel {
         NSScreen.screens.map { PetScreen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
     }
 
+    /// System Settings ▸ Accessibility ▸ Display ▸ Reduce Motion.
+    private static var systemReduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+
     static func contentSize(for size: AppState.PetSize) -> NSSize {
         PetGeometry.contentSize(for: size)
     }
@@ -146,6 +151,16 @@ final class PetWindow: NSPanel {
 
         acceptsMouseMovedEvents = true
         startClickThroughTracking()
+        applyMotionSetting()
+
+        // Reduce Motion can be switched on while the app runs, and the whole
+        // point of the setting is that it takes effect without hunting down
+        // each app. NSWorkspace posts this on its own centre, not the default.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(accessibilityDisplayOptionsChanged),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
 
         // Displays come and go while the app runs, not just between launches.
         // `constrainFrameRect` is overridden to a no-op, so nothing else pulls
@@ -156,6 +171,19 @@ final class PetWindow: NSPanel {
             self, selector: #selector(screenParametersChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil
         )
+    }
+
+    @objc private func accessibilityDisplayOptionsChanged() {
+        applyMotionSetting()
+    }
+
+    /// Push the effective stillness down to the scene. Chestnut's setting and
+    /// the system's are combined in `AppState.motionFrozen`, which documents
+    /// why the system one wins.
+    private func applyMotionSetting() {
+        petScene.setMotionFrozen(AppState.motionFrozen(
+            app: state.reduceMotion, system: Self.systemReduceMotion
+        ))
     }
 
     /// Re-run the launch-time validation against the new display list.
@@ -413,6 +441,22 @@ final class PetWindow: NSPanel {
         ))
 
         submenu.addItem(.separator())
+        // Sits with the pet's own presentation, above the courier and window
+        // toggles. Named after the system setting because that's the term the
+        // people who want it will look for; the subtitle is what stops the row
+        // being read as a *mirror* of that switch, which ticking it must never
+        // write. Disabled while the system asks, since this can only ever add
+        // stillness — `AppState.motionFrozen` says why. On 14.0–14.3 there's no
+        // subtitle API and the row draws bare but still dimmed.
+        let motionItem = menuItem("Reduce Motion", #selector(toggleReduceMotion))
+        let systemAsks = Self.systemReduceMotion
+        motionItem.state = AppState.motionFrozen(
+            app: state.reduceMotion, system: systemAsks
+        ) ? .on : .off
+        if systemAsks, #available(macOS 14.4, *) {
+            motionItem.subtitle = "Set in System Settings"
+        }
+        submenu.addItem(motionItem)
         let copyItem = menuItem("Copy on Drop", #selector(toggleCopyDefault))
         copyItem.state = state.courierCopyByDefault ? .on : .off
         submenu.addItem(copyItem)
@@ -601,6 +645,12 @@ final class PetWindow: NSPanel {
 
     @objc private func undoCapture() { onUndoCapture?() }
 
+    @objc private func toggleReduceMotion() {
+        state.reduceMotion.toggle()
+        applyMotionSetting()
+        onStateChange?(state)
+    }
+
     @objc private func toggleCopyDefault() {
         state.courierCopyByDefault.toggle()
         onStateChange?(state)
@@ -672,6 +722,10 @@ final class PetWindow: NSPanel {
         NotificationCenter.default.removeObserver(
             self, name: NSApplication.didChangeScreenParametersNotification, object: nil
         )
+        NSWorkspace.shared.notificationCenter.removeObserver(
+            self, name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
         super.close()
     }
 
@@ -719,6 +773,9 @@ final class PetWindow: NSPanel {
         // reading the journal a second time for every right-click.
         if menuItem.action == #selector(undoDelivery) { return undoDeliveryAvailable }
         if menuItem.action == #selector(undoCapture) { return undoCaptureAvailable }
+        // The system already stilled the pet; the row has nothing left to give
+        // and must not appear to offer a way back.
+        if menuItem.action == #selector(toggleReduceMotion) { return !Self.systemReduceMotion }
         return true
     }
 }

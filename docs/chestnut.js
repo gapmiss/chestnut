@@ -182,6 +182,20 @@ function baseTexture() {
   return "base";
 }
 
+// Mirrors AppState.motionFrozen. The browser's prefers-reduced-motion stands
+// in for the app's Reduce Motion setting, and combines the same way: the
+// Settings demo can add stillness but never take it away, so the hero pet
+// holds still for a visitor who asked their machine for that.
+const reduceMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function systemReduceMotion() {
+  return reduceMotionQuery.matches;
+}
+
+function motionFrozen() {
+  return menuState.reduceMotion || systemReduceMotion();
+}
+
 function update(t) {
   // Sleep after 90s without page interaction (any activity wakes it).
   if (pet.state !== "sleep" && !pet.openWide && !capturePanelOpen() &&
@@ -197,6 +211,11 @@ function update(t) {
   }
 
   let tex = null, dy = 0, sx = 1, sy = 1, breathing = true;
+
+  // Frozen, the pet holds still and keeps swapping textures, same as the app:
+  // a hop in flight is dropped, breathing and the sleep z's stop, and the eye
+  // peeks and chatter carry on because they change the sprite without moving it.
+  if (motionFrozen()) pet.gesture = null;
 
   if (pet.gesture) {
     const g = gestureFrame(t);
@@ -230,19 +249,19 @@ function update(t) {
     if (!tex) tex = baseTexture();
   }
 
-  if (breathing && !pet.openWide) {
+  if (breathing && !pet.openWide && !motionFrozen()) {
     const b = pet.hover ? BREATHE.hover : BREATHE[pet.state];
     sy *= 1 + ((b.amount - 1) / 2) * (1 - Math.cos((2 * Math.PI * t) / b.period));
   }
 
   // Sleep z's: spawn every 1.6s, drift up-right over 2.2s and fade.
-  if (pet.state === "sleep") {
+  if (pet.state === "sleep" && !motionFrozen()) {
     if (t > pet.nextZ) {
       pet.zs.push({ start: t });
       pet.nextZ = t + 1.6;
     }
   }
-  pet.zs = pet.zs.filter((z) => t - z.start < 2.2);
+  pet.zs = motionFrozen() ? [] : pet.zs.filter((z) => t - z.start < 2.2);
 
   draw(tex, dy, sx, sy, t);
 }
@@ -830,6 +849,7 @@ const menuState = {
   size: "Medium",
   opacity: 1,
   noticeDuration: 5,
+  reduceMotion: false,
   copyOnDrop: true,
   showInFullScreen: true,
   launchAtLogin: true,
@@ -1014,6 +1034,17 @@ function renderMenu() {
       }))),
     }),
     menuSeparator(),
+    menuItem({
+      label: "Reduce Motion",
+      check: motionFrozen(),
+      disabled: systemReduceMotion(),
+      hint: systemReduceMotion() ? "Set in System Settings" : undefined,
+      action() {
+        if (systemReduceMotion()) return;
+        menuState.reduceMotion = !menuState.reduceMotion;
+        closeMenu();
+      },
+    }),
     menuItem({
       label: "Copy on Drop",
       check: menuState.copyOnDrop,

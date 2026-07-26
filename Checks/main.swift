@@ -518,6 +518,26 @@ struct Check {
         check(op.filter { AppState.isPreset($0, matching: 0.6) }.count == 1,
               "exactly one preset is checked for a value that is one")
 
+        // --- Settings ▸ Reduce Motion ---
+        // Chestnut's row may only ever add stillness. The system setting is a
+        // request the user already made of the whole machine, and an
+        // always-on-top window is the last thing that should let a stray
+        // checkbox undo it.
+        check(!AppState.motionFrozen(app: false, system: false),
+              "the pet moves when neither Chestnut nor the system asks for stillness")
+        check(AppState.motionFrozen(app: true, system: false),
+              "Chestnut's own Reduce Motion stills the pet")
+        check(AppState.motionFrozen(app: false, system: true),
+              "the system's Reduce Motion stills the pet with Chestnut's row unticked")
+        check(AppState.motionFrozen(app: false, system: true)
+              == AppState.motionFrozen(app: true, system: true),
+              "Chestnut's row cannot release motion the system stilled")
+
+        check(decode(#"{}"#)?.reduceMotion == false,
+              "state without reduceMotion defaults to moving")
+        check(decode(#"{"reduceMotion":true}"#)?.reduceMotion == true,
+              "state reduceMotion round-trips")
+
         // A state.json from a build that predates a key decodes to defaults
         // rather than failing: the same tolerance Config relies on.
         let older = decode(#"{"opacity":0.6,"size":"small"}"#)

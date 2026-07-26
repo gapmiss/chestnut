@@ -8,6 +8,18 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Added
 
+- **Chestnut holds still when you ask it to, and when macOS already has.** A
+  gentle breathing motion ran in every state, forever, on a window that sits on
+  top of everything else, and nothing could stop it short of quitting the app.
+  Settings ▸ Reduce Motion now stops everything that moves: the breathing, the
+  drifting z's while Chestnut sleeps, the hop when you click, and the squash on
+  a delivery. Chestnut keeps blinking, chattering while you write and chewing
+  while a plugin runs, because those change the sprite without moving it, so
+  you can still tell at a glance what it's doing. If Reduce Motion is switched
+  on in System Settings ▸ Accessibility ▸ Display, Chestnut holds still on its
+  own without being asked, and the menu row says so rather than offering to
+  undo it.
+
 - **A hotkey that opens the menu: ⌃⌥M.** Every setting Chestnut has lived
   behind a right-click that had to land on the sprite itself, and because the
   pet window never takes keyboard focus, no menu shortcut could fire either.
