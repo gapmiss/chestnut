@@ -42,8 +42,10 @@ final class PetScene: SKScene {
         }
     }
 
-    /// Height of the transparent strip under the sprite (window bottom margin).
-    nonisolated static let baselineY: CGFloat = 8
+    /// Height of the transparent strip under the sprite. It *is* the window's
+    /// bottom margin — same number, one definition, so the scene's baseline
+    /// and the window's geometry can't drift apart.
+    nonisolated static let baselineY: CGFloat = PetGeometry.Margin.bottom
 
     private let pixelScale: CGFloat
     private let tex: Textures

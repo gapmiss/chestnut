@@ -147,6 +147,7 @@ struct Check {
         watcher.stop()
 
         courierChecks()
+        petGeometryChecks()
         undoMenuRowChecks()
         captureChecks()
         configChecks()
@@ -1507,6 +1508,74 @@ struct Check {
             check(resolved.standardizedFileURL == expectedURL.standardizedFileURL,
                   "attachmentFolderPath \(setting) → \(expected.isEmpty ? "vault root" : expected)")
         }
+    }
+
+    // MARK: - Pet window geometry
+
+    /// T9: where the pet lands, and how a saved position is made safe. These
+    /// guard against a window the user cannot reach — the sprite is the only
+    /// mouse route to the menu, so an origin with no screen under it takes
+    /// Reset Position and Quit with it. Pure maths: `PetGeometry` takes screen
+    /// rects rather than `NSScreen` precisely so this can run headless.
+    static func petGeometryChecks() {
+        // .small: scale 4, so a 24×18 grid gives a 96×72 sprite, and the
+        // window adds 24 either side, 8 below, 56 above.
+        let size = PetGeometry.contentSize(for: .small)
+        check(size == NSSize(width: 144, height: 136),
+              "content size is the sprite plus its margins (got \(size))")
+        let sprite = PetGeometry.petRect(
+            inWindowFrame: NSRect(x: 100, y: 200, width: 144, height: 136), scale: 4)
+        check(sprite == NSRect(x: 124, y: 208, width: 96, height: 72),
+              "the sprite sits inset from the window frame (got \(sprite))")
+
+        // One display with a menu bar and a Dock: frame is the whole panel,
+        // visibleFrame is what's left.
+        let main = PetScreen(frame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+                             visibleFrame: NSRect(x: 0, y: 50, width: 1000, height: 720))
+        func validated(_ saved: NSPoint?, screens: [PetScreen] = [main]) -> NSPoint {
+            PetGeometry.validatedOrigin(saved, for: .small, screens: screens,
+                                        mainVisible: main.visibleFrame)
+        }
+
+        let fallback = NSPoint(x: 816, y: 90)   // bottom-right, inset 40
+        check(validated(nil) == fallback,
+              "no saved position → the default corner")
+        check(validated(NSPoint(x: 50_000, y: 50_000)) == fallback,
+              "a saved position with no screen under it → the default corner")
+        check(validated(NSPoint(x: 400, y: 300)) == NSPoint(x: 400, y: 300),
+              "a position wholly on screen is left exactly where it was")
+
+        // The interesting half: partly off-screen is *clamped*, not reset.
+        // Resetting would throw away a position the user chose.
+        check(validated(NSPoint(x: 960, y: 400)) == NSPoint(x: 880, y: 400),
+              "a position hanging off the right edge is pulled back in, not reset")
+        check(validated(NSPoint(x: 400, y: 0)) == NSPoint(x: 400, y: 42),
+              "a sprite under the Dock is lifted clear of it, not reset")
+
+        // Intersection is tested against `frame`, clamping against
+        // `visibleFrame`. A sprite entirely behind the Dock is still on a
+        // display the user can see, so it must be rescued in place.
+        check(validated(NSPoint(x: 400, y: -8)) != fallback,
+              "a sprite entirely within the Dock strip is clamped, not sent to the corner")
+
+        // Two displays: the clamp must use the screen the pet is actually on.
+        let second = PetScreen(frame: NSRect(x: 1000, y: 0, width: 1000, height: 800),
+                               visibleFrame: NSRect(x: 1000, y: 50, width: 1000, height: 720))
+        check(validated(NSPoint(x: 1960, y: 300), screens: [main, second])
+                == NSPoint(x: 1880, y: 300),
+              "a pet on the second display is clamped to that display, not the main one")
+        // M14: the same origin once that display is unplugged.
+        check(validated(NSPoint(x: 1960, y: 300)) == fallback,
+              "unplugging the display the pet was on brings it back to the main one")
+        check(validated(NSPoint(x: 400, y: 300), screens: []) == fallback,
+              "an empty display list still yields a usable origin")
+
+        // Clamping is a no-op once the sprite is inside, so re-running it on
+        // every screen change can't walk the window across the desktop.
+        let once = PetGeometry.clampedOrigin(
+            NSPoint(x: 960, y: 400), for: .small, onVisible: main.visibleFrame)
+        let twice = PetGeometry.clampedOrigin(once, for: .small, onVisible: main.visibleFrame)
+        check(once == twice, "clamping is idempotent (got \(once) then \(twice))")
     }
 
     // MARK: - Undo menu rows

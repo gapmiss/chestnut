@@ -47,6 +47,15 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **Chestnut no longer gets stranded when you unplug a display.** The pet's
+  position was only checked against your screens at launch, so disconnecting
+  the display it was sitting on left it at coordinates nothing could reach:
+  no sprite to right-click, and the right-click menu is the way to Reset
+  Position. It now re-checks whenever your display setup changes and comes
+  back to your main screen. Resizing or rearranging displays nudges it clear
+  of the menu bar and Dock instead of moving it away. Where you put the pet is
+  remembered as you left it, so it returns there once the display is back.
+
 - **Undoing a delivery no longer gives up at the first file it can't move
   back.** If you had deleted or renamed one of the delivered files in Obsidian,
   undo stopped dead there: the files it had already returned stayed returned,

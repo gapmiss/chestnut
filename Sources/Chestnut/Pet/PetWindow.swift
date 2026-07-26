@@ -54,28 +54,27 @@ final class PetWindow: NSPanel {
     private var undoDeliveryAvailable = false
     private var undoCaptureAvailable = false
 
-    /// Transparent margins around the sprite: room for the hop and z-drift
-    /// above, future panels at the sides, a whisker below the baseline.
-    enum Margin {
-        static let side: CGFloat = 24
-        static let top: CGFloat = 56
-        static let bottom: CGFloat = PetScene.baselineY
+    /// See `PetGeometry.Margin` — kept as an alias so call sites read the same.
+    typealias Margin = PetGeometry.Margin
+
+    // The origin maths lives in `PetGeometry`, which takes screen rects rather
+    // than `NSScreen` so `make check` can reach it; this file is AppKit and
+    // can't join the check target. These wrappers supply the current displays.
+
+    private static var mainVisibleFrame: NSRect {
+        NSScreen.main?.visibleFrame ?? PetGeometry.fallbackVisibleFrame
+    }
+
+    private static var currentScreens: [PetScreen] {
+        NSScreen.screens.map { PetScreen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
     }
 
     static func contentSize(for size: AppState.PetSize) -> NSSize {
-        let scale = size.pixelScale
-        return NSSize(
-            width: CGFloat(PetFrames.gridWidth) * scale + Margin.side * 2,
-            height: CGFloat(PetFrames.gridHeight) * scale + Margin.bottom + Margin.top
-        )
+        PetGeometry.contentSize(for: size)
     }
 
     static func defaultOrigin(for contentSize: NSSize) -> NSPoint {
-        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        return NSPoint(
-            x: screen.maxX - contentSize.width - 40,
-            y: screen.minY + 40
-        )
+        PetGeometry.defaultOrigin(for: contentSize, onVisible: mainVisibleFrame)
     }
 
     /// The sprite's current on-screen rect — the anchor for the notice
@@ -86,46 +85,26 @@ final class PetWindow: NSPanel {
 
     /// The sprite's rect within a window frame (frame minus the margins).
     static func petRect(inWindowFrame frame: NSRect, scale: CGFloat) -> NSRect {
-        NSRect(
-            x: frame.minX + Margin.side,
-            y: frame.minY + Margin.bottom,
-            width: frame.width - Margin.side * 2,
-            height: CGFloat(PetFrames.gridHeight) * scale
-        )
+        PetGeometry.petRect(inWindowFrame: frame, scale: scale)
     }
 
     /// Clamp a window origin so the whole sprite sits inside `screen`'s
-    /// visible frame (below the menu bar, above the Dock).
+    /// visible frame (below the menu bar, above the Dock). A nil screen means
+    /// there is nothing to clamp against, so the origin stands.
     static func clampedOrigin(
         _ origin: NSPoint, for petSize: AppState.PetSize, on screen: NSScreen?
     ) -> NSPoint {
         guard let visible = screen?.visibleFrame else { return origin }
-        let size = contentSize(for: petSize)
-        let sprite = petRect(
-            inWindowFrame: NSRect(origin: origin, size: size),
-            scale: petSize.pixelScale
-        )
-        var clamped = origin
-        clamped.x += max(0, visible.minX - sprite.minX)
-        clamped.x -= max(0, sprite.maxX - visible.maxX)
-        clamped.y += max(0, visible.minY - sprite.minY)
-        clamped.y -= max(0, sprite.maxY - visible.maxY)
-        return clamped
+        return PetGeometry.clampedOrigin(origin, for: petSize, onVisible: visible)
     }
 
     /// A saved position is only trusted if part of the sprite is on a screen —
     /// displays come and go, and constrainFrameRect no longer rescues us.
     /// Trusted positions are still clamped into the visible area.
     static func validatedOrigin(_ saved: NSPoint?, for petSize: AppState.PetSize) -> NSPoint {
-        let size = contentSize(for: petSize)
-        guard let saved else { return defaultOrigin(for: size) }
-        let sprite = petRect(
-            inWindowFrame: NSRect(origin: saved, size: size),
-            scale: petSize.pixelScale
+        PetGeometry.validatedOrigin(
+            saved, for: petSize, screens: currentScreens, mainVisible: mainVisibleFrame
         )
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(sprite) })
-        else { return defaultOrigin(for: size) }
-        return clampedOrigin(saved, for: petSize, on: screen)
     }
 
     init(state: AppState, config: Config, controller: PetController) {
@@ -167,6 +146,30 @@ final class PetWindow: NSPanel {
 
         acceptsMouseMovedEvents = true
         startClickThroughTracking()
+
+        // Displays come and go while the app runs, not just between launches.
+        // `constrainFrameRect` is overridden to a no-op, so nothing else pulls
+        // a stranded pet back onto a screen — and a pet with no screen takes
+        // the right-click menu with it, which is the only route to Reset
+        // Position or Quit besides the menu hotkey.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil
+        )
+    }
+
+    /// Re-run the launch-time validation against the new display list.
+    ///
+    /// Deliberately does *not* persist the rescued origin. `state.position` is
+    /// the position the user chose, and a display they unplug now is one they
+    /// may plug back in later: keeping their coordinates means the pet returns
+    /// there on the next launch while docked, and gets rescued again while
+    /// undocked. Overwriting it would trade that for a permanent move to the
+    /// default corner. A drag still saves, as it always did.
+    @objc private func screenParametersChanged() {
+        let rescued = Self.validatedOrigin(frame.origin, for: state.size)
+        guard rescued != frame.origin else { return }
+        setFrameOrigin(rescued)
     }
 
     /// A floating .canJoinAllSpaces window shows over full-screen apps even
@@ -664,6 +667,11 @@ final class PetWindow: NSPanel {
         if let monitor = localMouseMonitor { NSEvent.removeMonitor(monitor) }
         globalMouseMonitor = nil
         localMouseMonitor = nil
+        // Same reason as the monitors above: a theme or size change rebuilds
+        // the window, and a stale observer would move a dead one.
+        NotificationCenter.default.removeObserver(
+            self, name: NSApplication.didChangeScreenParametersNotification, object: nil
+        )
         super.close()
     }
 

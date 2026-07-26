@@ -27,6 +27,7 @@ check: site-gen
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \
+		Sources/$(APP)/Pet/PetGeometry.swift \
 		Sources/$(APP)/Pet/SpriteTheme.swift \
 		Sources/$(APP)/Plugins/PluginManifest.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \

@@ -51,6 +51,7 @@ Sources/Chestnut/
     PetWindow.swift       # NSWindow host, right-click menu, drag-drop
     PetScene.swift        # SKScene, state-driven animation, fps management
     PetController.swift   # pure state machine (idle/writing/delivery)
+    PetGeometry.swift     # window size/origin maths, screens injected (testable)
     PetFrames.swift       # hand-coded pixel frame matrices
     Sprites.swift         # frame -> SKTexture pipeline (.nearest filtering)
     SpriteTheme.swift     # color palettes (built-in + user custom themes)
@@ -171,6 +172,23 @@ Checks/
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
 - **Full-screen visibility:** `collectionBehavior`-based, toggled in Settings.
   orderOut/orderFront on toggle to force window-server re-evaluation.
+- **Window position** is `PetGeometry`, which is pure and takes `PetScreen`
+  rects rather than `NSScreen` — `PetWindow.swift` is AppKit and not in the
+  check target, and an unreachable pet is the failure most worth testing, so
+  the maths lives where `make check` can reach it (same move as the size and
+  opacity presets in `AppState`). `PetWindow` holds thin wrappers that supply
+  the current displays. `validatedOrigin` distrusts a saved position that no
+  screen intersects and falls back to the default corner; a position that is
+  merely partly off, or tucked under the Dock, is **clamped rather than reset**
+  — intersection is tested against `frame` but clamping against `visibleFrame`,
+  so a position the user chose survives. It runs at launch *and* on
+  `didChangeScreenParametersNotification`, because `constrainFrameRect` is
+  overridden to a no-op and nothing else rescues a pet stranded by an unplugged
+  display. The screen-change path deliberately **does not persist** the rescued
+  origin: `state.position` is the position the user picked, and keeping it
+  means the pet returns there once the display is back. `PetScene.baselineY` is
+  `PetGeometry.Margin.bottom` — one constant, since the scene's baseline and
+  the window's bottom margin are the same number.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
   fallback. Trusted path lookup only (never `$PATH`).
 - **Plugin system** (api: 1): shell scripts in `~/.config/chestnut/plugins/<name>/`
