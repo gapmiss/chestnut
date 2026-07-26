@@ -16,8 +16,12 @@
 	<string>Chestnut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- Both are placeholders: `make bundle` stamps the real values from
+	     Makefile:VERSION and the commit count, and `make release-check`
+	     asserts the stamp. Kept in step with VERSION so the file can't be
+	     misread as a source of truth. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
