@@ -1420,6 +1420,67 @@ struct Check {
                   "rollback clears the partial delivery from the destination")
         }
 
+        // --- T3: undo is not transactional within one operation ---
+        // Pinning today's behavior, not endorsing it. `undo` walks transfers
+        // in reverse with no rollback, so a throw part-way leaves the earlier
+        // entries reversed and the rest not. The realistic trigger is the user
+        // having deleted a delivered file in Obsidian before hitting Undo.
+        write("u/src/first.md", "FIRST")
+        write("u/src/second.md", "SECOND")
+        try! fm.createDirectory(at: base.appendingPathComponent("u/dst"), withIntermediateDirectories: true)
+        do {
+            let op = try courier.deliver(
+                files: [base.appendingPathComponent("u/src/first.md"),
+                        base.appendingPathComponent("u/src/second.md")],
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: base.appendingPathComponent("u/src"), copy: false
+            )
+            check(op.transfers.count == 2 && op.transfers[0].to.hasSuffix("first.md"),
+                  "two notes deliver as two transfers, in drop order")
+
+            // Delete the *first* transfer's destination. Undo walks in
+            // reverse, so this one is handled last and every other transfer
+            // has already been reversed by the time it throws.
+            try! fm.removeItem(at: base.appendingPathComponent("u/dst/first.md"))
+            do {
+                try courier.undo(op)
+                check(false, "T3: undo of a deleted delivered file should throw")
+            } catch {
+                check(read("u/src/second.md") == "SECOND",
+                      "T3: undo leaves already-reversed transfers reversed — there is no rollback")
+                check(!exists("u/dst/second.md"),
+                      "T3: the reversed half is gone from the destination, so the record is half-spent")
+                check(!exists("u/src/first.md"),
+                      "T3: the transfer that threw is not restored")
+            }
+        } catch {
+            check(false, "T3 fixture failed to deliver: \(error)")
+        }
+
+        // The audit proposed pre-occupying a transfer's source as the way to
+        // make undo throw. It is not: undo routes the source through
+        // `availableURL`, so a file sitting at the original path gets a " 1"
+        // suffix and undo succeeds. Pinned so the next reader doesn't have to
+        // re-derive it — and because never-overwrite has to hold on the way
+        // back too, not just on delivery.
+        write("u2/src/note.md", "ORIGINAL")
+        try! fm.createDirectory(at: base.appendingPathComponent("u2/dst"), withIntermediateDirectories: true)
+        do {
+            let op = try courier.deliver(
+                files: [base.appendingPathComponent("u2/src/note.md")],
+                toVault: base.appendingPathComponent("u2/dst"),
+                sourceVault: base.appendingPathComponent("u2/src"), copy: false
+            )
+            write("u2/src/note.md", "WRITTEN SINCE")   // source path re-occupied
+            try courier.undo(op)
+            check(read("u2/src/note.md") == "WRITTEN SINCE",
+                  "undo never overwrites a re-occupied source path")
+            check(read("u2/src/note 1.md") == "ORIGINAL",
+                  "undo suffixes rather than throwing when the source path is taken")
+        } catch {
+            check(false, "undo with a re-occupied source threw: \(error)")
+        }
+
         // --- attachmentFolderPath variants ---
         for (setting, expected) in [
             (#"{"attachmentFolderPath":""}"#, ""),
