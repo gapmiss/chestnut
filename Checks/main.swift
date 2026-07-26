@@ -1252,6 +1252,35 @@ struct Check {
         check(!Courier.isContained(base.appendingPathComponent("src"), inVault: vaultPath),
               "isContained: vault root itself → false")
 
+        // --- T2: availableURL is the never-overwrite invariant ---
+        // Two callers now: deliverNote picks a free destination, and undo picks
+        // a free *source* to come home to (pinned separately below). Every
+        // never-overwrite promise in the app bottoms out here, so the naming
+        // rules are worth stating rather than inferring from a round trip.
+        let slots = base.appendingPathComponent("slots")
+        func free(_ name: String) -> String {
+            Courier.availableURL(for: slots.appendingPathComponent(name)).lastPathComponent
+        }
+        write("slots/taken.md", "x")
+        check(free("untaken.md") == "untaken.md", "availableURL: a free name is returned unchanged")
+        check(free("taken.md") == "taken 1.md", "availableURL: a taken name gets Obsidian's ' 1'")
+        write("slots/taken 1.md", "x")
+        check(free("taken.md") == "taken 2.md", "availableURL: suffixes climb past a taken ' 1'")
+        check(Courier.availableURL(for: slots.appendingPathComponent("taken.md"))
+                .deletingLastPathComponent().path == slots.path,
+              "availableURL: the free name stays in the requested directory")
+
+        // Extension handling, where a naive implementation goes wrong.
+        write("slots/README", "x")
+        check(free("README") == "README 1",
+              "availableURL: an extensionless name suffixes without gaining a dot")
+        write("slots/.env", "x")
+        check(free(".env") == ".env 1",
+              "availableURL: a dotfile keeps its leading dot rather than suffixing before it")
+        write("slots/notes.tar.gz", "x")
+        check(free("notes.tar.gz") == "notes.tar 1.gz",
+              "availableURL: only the last extension is treated as one")
+
         // --- Fixture: source vault with a note + attachments, busy destination ---
         let noteContent = """
         ![[img.png]]
