@@ -353,10 +353,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try journal.removeLast()
             petWindow?.petScene.celebrateDelivery()
         } catch {
-            presentAlert(
-                "Undo failed",
-                "\(error.localizedDescription)\nThe journal entry was kept; files may need a manual check."
-            )
+            if presentUndoFailure("Undo failed", error.localizedDescription) {
+                discardUndoRecord { try journal.removeLast() }
+            }
         }
     }
 
@@ -529,10 +528,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try captureJournal.removeLast()
             petWindow?.petScene.celebrateDelivery()
         } catch {
-            presentAlert(
-                "Undo capture failed",
-                "\(error.localizedDescription)\nThe journal entry was kept; the note may need a manual check."
-            )
+            if presentUndoFailure("Undo capture failed", error.localizedDescription) {
+                discardUndoRecord { try captureJournal.removeLast() }
+            }
         }
     }
 
@@ -812,5 +810,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.runModal()
+    }
+
+    /// The alert an undo failure raises, offering a way past the record that
+    /// failed. Keeping it is the default and stays the safe answer — the files
+    /// are in an unknown state and forgetting them silently would strand them —
+    /// but a kept record sits on top of the stack forever, and undo retries it
+    /// on every click, so everything older becomes unreachable. Discarding
+    /// touches no files; it only stops Chestnut offering this one again.
+    /// Returns true when the caller should drop the record.
+    private func presentUndoFailure(_ title: String, _ reason: String) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = """
+            \(reason)
+            Nothing was changed. Keeping this entry means Chestnut offers the \
+            same operation the next time you undo; discarding it forgets the \
+            operation — no files are touched — so the next undo reaches the one \
+            before it.
+            """
+        alert.addButton(withTitle: "Keep")
+        alert.addButton(withTitle: "Discard Entry")
+        alert.buttons.last?.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// Drop a record whose undo failed, once the user has said to. A failure
+    /// here is the case the discard exists for, so it can only be reported.
+    private func discardUndoRecord(_ remove: () throws -> Void) {
+        do {
+            try remove()
+        } catch {
+            presentAlert(
+                "Could not discard the entry",
+                "\(error.localizedDescription)\nThe undo journal may need a manual check."
+            )
+        }
     }
 }

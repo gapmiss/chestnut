@@ -47,6 +47,15 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **An undo that fails no longer blocks every earlier one.** When an undo
+  can't be reversed — most often because the note has been edited since, which
+  Chestnut refuses to guess at — the operation was kept on top of the stack
+  and every later undo retried that same one and failed the same way, putting
+  everything older permanently out of reach. The failure now asks: **Keep**,
+  which is the old behavior and still the default, or **Discard Entry**, which
+  touches no files and only stops Chestnut offering that operation again, so
+  the next undo reaches the one before it.
+
 - **The undo journals no longer grow without limit.** Every delivery and
   capture was recorded forever, and a delivery that rewrote a note's links
   stored a complete copy of that note's text in the record. The journals now

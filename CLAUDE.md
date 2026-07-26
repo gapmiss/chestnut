@@ -224,9 +224,12 @@ Checks/
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
   `NoteRewrite.original`, so both limits are load-bearing. Undo depth is
-  *not* a feature to grow: a record whose undo fails is deliberately kept,
-  which blocks every older record behind it. Undo is for "take back what I
-  just did". Each Undo row names the record it would reverse on a second line
+  *not* a feature to grow: a record whose undo fails is kept by default (the
+  files are in an unknown state, and forgetting them silently would strand
+  them), and until it is dealt with it blocks every older record behind it.
+  The failure alert therefore offers **Keep** (default) or **Discard Entry**;
+  discarding calls `removeLast()` and touches no files. Undo is for "take back
+  what I just did". Each Undo row names the record it would reverse on a second line
   (`NSMenuItem.subtitle`, from `CourierOperation.undoMenuSubtitle` /
   `CaptureRecord.undoMenuSubtitle`) — undo pops one record per click, so a
   bare title refers to a different, older operation from the second click on.
