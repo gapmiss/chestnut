@@ -8,9 +8,10 @@ enum AppInfo {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev"
     }
 
-    /// Placeholder until the GitHub Sponsors profile is approved.
+    /// Opened by Support Chestnut. Same profile the website links.
     static let supportURL = URL(string: "https://github.com/sponsors/gapmiss")!
 
-    /// Placeholder until the repo has a public home with releases.
+    /// Opened by Check for Updates… — the app makes no network call of its
+    /// own, so comparing versions is the browser's job and the user's.
     static let releasesURL = URL(string: "https://github.com/gapmiss/chestnut/releases")!
 }
