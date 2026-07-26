@@ -86,6 +86,17 @@ Notable, user-facing changes to Chestnut. The format follows
   touches no files and only stops Chestnut offering that operation again, so
   the next undo reaches the one before it.
 
+- **A damaged undo journal no longer switches undo off for good.** Chestnut
+  used to add to its undo journals one line at a time, so a crash or a full
+  disk could leave a half-written entry at the end of the file. Reading it back
+  produced nothing Chestnut could make sense of, and it concluded there was
+  nothing to undo at all: the Undo row greyed out, and since a greyed-out row
+  can't be clicked, there was no way to skip past the damage either. Every
+  operation recorded before it was out of reach for good. Chestnut now reads
+  back to the last entry it does understand, and tidies the damage away as you
+  undo. Journals are also written whole now rather than a line at a time, so
+  new ones can't be left half-finished in the first place.
+
 - **The undo journals no longer grow without limit.** Every delivery and
   capture was recorded forever, and a delivery that rewrote a note's links
   stored a complete copy of that note's text in the record. The journals now
