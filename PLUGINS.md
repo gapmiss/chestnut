@@ -83,6 +83,10 @@ output.
 Unknown type names in `accepts` are silently ignored (forward-compat). At least
 one recognized type is required.
 
+Plugins receive single-item drops only: dropping several files (or folders) at
+once is a courier delivery, all of it. Drop an item on its own to route it to
+a plugin.
+
 ### Output modes
 
 | Mode | Behavior |

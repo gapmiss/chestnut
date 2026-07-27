@@ -234,14 +234,17 @@ Checks/
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
   within a broad `accepts` category — unmatched files fall through to the courier.
-  Folder drops route to a `folder` plugin when one exists; otherwise the courier
-  handles them (copies/moves the directory as-is). Non-.md file drops route to a
-  matching plugin when one exists; .md drops always go to courier. A multi-item
-  drop dispatches at most one item to a plugin (the first eligible one — plugin
-  runs drive shared surfaces like the capture panel, so they don't fan out);
-  every other item rides the courier, so nothing dropped goes nowhere. The
-  routing is pure (`DropRouter`, in the check target); `PetWindow` only feeds
-  it and executes the result. Zero-cost when
+  A single dropped folder routes to a `folder` plugin when one exists; a single
+  non-.md file routes to a matching plugin when one exists; .md drops and
+  everything unmatched go to the courier (which copies/moves directories
+  as-is). **Plugin dispatch is single-item only**: a multi-item drop rides the
+  courier wholesale, even when a plugin would match the first item. Plugin
+  runs and the courier contend for the same one-at-a-time surfaces —
+  `presentPalette` dismisses whatever palette and notice are up, so a plugin
+  picker or a `save` plugin's vault palette beside the courier's destination
+  palette clobbers one or the other. Either way, every dropped item lands
+  somewhere; nothing is silently discarded. The routing is pure (`DropRouter`,
+  in the check target); `PetWindow` only feeds it and executes the result. Zero-cost when
   no plugins installed — courier and all existing features work identically.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing

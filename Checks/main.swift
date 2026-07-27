@@ -1390,6 +1390,9 @@ struct Check {
     /// Every dropped URL must land in exactly one route — the failure worth
     /// testing is an item silently going nowhere, which is what the old
     /// in-window routing did to everything after the first plugin match.
+    /// Plugin dispatch is single-item only: a plugin run and the courier
+    /// contend for the same palette/notice surfaces (`presentPalette`
+    /// dismisses both), so a multi-item drop is a delivery, wholesale.
     static func dropRouterChecks() {
         let a = URL(fileURLWithPath: "/drop/a.png")
         let b = URL(fileURLWithPath: "/drop/b.png")
@@ -1401,36 +1404,36 @@ struct Check {
         let imageOnly: (PluginInputType, String) -> Bool = { type, _ in type == .image }
         let none: (PluginInputType, String) -> Bool = { _, _ in false }
 
-        // Multi-file drop with a matching plugin: first goes to the plugin,
-        // the rest ride the courier instead of vanishing.
-        var route = DropRouter.route([a, b, note], isDirectory: isDir,
+        // A single matching item is the plugin path, same as ever.
+        var route = DropRouter.route([a], isDirectory: isDir,
                                      hasFolderPlugin: false, hasPluginFor: imageOnly)
-        check(route.plugin == .init(type: .image, url: a),
-              "router: first matching non-md goes to the plugin")
-        check(route.courier == [b, note],
-              "router: remaining files ride the courier, in drop order")
+        check(route.plugin == .init(type: .image, url: a) && route.courier.isEmpty,
+              "router: single matching file goes to the plugin")
+        route = DropRouter.route([dir1], isDirectory: isDir,
+                                 hasFolderPlugin: true, hasPluginFor: none)
+        check(route.plugin == .init(type: .folder, url: dir1) && route.courier.isEmpty,
+              "router: single directory goes to the folder plugin")
 
-        // Two directories with a folder plugin: one dispatch, the second
-        // directory and the files go to the courier instead of vanishing.
+        // A multi-item drop is a delivery, wholesale — even when a plugin
+        // would match the first item. Nothing vanishes, one surface opens.
+        route = DropRouter.route([a, b, note], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == nil && route.courier == [a, b, note],
+              "router: multi-item drop rides the courier wholesale")
         route = DropRouter.route([dir1, dir2, note], isDirectory: isDir,
                                  hasFolderPlugin: true, hasPluginFor: none)
-        check(route.plugin == .init(type: .folder, url: dir1),
-              "router: first directory goes to the folder plugin")
-        check(route.courier == [dir2, note],
-              "router: extra directories ride the courier")
+        check(route.plugin == nil && route.courier == [dir1, dir2, note],
+              "router: multi-directory drop rides the courier wholesale")
 
-        // Only the *first* non-md is consulted, matching single-drop
-        // behavior: a leading unmatched file sends everything to the courier.
-        route = DropRouter.route([z, a], isDirectory: isDir,
+        // A single item nothing claims falls through to the courier.
+        route = DropRouter.route([z], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: imageOnly)
-        check(route.plugin == nil && route.courier == [z, a],
-              "router: unmatched first non-md sends the whole drop to the courier")
-
-        // No plugins installed: identical to the pre-plugin app.
-        route = DropRouter.route([a, note, dir1], isDirectory: isDir,
+        check(route.plugin == nil && route.courier == [z],
+              "router: single unmatched file rides the courier")
+        route = DropRouter.route([dir1], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: none)
-        check(route.plugin == nil && route.courier == [a, note, dir1],
-              "router: no plugins → everything to the courier")
+        check(route.plugin == nil && route.courier == [dir1],
+              "router: single directory without a folder plugin rides the courier")
 
         // .md files never dispatch to a plugin.
         route = DropRouter.route([note], isDirectory: isDir,
