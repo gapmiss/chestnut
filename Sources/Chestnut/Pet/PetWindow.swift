@@ -962,39 +962,23 @@ final class PetView: SKView {
         }
 
         if !urls.isEmpty {
-            if let dir = urls.first(where: { $0.isExistingDirectory }),
-               petWindow?.hasPluginForType?(.folder) == true {
-                DebugLog.log("drop: folder → plugin dispatch, path=\(dir.path)")
-                petWindow?.onPluginDrop?(.folder, PluginRunner.Input(
-                    type: .folder, text: nil,
-                    filePath: dir.path, sourceApp: nil
+            let route = DropRouter.route(
+                urls,
+                isDirectory: { $0.isExistingDirectory },
+                hasFolderPlugin: petWindow?.hasPluginForType?(.folder) == true,
+                hasPluginFor: { petWindow?.hasPluginForFileExt?($0, $1) == true }
+            )
+            if let plugin = route.plugin {
+                DebugLog.log("drop: \(plugin.type.rawValue) → plugin dispatch, path=\(plugin.url.path)")
+                petWindow?.onPluginDrop?(plugin.type, PluginRunner.Input(
+                    type: plugin.type, text: nil,
+                    filePath: plugin.url.path, sourceApp: nil
                 ))
-                let rest = urls.filter { !$0.isExistingDirectory }
-                if !rest.isEmpty {
-                    petWindow?.filesDropped(rest)
-                }
-                return true
             }
-
-            let mdURLs = urls.filter { $0.pathExtension.lowercased() == "md" }
-            let nonMD = urls.filter { $0.pathExtension.lowercased() != "md" }
-            if let first = nonMD.first {
-                let type = PluginDispatch.extensionToType(first.pathExtension)
-                let ext = first.pathExtension.lowercased()
-                if petWindow?.hasPluginForFileExt?(type, ext) == true {
-                    DebugLog.log("drop: non-.md file → plugin dispatch, type=\(type.rawValue) ext=\(ext)")
-                    petWindow?.onPluginDrop?(type, PluginRunner.Input(
-                        type: type, text: nil,
-                        filePath: first.path, sourceApp: nil
-                    ))
-                    if !mdURLs.isEmpty {
-                        petWindow?.filesDropped(mdURLs)
-                    }
-                    return true
-                }
+            if !route.courier.isEmpty {
+                DebugLog.log("drop: \(route.courier.count) file(s) → courier")
+                petWindow?.filesDropped(route.courier)
             }
-            DebugLog.log("drop: \(urls.count) file(s) → courier")
-            petWindow?.filesDropped(urls)
             return true
         }
 

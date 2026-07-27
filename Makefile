@@ -32,7 +32,8 @@ check: site-gen
 		Sources/$(APP)/Plugins/PluginManifest.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \
 		Sources/$(APP)/Plugins/PluginRunner.swift \
-		Sources/$(APP)/Plugins/PluginDispatch.swift
+		Sources/$(APP)/Plugins/PluginDispatch.swift \
+		Sources/$(APP)/Plugins/DropRouter.swift
 	$(BUILD)/chestnut-check
 	@$(SITE_GEN) $(BUILD)/sprites-drift.js $(VERSION)
 	@diff -u docs/sprites.js $(BUILD)/sprites-drift.js \

@@ -161,6 +161,7 @@ struct Check {
         pluginRunnerChecks()
         await pluginRunnerEndToEndChecks()
         pluginDispatchChecks()
+        dropRouterChecks()
         obsidianLinkChecks()
         docsContractChecks()
 
@@ -1384,6 +1385,60 @@ struct Check {
         check(!missing.isExistingDirectory, "nonexistent path not detected as directory")
     }
 
+    // MARK: - Drop routing
+
+    /// Every dropped URL must land in exactly one route — the failure worth
+    /// testing is an item silently going nowhere, which is what the old
+    /// in-window routing did to everything after the first plugin match.
+    static func dropRouterChecks() {
+        let a = URL(fileURLWithPath: "/drop/a.png")
+        let b = URL(fileURLWithPath: "/drop/b.png")
+        let z = URL(fileURLWithPath: "/drop/archive.zip")
+        let note = URL(fileURLWithPath: "/drop/note.md")
+        let dir1 = URL(fileURLWithPath: "/drop/dirA")
+        let dir2 = URL(fileURLWithPath: "/drop/dirB")
+        let isDir: (URL) -> Bool = { $0 == dir1 || $0 == dir2 }
+        let imageOnly: (PluginInputType, String) -> Bool = { type, _ in type == .image }
+        let none: (PluginInputType, String) -> Bool = { _, _ in false }
+
+        // Multi-file drop with a matching plugin: first goes to the plugin,
+        // the rest ride the courier instead of vanishing.
+        var route = DropRouter.route([a, b, note], isDirectory: isDir,
+                                     hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == .init(type: .image, url: a),
+              "router: first matching non-md goes to the plugin")
+        check(route.courier == [b, note],
+              "router: remaining files ride the courier, in drop order")
+
+        // Two directories with a folder plugin: one dispatch, the second
+        // directory and the files go to the courier instead of vanishing.
+        route = DropRouter.route([dir1, dir2, note], isDirectory: isDir,
+                                 hasFolderPlugin: true, hasPluginFor: none)
+        check(route.plugin == .init(type: .folder, url: dir1),
+              "router: first directory goes to the folder plugin")
+        check(route.courier == [dir2, note],
+              "router: extra directories ride the courier")
+
+        // Only the *first* non-md is consulted, matching single-drop
+        // behavior: a leading unmatched file sends everything to the courier.
+        route = DropRouter.route([z, a], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == nil && route.courier == [z, a],
+              "router: unmatched first non-md sends the whole drop to the courier")
+
+        // No plugins installed: identical to the pre-plugin app.
+        route = DropRouter.route([a, note, dir1], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: none)
+        check(route.plugin == nil && route.courier == [a, note, dir1],
+              "router: no plugins → everything to the courier")
+
+        // .md files never dispatch to a plugin.
+        route = DropRouter.route([note], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: { _, _ in true })
+        check(route.plugin == nil && route.courier == [note],
+              "router: .md drops always go to the courier")
+    }
+
     // MARK: - Courier / Journal
 
     static func courierChecks() {
@@ -1634,6 +1689,39 @@ struct Check {
                   "copy undo trashes the copy, keeps the pre-existing attachment")
         } catch {
             check(false, "copy delivery threw: \(error)")
+        }
+
+        // --- Self-delivery through a symlinked vault spelling ---
+        // obsidian.json can list one directory twice (once through a symlink;
+        // the registry dedupes by exact string), and `destinationIsSource`
+        // compares standardized paths, which don't resolve symlinks. The
+        // delivery then reaches `place` with source and destination naming
+        // the same file — where the dedup branch would read the "existing
+        // copy" as redundant and delete the only copy.
+        write("s/real/solo.md", "ONLY COPY")
+        let sReal = base.appendingPathComponent("s/real")
+        let sLink = base.appendingPathComponent("s/link")
+        try! fm.createSymbolicLink(at: sLink, withDestinationURL: sReal)
+        check(Courier.isSameFile(sReal.appendingPathComponent("solo.md"),
+                                 sLink.appendingPathComponent("solo.md")),
+              "isSameFile: one file under two spellings → true")
+        check(!Courier.isSameFile(cSrc.appendingPathComponent("att.png"),
+                                  cDst.appendingPathComponent("att.png")),
+              "isSameFile: identical bytes in two distinct files → false")
+        check(!Courier.isSameFile(sReal.appendingPathComponent("ghost.md"),
+                                  sReal.appendingPathComponent("ghost.md")),
+              "isSameFile: missing file → false")
+        do {
+            let op = try courier.deliver(
+                files: [sReal.appendingPathComponent("solo.md")],
+                toVault: sLink, sourceVault: sReal, copy: false
+            )
+            check(read("s/real/solo.md") == "ONLY COPY",
+                  "delivering a note onto itself leaves the only copy in place")
+            check(op.transfers.isEmpty,
+                  "self-delivery records nothing for undo to reverse")
+        } catch {
+            check(false, "self-delivery threw: \(error)")
         }
 
         // --- Content-driven traversal is refused (embeds can't escape the vault) ---

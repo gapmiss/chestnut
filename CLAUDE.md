@@ -236,7 +236,12 @@ Checks/
   within a broad `accepts` category — unmatched files fall through to the courier.
   Folder drops route to a `folder` plugin when one exists; otherwise the courier
   handles them (copies/moves the directory as-is). Non-.md file drops route to a
-  matching plugin when one exists; .md drops always go to courier. Zero-cost when
+  matching plugin when one exists; .md drops always go to courier. A multi-item
+  drop dispatches at most one item to a plugin (the first eligible one — plugin
+  runs drive shared surfaces like the capture panel, so they don't fan out);
+  every other item rides the courier, so nothing dropped goes nowhere. The
+  routing is pure (`DropRouter`, in the check target); `PetWindow` only feeds
+  it and executes the result. Zero-cost when
   no plugins installed — courier and all existing features work identically.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing

@@ -264,6 +264,14 @@ struct Courier {
             "Courier must never write inside .obsidian/"
         )
         let desired = dir.appendingPathComponent(source.lastPathComponent)
+        if Self.isSameFile(source, desired) {
+            // Delivering a file onto itself — reachable when obsidian.json
+            // lists one vault under two spellings, one through a symlink, so
+            // the standardizedFileURL comparison in `deliver` doesn't catch
+            // it. The dedup branch below would read the "existing copy" as
+            // redundant and delete the only copy.
+            return desired
+        }
         if fm.fileExists(atPath: desired.path), contentsEqual(source, desired) {
             // Same bytes already there: copies have nothing to do; moves just
             // drop the redundant source (recorded so undo can copy it back).
@@ -429,6 +437,21 @@ struct Courier {
 
     private func contentsEqual(_ a: URL, _ b: URL) -> Bool {
         fm.contentsEqual(atPath: a.path, andPath: b.path)
+    }
+
+    /// Whether two paths name the same file-system object (resolves symlinks
+    /// and hard links via the volume/inode identifier). This is a read-side
+    /// identity check for the dedup branch in `place` — vault *containment*
+    /// is a different question and deliberately stays lexical (see CLAUDE.md).
+    /// False when either path doesn't exist.
+    static func isSameFile(_ a: URL, _ b: URL) -> Bool {
+        guard
+            let ia = try? a.resourceValues(
+                forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier,
+            let ib = try? b.resourceValues(
+                forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier
+        else { return false }
+        return ia.isEqual(ib)
     }
 
     private func relativePath(of file: URL, fromDir dir: URL) -> String {
