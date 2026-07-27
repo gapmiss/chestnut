@@ -74,7 +74,9 @@ enum PluginDispatch {
             ?? pasteboard.string(forType: .string),
             let url = URL(string: urlString),
             url.scheme == "http" || url.scheme == "https" {
-            DebugLog.log("plugin dispatch: classified as url (\(urlString.prefix(80)))")
+            // Length only, never content: clipboards carry passwords, and the
+            // debug log is a file on disk.
+            DebugLog.log("plugin dispatch: classified as url (\(urlString.count) chars)")
             return (.url, PluginRunner.Input(
                 type: .url,
                 text: urlString,
@@ -108,7 +110,7 @@ enum PluginDispatch {
         // Plain string.
         if let text = pasteboard.string(forType: .string),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            DebugLog.log("plugin dispatch: classified as text (\(text.prefix(80)))")
+            DebugLog.log("plugin dispatch: classified as text (\(text.count) chars)")
             return (.text, PluginRunner.Input(
                 type: .text,
                 text: text,

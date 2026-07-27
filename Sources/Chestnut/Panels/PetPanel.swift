@@ -2,11 +2,12 @@ import AppKit
 
 /// Shared chrome for the small panels that pop up beside the pet (Vault
 /// Hopper, courier destination picker, capture bubble): borderless, floating,
-/// key-without-activating, dismissed on Esc or when losing key.
+/// key-without-activating, dismissed on Esc. Losing key focus deliberately
+/// does *not* dismiss — every panel persists so a half-typed capture or a
+/// half-filtered palette survives a stray click into another app.
 @MainActor
 class PetPanel: NSPanel {
     var onClose: (() -> Void)?
-    var dismissesOnResignKey = false
     private var isClosing = false
 
     init() {
@@ -68,16 +69,59 @@ class PetPanel: NSPanel {
         makeKeyAndOrderFront(nil)
     }
 
+    /// The palette key monitor every filter-and-list palette shares: ↑/↓ move
+    /// the selection while the filter field keeps key focus (the field editor
+    /// would otherwise use them as caret moves); ⏎/keypad-enter runs
+    /// `primaryAction` and dismisses — unless a text view is first responder,
+    /// where the event passes through so the filter field's own onSubmit runs
+    /// it. ⏎ with nothing selected is consumed, not passed on. `extra` sees
+    /// every key first and consumes by returning true, so a palette can add
+    /// chords (the vault palette's ⌘P / ⌥⏎ / ⌘⏎). Removed in `close()`;
+    /// subclasses need no teardown of their own.
+    func installPaletteKeyMonitor(
+        moveSelection: @escaping (Int) -> Void,
+        hasSelection: @escaping () -> Bool,
+        primaryAction: @escaping () -> Void,
+        extra: ((NSEvent) -> Bool)? = nil
+    ) {
+        paletteKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self else { return event }
+            let consumed = MainActor.assumeIsolated { () -> Bool in
+                if let extra, extra(event) { return true }
+                switch event.keyCode {
+                case 125:  // ↓
+                    moveSelection(1)
+                    return true
+                case 126:  // ↑
+                    moveSelection(-1)
+                    return true
+                case 36, 76:  // ⏎ / keypad enter
+                    guard hasSelection() else { return true }
+                    if self.firstResponder is NSTextView { return false }
+                    primaryAction()
+                    self.dismiss()
+                    return true
+                default:
+                    return false
+                }
+            }
+            return consumed ? nil : event
+        }
+    }
+
+    private var paletteKeyMonitor: Any?
+
+    override func close() {
+        if let paletteKeyMonitor { NSEvent.removeMonitor(paletteKeyMonitor) }
+        paletteKeyMonitor = nil
+        super.close()
+    }
+
     func dismiss() {
         guard !isClosing else { return }
         isClosing = true
         close()
         onClose?()
-    }
-
-    override func resignKey() {
-        super.resignKey()
-        if dismissesOnResignKey { dismiss() }
     }
 
     override func cancelOperation(_ sender: Any?) {

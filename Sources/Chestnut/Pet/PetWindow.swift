@@ -355,7 +355,9 @@ final class PetWindow: NSPanel {
     ) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
         item.target = self
-        if let hotkey, let (key, mods) = Self.menuEquivalent(for: hotkey) {
+        // One grammar: the same parse that backs the Carbon registration
+        // (HotkeySpec) supplies the display, so they can't drift.
+        if let hotkey, let (key, mods) = HotkeySpec(hotkey)?.menuKeyEquivalent {
             item.keyEquivalent = key
             item.keyEquivalentModifierMask = mods
         }
@@ -596,45 +598,6 @@ final class PetWindow: NSPanel {
         state.position = nil
         setFrameOrigin(Self.defaultOrigin(for: frame.size))
         onStateChange?(state)
-    }
-
-    /// Translate a config hotkey string into an NSMenuItem key equivalent.
-    /// Display-only — the actual hotkey is Carbon-registered.
-    static func menuEquivalent(for binding: String) -> (String, NSEvent.ModifierFlags)? {
-        let raw = binding.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !raw.isEmpty, raw != "none", raw != "disabled" else { return nil }
-        let parts = raw.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) }
-        guard !parts.isEmpty else { return nil }
-
-        let modMap: [String: NSEvent.ModifierFlags] = [
-            "control": .control, "ctrl": .control,
-            "option": .option, "alt": .option,
-            "command": .command, "cmd": .command,
-            "shift": .shift,
-        ]
-        let keyMap: [String: String] = [
-            "space": " ", "tab": "\t", "return": "\r", "enter": "\r",
-            "escape": "\u{1B}", "esc": "\u{1B}",
-            "delete": "\u{08}", "backspace": "\u{08}",
-        ]
-
-        var mods: NSEvent.ModifierFlags = []
-        var key: String?
-        for part in parts {
-            if let m = modMap[part] {
-                mods.insert(m)
-            } else if let k = keyMap[part] {
-                if key != nil { return nil }
-                key = k
-            } else if part.count == 1 {
-                if key != nil { return nil }
-                key = part
-            } else {
-                return nil
-            }
-        }
-        guard let key else { return nil }
-        return (key, mods)
     }
 
     @objc private func toggleHopper() { onToggleHopper?() }

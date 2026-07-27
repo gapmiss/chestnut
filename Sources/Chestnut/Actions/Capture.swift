@@ -163,6 +163,18 @@ struct Capture {
 
     // MARK: - Direct-FS append
 
+    /// Read–modify–write, so it can race Obsidian's debounced save when the
+    /// same note is open and being edited there: whichever writes last wins,
+    /// and the loser's text is silently dropped — ours or Obsidian's. Not
+    /// fixable cheaply without Obsidian's cooperation. The CLI path avoids
+    /// the race by asking the live app to append, and `capture` already
+    /// prefers it in every situation where it can be trusted (CLI installed,
+    /// Obsidian running, vault open, name unique) — which covers exactly the
+    /// case where the note is being edited. This path runs when the CLI is
+    /// absent or untrusted; the window is one debounce interval around the
+    /// user actively typing in today's note. `undo`'s suffix check already
+    /// protects undo from a note the race rewrote — only the append itself
+    /// is exposed.
     func appendDirectly(_ text: String, toVault vault: URL, date: Date = Date()) throws -> CaptureRecord {
         let note = destination(inVault: vault, date: date)
         precondition(

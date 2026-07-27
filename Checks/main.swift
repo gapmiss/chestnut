@@ -758,6 +758,24 @@ struct Check {
         check(HotkeySpec.display("none") == nil, "display of disabled binding is nil")
         check(HotkeySpec.display("control+bogus+a") == nil, "display of malformed binding is nil")
 
+        // The menu key equivalent comes from the same parse that backs the
+        // Carbon registration — one grammar, so an equivalent the menu draws
+        // is always a hotkey that fires, and vice versa.
+        func equivalent(_ s: String) -> (String, NSEvent.ModifierFlags)? {
+            HotkeySpec(s)?.menuKeyEquivalent
+        }
+        check(equivalent("control+option+v").map { $0 == ("v", [.control, .option]) } == true,
+              "menu equivalent maps a letter binding")
+        check(equivalent("cmd+shift+k").map { $0 == ("k", [.command, .shift]) } == true,
+              "menu equivalent maps command+shift")
+        check(equivalent("control+option+space").map { $0 == (" ", [.control, .option]) } == true,
+              "menu equivalent maps space to \" \"")
+        check(equivalent("ctrl+f1").map { $0 == (String(UnicodeScalar(NSF1FunctionKey)!), .control) } == true,
+              "menu equivalent maps F-keys to function-key scalars")
+        check(equivalent("shift+a") == nil,
+              "menu equivalent refuses what Carbon registration refuses")
+        check(equivalent("none") == nil, "menu equivalent of a disabled binding is nil")
+
         func decode(_ json: String) -> Config? {
             try? JSONDecoder().decode(Config.self, from: Data(json.utf8))
         }
@@ -826,6 +844,20 @@ struct Check {
         check(SpriteTheme.resolvedPalette(themeID: "obsidian-night", overrides: nil).count
                 == SpriteTheme.obsidianNight.palette.count,
               "nil overrides resolve to the plain theme")
+
+        // --- premultiplication (the sprite bitmap is .premultipliedLast) ---
+        func premul(_ c: SpriteTheme.RGBA) -> (UInt8, UInt8, UInt8, UInt8) {
+            let p = SpriteTheme.premultiply(c)
+            return (p.r, p.g, p.b, p.a)
+        }
+        check(premul((r: 155, g: 93, b: 229, a: 255)) == (155, 93, 229, 255),
+              "premultiply leaves opaque pixels unchanged")
+        check(premul((r: 155, g: 93, b: 229, a: 0)) == (0, 0, 0, 0),
+              "premultiply zeroes fully transparent pixels")
+        check(premul((r: 255, g: 128, b: 0, a: 128)) == (128, 64, 0, 128),
+              "premultiply halves components at 50% alpha, rounded")
+        check(premul((r: 1, g: 255, b: 254, a: 1)) == (0, 1, 1, 1),
+              "premultiply never leaves a component above alpha")
     }
 
     // MARK: - Pet frames

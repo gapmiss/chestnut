@@ -190,7 +190,15 @@ Checks/
   right-click to opaque sprite pixels, and an `LSUIElement` app is absent from
   Force Quit — without it there is no keyboard route to Settings, Undo, or
   Quit. `showMenuFromHotkey` must activate the app first or menu tracking
-  reads key events from whatever is frontmost instead.
+  reads key events from whatever is frontmost instead. Because the route is
+  load-bearing, a menu binding that fails — registration conflict or a string
+  that doesn't parse — raises a one-time notice naming the binding and
+  pointing at config.json (`HotkeyCenter.onMenuHotkeyFailure`); the other
+  hotkeys just log. An empty/"none"/"disabled" menu binding is a deliberate
+  opt-out and stays silent. Menu key equivalents in the right-click menu come
+  from the same `HotkeySpec` parse that backs Carbon registration
+  (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
+  hotkey backs.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
@@ -214,7 +222,12 @@ Checks/
   `PetGeometry.Margin.bottom` — one constant, since the scene's baseline and
   the window's bottom margin are the same number.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
-  fallback. Trusted path lookup only (never `$PATH`).
+  fallback. Trusted path lookup only (never `$PATH`). Known trade: the
+  direct-FS capture append is a read-modify-write that can race Obsidian's
+  debounced save of the same open note (last writer wins, either side's text
+  can drop). The CLI path avoids the race and is already preferred whenever
+  it can be trusted (Obsidian running, vault open, name unique) — see
+  `Capture.appendDirectly`'s doc comment before "fixing" this.
 - **Plugin system** (api: 1): shell scripts in `~/.config/chestnut/plugins/<name>/`
   with a `manifest.json` declaring accepted pasteboard types and output mode.
   Plugins receive input via env vars + stdin, produce output on stdout. Output

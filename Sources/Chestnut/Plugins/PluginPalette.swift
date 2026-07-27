@@ -149,7 +149,6 @@ private struct PluginRow: View {
 @MainActor
 final class PluginPalettePanel: PetPanel {
     private let model: PluginPaletteModel
-    private var keyMonitor: Any?
 
     init(
         plugins: [(PluginManifest, URL)],
@@ -171,39 +170,13 @@ final class PluginPalettePanel: PetPanel {
         contentView = hosting
         setContentSize(hosting.fittingSize)
 
-        keyMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            guard let self, event.window === self else { return event }
-            let consumed = MainActor.assumeIsolated { () -> Bool in
-                switch event.keyCode {
-                case 125:  // down
-                    self.model.moveSelection(by: 1)
-                    return true
-                case 126:  // up
-                    self.model.moveSelection(by: -1)
-                    return true
-                case 36, 76:  // return / keypad enter
-                    guard let choice = self.model.selected else {
-                        return true
-                    }
-                    if self.firstResponder is NSTextView {
-                        return false
-                    }
-                    onSelect(choice.manifest, choice.dir)
-                    self.dismiss()
-                    return true
-                default:
-                    return false
-                }
+        installPaletteKeyMonitor(
+            moveSelection: { [model] in model.moveSelection(by: $0) },
+            hasSelection: { [model] in model.selected != nil },
+            primaryAction: { [model] in
+                guard let choice = model.selected else { return }
+                onSelect(choice.manifest, choice.dir)
             }
-            return consumed ? nil : event
-        }
-    }
-
-    override func close() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        keyMonitor = nil
-        super.close()
+        )
     }
 }

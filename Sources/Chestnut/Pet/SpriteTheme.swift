@@ -149,6 +149,18 @@ struct SpriteTheme {
         return palette
     }
 
+    /// One pixel's bytes for a `.premultipliedLast` bitmap. Built-in palettes
+    /// only use alpha 0 or 255, where straight and premultiplied agree — but a
+    /// custom theme can say `#RRGGBB80`, and straight bytes there are
+    /// undefined premultiplied input (components larger than alpha), rendered
+    /// as fringing. Rounded, so alpha 255 returns the color unchanged. Lives
+    /// here rather than in Sprites.swift so `make check` can reach it.
+    static func premultiply(_ c: RGBA) -> RGBA {
+        let a = Int(c.a)
+        func mul(_ v: UInt8) -> UInt8 { UInt8((Int(v) * a + 127) / 255) }
+        return (r: mul(c.r), g: mul(c.g), b: mul(c.b), a: c.a)
+    }
+
     /// "#RRGGBB" or "#RRGGBBAA" (leading "#" optional, case-insensitive).
     static func parseHex(_ string: String) -> RGBA? {
         var hex = Substring(string)

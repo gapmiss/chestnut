@@ -204,7 +204,6 @@ private struct VaultRow: View {
 final class VaultPalettePanel: PetPanel {
     private let model: VaultPaletteModel
     private let onPinChange: (String?) -> Void
-    private var keyMonitor: Any?
 
     init(
         vaults: [Vault],
@@ -246,25 +245,24 @@ final class VaultPalettePanel: PetPanel {
         contentView = hosting
         setContentSize(hosting.fittingSize)
 
-        // ↑/↓ move the selection while the filter field keeps focus (the
-        // field editor would otherwise use them as caret moves). ⏎ opens the
-        // selection, ⌥⏎ reveals it in Finder (also on the rows' right-click
-        // menu — the old per-row icon was the palette's only Tab stop).
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self else { return event }
-            let consumed = MainActor.assumeIsolated { () -> Bool in
+        // The shared monitor handles ↑/↓/⏎; `extra` adds this palette's
+        // chords: ⌘P pins, ⌥⏎ reveals in Finder (also on the rows'
+        // right-click menu — the old per-row icon was the palette's only Tab
+        // stop), ⌘⏎ opens the daily note.
+        installPaletteKeyMonitor(
+            moveSelection: { [model] in model.moveSelection(by: $0) },
+            hasSelection: { [model] in model.selected != nil },
+            primaryAction: { [model] in
+                guard let vault = model.selected else { return }
+                onSelect(vault)
+            },
+            extra: { [weak self, model] event in
                 switch event.keyCode {
-                case 125:  // ↓
-                    self.model.moveSelection(by: 1)
-                    return true
-                case 126:  // ↑
-                    self.model.moveSelection(by: -1)
-                    return true
                 case 35 where event.modifierFlags.contains(.command):  // ⌘P
-                    if let vault = self.model.selected { self.togglePin(vault) }
+                    if let vault = model.selected { self?.togglePin(vault) }
                     return true
-                case 36, 76:  // ⏎ / keypad enter
-                    guard let vault = self.model.selected else { return true }
+                case 36, 76:  // ⏎ variants; a plain ⏎ falls to the shared path
+                    guard let vault = model.selected else { return false }
                     if event.modifierFlags.contains(.option) {
                         ObsidianBridge.revealInFinder(path: vault.path)
                         return true
@@ -273,28 +271,16 @@ final class VaultPalettePanel: PetPanel {
                         openDaily(vault)
                         return true
                     }
-                    if self.firstResponder is NSTextView {
-                        return false  // the filter field's onSubmit opens it
-                    }
-                    onSelect(vault)
-                    self.dismiss()
-                    return true
+                    return false
                 default:
                     return false
                 }
             }
-            return consumed ? nil : event
-        }
+        )
     }
 
     private func togglePin(_ vault: Vault) {
         model.pinnedPath = model.pinnedPath == vault.path ? nil : vault.path
         onPinChange(model.pinnedPath)
-    }
-
-    override func close() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        keyMonitor = nil
-        super.close()
     }
 }

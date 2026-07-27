@@ -191,8 +191,10 @@ Set `"debug": true` in `~/Library/Application Support/Chestnut/config.json`
 to enable a session log at `~/Library/Logs/Chestnut/chestnut.log`. The log
 records plugin dispatch decisions, input classification, and run results.
 
-**Privacy note:** with debug enabled, clipboard text and dropped-file paths
-are written to the log. Disable it when you're done troubleshooting.
+**Privacy note:** with debug enabled, file paths (dropped files, notes,
+vaults) and your plugins' stderr output are written to the log. Clipboard
+*content* is never logged, only its type and length. Disable debug when
+you're done troubleshooting.
 
 ## Multiple plugins
 
