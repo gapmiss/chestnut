@@ -4,6 +4,161 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] — 2026-07-26
+
+### Added
+
+- **Chestnut holds still when you ask it to, and when macOS already has.** A
+  gentle breathing motion ran in every state, forever, on a window that sits on
+  top of everything else, and nothing could stop it short of quitting the app.
+  Settings ▸ Reduce Motion now stops everything that moves: the breathing, the
+  drifting z's while Chestnut sleeps, the hop when you click, and the squash on
+  a delivery. Chestnut keeps blinking, chattering while you write and chewing
+  while a plugin runs, because those change the sprite without moving it, so
+  you can still tell at a glance what it's doing. If Reduce Motion is switched
+  on in System Settings ▸ Accessibility ▸ Display, Chestnut holds still on its
+  own without being asked, and the menu row says so rather than offering to
+  undo it.
+
+- **A hotkey that opens the menu: ⌃⌥M.** Every setting Chestnut has lived
+  behind a right-click that had to land on the sprite itself, and because the
+  pet window never takes keyboard focus, no menu shortcut could fire either.
+  That made Size, Theme, Settings, Plugins, both Undo items and **Quit**
+  reachable by exactly one gesture. It also meant anyone who couldn't make
+  that click had no way out of the app: Chestnut has no Dock icon and no menu
+  bar item, and an app like that doesn't appear in Force Quit, so quitting
+  meant Activity Monitor or a terminal. ⌃⌥M now opens the same menu at
+  Chestnut, and arrow keys and Return work in it. Rebindable as `menu` in
+  `config.json`.
+
+### Changed
+
+- **The Undo rows now say what they will undo.** They read "Undo Last
+  Delivery" and "Undo Last Capture" no matter what was in the journal, and
+  every click reverses one more operation, so from the second click on the
+  row referred to something older than the thing you had in mind, with
+  nothing on screen to say so. Each row now carries the name of what it would
+  reverse on a second line: `recipe.md`, `3 notes`, `2026-07-25.md`. Rows
+  stay unnamed when there is nothing to undo, on operations recorded before
+  this release, and on macOS 14.0 to 14.3, which has no second line to put
+  them on.
+
+- **Opacity and Notice Bubble are now lists of choices, not sliders.** A
+  slider in a menu is a custom view, and macOS skips those when you move
+  through a menu with the arrow keys, so neither value could be changed
+  without a mouse even once ⌃⌥M opened the menu. Opacity was the one that
+  could strand you: faded to its minimum Chestnut is nearly invisible, and the
+  only control that could restore it was a slider you had to find and drag on
+  a sprite you could no longer see. Each now opens a short list with the
+  current value checked, reachable by keyboard or mouse: opacity at 100, 80,
+  60, 40 and 20 percent, and notice bubbles at 3, 5, 10, 20 and 30 seconds.
+  The trade is deliberate, and it is the reason these are the only two places
+  the menu goes three levels deep. If you had picked a value between those
+  stops, it is kept and keeps working, but no row is checked until you pick
+  one of the listed values.
+
+### Fixed
+
+- **Chestnut no longer gets stranded when you unplug a display.** The pet's
+  position was only checked against your screens at launch, so disconnecting
+  the display it was sitting on left it at coordinates nothing could reach:
+  no sprite to right-click, and the right-click menu is the way to Reset
+  Position. It now re-checks whenever your display setup changes and comes
+  back to your main screen. Resizing or rearranging displays nudges it clear
+  of the menu bar and Dock instead of moving it away. Where you put the pet is
+  remembered as you left it, so it returns there once the display is back.
+
+- **Undoing a delivery no longer gives up at the first file it can't move
+  back.** If you had deleted or renamed one of the delivered files in Obsidian,
+  undo stopped dead there: the files it had already returned stayed returned,
+  everything behind that one stayed in the destination vault, and the message
+  said only "Undo failed" with no clue which files were where. Undo now tries
+  every file in the delivery and brings back all the ones it still can, then
+  tells you which it couldn't and why. Nothing is deleted or overwritten to do
+  it, and a file that is genuinely gone is still never conjured back.
+
+- **An undo that fails no longer blocks every earlier one.** When an undo
+  can't be reversed — most often because the note has been edited since, which
+  Chestnut refuses to guess at — the operation was kept on top of the stack
+  and every later undo retried that same one and failed the same way, putting
+  everything older permanently out of reach. The failure now asks: **Keep**,
+  which is the old behavior and still the default, or **Discard Entry**, which
+  touches no files and only stops Chestnut offering that operation again, so
+  the next undo reaches the one before it.
+
+- **A damaged undo journal no longer switches undo off for good.** Chestnut
+  used to add to its undo journals one line at a time, so a crash or a full
+  disk could leave a half-written entry at the end of the file. Reading it back
+  produced nothing Chestnut could make sense of, and it concluded there was
+  nothing to undo at all: the Undo row greyed out, and since a greyed-out row
+  can't be clicked, there was no way to skip past the damage either. Every
+  operation recorded before it was out of reach for good. Chestnut now reads
+  back to the last entry it does understand, and tidies the damage away as you
+  undo. Journals are also written whole now rather than a line at a time, so
+  new ones can't be left half-finished in the first place.
+
+- **The undo journals no longer grow without limit.** Every delivery and
+  capture was recorded forever, and a delivery that rewrote a note's links
+  stored a complete copy of that note's text in the record. The journals now
+  keep the 20 most recent entries, and drop older ones if the file still
+  exceeds 1 MB. Existing journals are trimmed the next time you deliver or
+  capture. This does shorten how far back Undo can reach, which in practice
+  it could not reach anyway: the menu never said which delivery it was about
+  to reverse, and an entry that fails to undo is kept and blocks everything
+  older than it.
+
+- **The plugin guide documented the wrong field name, so every copy-pasted
+  manifest silently failed to load.** The manifest reference and both worked
+  examples called the script field `command`; the parser has always required
+  `script`. A plugin built by following the guide never appeared in the
+  Plugins menu and produced no error anywhere. The docs are corrected, and a
+  manifest Chestnut rejects now writes the reason to the debug log — naming
+  the offending key, the unknown output mode, or the script it could not
+  execute — instead of disappearing without a word.
+
+- **The structured-envelope reference described three fields wrongly.**
+  `vault` was documented as a name hint, and the worked example used a vault
+  name, which matches nothing and raises "Unknown vault" — the working values
+  are `pinned`, `last`, `ask` or an absolute vault path, none of which were
+  documented. `filename` was documented as defaulting to the first line of the
+  content; a structured envelope that omits it actually gets `Untitled.md`.
+  And attachments were documented as landing in the note's folder or the vault
+  root, when both paths use the vault's configured attachment folder. The
+  input-types table was also missing `pdf` and `any`, though `pdf` is used by
+  a shipped example.
+
+- **A plugin's attachments no longer follow you to an unrelated capture.**
+  If a plugin queued a file and you dismissed the capture panel instead of
+  submitting, that file stayed queued for the rest of the session and was
+  copied into whatever you captured next, in whatever vault. Attachments are
+  now copied only when your note refers to them, which is what the plugins
+  were already writing into the draft as `![[filename]]`. Delete the link and
+  the file is dropped; rewrite the draft into something else and nothing
+  follows. Dismissing still keeps your draft exactly as before.
+
+- **Undo Last Capture now reverses the attachments as well as the text.**
+  Undoing a capture that a plugin had added images to used to report success,
+  remove the text, and leave every image sitting in your vault with no record
+  they belonged to it. Those files now go to the Trash along with the text,
+  never deleted. An undo that refuses because the note changed underneath it
+  leaves the files alone, as before.
+
+- **A capture that fails no longer leaves files behind, or loses what you
+  typed.** Attachments used to be copied into the vault before the note was
+  written, so a failed capture stranded them with nothing referring to them.
+  The note is written first now. And because submitting cleared the draft
+  before the write, "Capture failed" used to take your text with it; the draft
+  and any attachments now come back, so you can retry or copy the text out.
+
+- **A hotkey without a real modifier is now refused instead of taking over
+  the key.** `"capture": "space"` was accepted and registered, and because a
+  global hotkey takes the keystroke away from every other application, it left
+  you without a space bar anywhere on the system until you quit Chestnut. A
+  binding now needs at least one of control, option or command; shift can be
+  added to those but doesn't count on its own, since `shift+a` is just A.
+  Bindings that don't qualify are ignored and the reason is written to the
+  log, the same as any other unparseable binding.
+
 ## [0.4.0] — 2026-07-25
 
 ### Added
@@ -142,6 +297,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.5.0]: https://github.com/gapmiss/chestnut/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gapmiss/chestnut/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gapmiss/chestnut/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/gapmiss/chestnut/compare/v0.2.0...v0.2.1

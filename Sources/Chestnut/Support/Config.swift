@@ -28,6 +28,8 @@ struct Config: Codable, Equatable {
     /// User-defined sprite themes (appear in the right-click Theme menu).
     var customThemes: [CustomThemeConfig]?
     /// Global hotkey bindings, hand-editable: "modifier+modifier+key".
+    /// At least one of control/option/command is required (shift alone
+    /// doesn't count); a binding without one is rejected and logged.
     /// Set a binding to "" or "none" to disable it.
     var hotkeys = HotkeyConfig()
     var debug = false
@@ -40,6 +42,19 @@ struct Config: Codable, Equatable {
 
     static let defaultInboxName = "Inbox.md"
 
+    /// A bare file name, or the default. Lives here rather than on `Capture`
+    /// because `Config.swift` is compiled standalone by the site generator
+    /// (see the `site-gen` target) and can't reach into `Actions/`.
+    ///
+    /// `/` would reach into a subfolder and `.`/`..` name directories, so both
+    /// are rejected. `Capture.init` applies this too: the config decoder and
+    /// that initializer are the two ways an inbox name gets in, and neither
+    /// can vouch for the other.
+    static func sanitizedInboxName(_ raw: String) -> String {
+        raw.isEmpty || raw.contains("/") || raw == "." || raw == ".."
+            ? defaultInboxName : raw
+    }
+
     init() {}
 
     /// Tolerant decoding: configs written by older builds lack newer keys, and
@@ -51,8 +66,7 @@ struct Config: Codable, Equatable {
         let rawInbox = try c.decodeIfPresent(String.self, forKey: .captureInboxName)
             ?? Self.defaultInboxName
         // Hand-edited configs: a path here could climb out of the vault.
-        captureInboxName = rawInbox.isEmpty || rawInbox.contains("/")
-            ? Self.defaultInboxName : rawInbox
+        captureInboxName = Self.sanitizedInboxName(rawInbox)
         captureFormat = try c.decodeIfPresent(String.self, forKey: .captureFormat)
         captureFolder = try c.decodeIfPresent(String.self, forKey: .captureFolder)
         petPalette = try c.decodeIfPresent([String: String].self, forKey: .petPalette)
@@ -149,6 +163,12 @@ struct HotkeyConfig: Codable, Equatable {
     var hopper = "control+option+v"
     var notice = "control+option+o"
     var paste = "control+option+c"
+    /// The right-click menu is otherwise reachable only by landing a click on
+    /// an opaque sprite pixel, and the pet window can't become key, so no menu
+    /// item's key equivalent ever fires. Without this binding there is no
+    /// keyboard route to Settings, Undo, or Quit — and an LSUIElement app
+    /// doesn't appear in Force Quit, so there's no out-of-band exit either.
+    var menu = "control+option+m"
 
     init() {}
 
@@ -158,6 +178,7 @@ struct HotkeyConfig: Codable, Equatable {
         hopper = try c.decodeIfPresent(String.self, forKey: .hopper) ?? "control+option+v"
         notice = try c.decodeIfPresent(String.self, forKey: .notice) ?? "control+option+o"
         paste = try c.decodeIfPresent(String.self, forKey: .paste) ?? "control+option+c"
+        menu = try c.decodeIfPresent(String.self, forKey: .menu) ?? "control+option+m"
     }
 }
 

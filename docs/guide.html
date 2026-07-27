@@ -51,7 +51,7 @@
       <a href="https://github.com/gapmiss/chestnut/releases/latest/download/Chestnut.dmg">Chestnut.dmg</a>,
       open it, and drag Chestnut into Applications. Or use Homebrew:
     </p>
-    <pre><code class="language-bash">brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
+    <pre><code class="language-bash">brew install --cask gapmiss/tap/chestnut</code></pre>
 
     <h3>First launch (Gatekeeper)</h3>
     <p>
@@ -182,7 +182,7 @@
           <tr><td><code>api</code></td><td>number</td><td>Always <code>1</code>.</td></tr>
           <tr><td><code>name</code></td><td>string</td><td>Display name (shown in menus and the picker).</td></tr>
           <tr><td><code>description</code></td><td>string</td><td>Short description (shown under the name in the Plugins menu).</td></tr>
-          <tr><td><code>command</code></td><td>string</td><td>Path to the script, relative to the plugin folder. Must be executable (shebang + <code>chmod +x</code>).</td></tr>
+          <tr><td><code>script</code></td><td>string</td><td>Path to the script, relative to the plugin folder. Must be executable (shebang + <code>chmod +x</code>).</td></tr>
           <tr><td><code>accepts</code></td><td>string[]</td><td>Input types this plugin handles. See <a href="#input-types">input types</a>.</td></tr>
           <tr><td><code>extensions</code></td><td>string[]</td><td>Optional. Narrows <code>file</code> matching to specific extensions (e.g. <code>["csv", "txt"]</code>). Omit to accept all files.</td></tr>
           <tr><td><code>output</code></td><td>string</td><td>Output mode. See <a href="#output-modes">output modes</a>.</td></tr>
@@ -200,7 +200,9 @@
           <tr><td><code>url</code></td><td>A URL on the clipboard or dropped as a web location.</td></tr>
           <tr><td><code>image</code></td><td>An image on the clipboard (TIFF/PNG data) or an image file drop.</td></tr>
           <tr><td><code>file</code></td><td>A non-markdown file drop. Narrow with <code>extensions</code>.</td></tr>
+          <tr><td><code>pdf</code></td><td>A PDF file drop, matched on the <code>.pdf</code> extension.</td></tr>
           <tr><td><code>folder</code></td><td>A folder drop.</td></tr>
+          <tr><td><code>any</code></td><td>Wildcard: matches every input type above. Still narrowable with <code>extensions</code>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -252,7 +254,7 @@
   "action": "save",
   "content": "# My Note\n\nBody text here.",
   "filename": "My Note.md",
-  "vault": "Work",
+  "vault": "ask",
   "folder": "imported",
   "notify": "Saved to Work",
   "attachments": [
@@ -265,11 +267,11 @@
         <tbody>
           <tr><td><code>action</code></td><td>yes</td><td>One of <code>capture</code>, <code>save</code>, <code>clipboard</code>, <code>notify</code>.</td></tr>
           <tr><td><code>content</code></td><td>no</td><td>The note body or text to output.</td></tr>
-          <tr><td><code>filename</code></td><td>no</td><td>Filename for <code>save</code> (default: first line of content).</td></tr>
-          <tr><td><code>vault</code></td><td>no</td><td>Target vault name hint.</td></tr>
+          <tr><td><code>filename</code></td><td>no</td><td>Filename for <code>save</code>. Defaults to <code>Untitled.md</code>, so it is worth setting. Unlike the plain <code>save</code> output mode, the envelope's first line is not used as a title, and the content is not split.</td></tr>
+          <tr><td><code>vault</code></td><td>no</td><td>Where to save. One of <code>"pinned"</code>, <code>"last"</code> (the vault you captured to most recently), <code>"ask"</code> to show the vault picker, or the absolute path of a vault. A vault <em>name</em> will not match: Chestnut keys vaults by path, because names collide. Omitting the field behaves like <code>"ask"</code>.</td></tr>
           <tr><td><code>folder</code></td><td>no</td><td>Subfolder within the vault.</td></tr>
           <tr><td><code>notify</code></td><td>no</td><td>Speech bubble text shown after the action completes.</td></tr>
-          <tr><td><code>attachments</code></td><td>no</td><td>Array of <code>{ source, filename }</code> objects. Each <code>source</code> is an absolute path to a file; it's copied into the vault. Works with <code>save</code> (into the note's folder) and <code>capture</code> (into the vault root on submit).</td></tr>
+          <tr><td><code>attachments</code></td><td>no</td><td>Array of <code>{ source, filename }</code> objects. Each <code>source</code> is an absolute path to a file. Copies go into the vault's attachment folder, meaning the <code>attachmentFolderPath</code> from that vault's Obsidian settings, or the vault root when it isn't set. Note that <code>folder</code> moves the note but not its attachments. With <code>capture</code>, a file is copied only if the submitted note refers to it by filename, so write a <code>![[filename]]</code> link into <code>content</code>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -315,7 +317,7 @@
   "api": 1,
   "name": "Bookmark",
   "description": "Save a URL as a markdown note",
-  "command": "./save-bookmark.sh",
+  "script": "./save-bookmark.sh",
   "accepts": ["url"],
   "output": "save"
 }</code></pre>
@@ -357,8 +359,8 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
     <p>
       <code>state.json</code> is Chestnut's: window position, size, opacity,
-      theme, notice duration, pinned vault, disabled plugins, last capture
-      vault. Everything
+      theme, notice duration, reduce motion, pinned vault, disabled plugins,
+      last capture vault. Everything
       in it has a control in the right-click menu, so there's no reason to
       edit it by hand. Chestnut rewrites it every time you move the window.
     </p>
@@ -389,9 +391,19 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     "capture": "control+option+space",
     "hopper": "control+option+v",
     "paste": "control+option+c",
-    "notice": "control+option+o"
+    "notice": "control+option+o",
+    "menu": "control+option+m"
   }
 }</code></pre>
+    <p>
+      <code>menu</code> opens the right-click menu at Chestnut without a
+      right-click, so Size, Theme, Settings, Plugins, both Undo items and Quit
+      are all reachable from the keyboard. Arrow keys move through the menu and
+      Return picks an item. Chestnut has no Dock icon and no menu bar item, and
+      an app like that isn't listed in Force Quit either, so this is the only
+      way to reach those items, including Quit, without landing a click on the
+      sprite itself.
+    </p>
     <p>
       Keys: <code>a</code>&ndash;<code>z</code>, <code>0</code>&ndash;<code>9</code>,
       <code>space</code>, <code>tab</code>, <code>return</code>,
@@ -400,6 +412,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       Modifiers: <code>control</code>/<code>ctrl</code>,
       <code>option</code>/<code>alt</code>,
       <code>command</code>/<code>cmd</code>, <code>shift</code>.
+      Every binding needs at least one of <code>control</code>,
+      <code>option</code> or <code>command</code>. <code>shift</code> can be
+      added to those but doesn't count on its own, since a global hotkey takes
+      the keystroke away from every other app: a binding of <code>"space"</code>
+      would leave you without a space bar. Bindings without a modifier are
+      ignored, and the reason is written to the log.
       Set a binding to <code>""</code> or <code>"none"</code> to disable it.
     </p>
 
@@ -473,12 +491,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Notice duration</h3>
     <p>
       How long the speech bubble stays visible. Set it from the right-click
-      menu → Settings → Notice Bubble, anywhere from 1 to 30 seconds. The slider
-      prints the value as you drag, and the next bubble uses it: no relaunch.
+      menu → Settings → Notice Bubble, which lists 3, 5, 10, 20 and 30 seconds
+      with the current one checked. The next bubble uses it: no relaunch.
       It's stored in <code>state.json</code>.
     </p>
     <pre><code class="language-json">{
-  "noticeDuration": 8
+  "noticeDuration": 10
 }</code></pre>
 
     <h3>Disabled plugins</h3>
@@ -521,6 +539,11 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
             <td>Notice action</td>
             <td>Follow through on the active speech bubble (e.g. open the note in Obsidian). Only registered while a bubble is visible.</td>
           </tr>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>M</kbd></span></td>
+            <td>Right-click menu</td>
+            <td>Opens the menu at Chestnut, with arrow keys and <kbd>&#x23CE;</kbd>. The only route to Size, Theme, Settings, Plugins, Undo and Quit that doesn't need a mouse.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -541,13 +564,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
         <tbody>
           <tr><td>Vaults&hellip;</td><td>Opens the Vault Hopper palette.</td></tr>
           <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
-          <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy).</td></tr>
-          <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append.</td></tr>
+          <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy). A second line names what it would take back (<code>recipe.md</code>, <code>3 notes</code>); on macOS 14.0&ndash;14.3, which has no second line, the row is unnamed.</td></tr>
+          <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append, and trashes any attachments it saved. Named the same way.</td></tr>
           <tr><td><strong>Size &rarr;</strong></td><td>Small, Medium (default), or Large sprite.</td></tr>
           <tr><td><strong>Theme &rarr;</strong></td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
           <tr><td><strong>Settings &rarr;</strong></td><td>Everything you set once, one level down.</td></tr>
-          <tr><td>Settings &rarr; Opacity</td><td>Slider from 10% to 100%.</td></tr>
-          <tr><td>Settings &rarr; Notice Bubble</td><td>Slider from 1 to 30 seconds, with a live readout. Applies to the next speech bubble.</td></tr>
+          <tr><td>Settings &rarr; Opacity</td><td>100%, 80%, 60%, 40% or 20%, with the current one checked.</td></tr>
+          <tr><td>Settings &rarr; Notice Bubble</td><td>3, 5, 10, 20 or 30 seconds. Applies to the next speech bubble.</td></tr>
+          <tr><td>Settings &rarr; Reduce Motion</td><td>Stops everything that moves: breathing, the sleep z's, the click hop, the delivery squash. Chestnut keeps blinking and chattering, so you can still read its state. Checked and greyed out while System&nbsp;Settings &rarr; Accessibility &rarr; Display &rarr; Reduce&nbsp;Motion is on.</td></tr>
           <tr><td>Settings &rarr; Copy on Drop</td><td>Toggle default behavior: copy files instead of moving them.</td></tr>
           <tr><td>Settings &rarr; Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
           <tr><td>Settings &rarr; Launch at Login</td><td>Toggle auto-start at login (uses SMAppService).</td></tr>
@@ -571,15 +595,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Gatekeeper blocks the app</h3>
     <p>
       See <a href="#getting-started">Getting started</a>. The quickest fix is
-      the <code>xattr</code> command. Homebrew's <code>--no-quarantine</code>
-      flag avoids it on install.
+      the <code>xattr</code> command.
     </p>
     <p>
-      <code>brew upgrade</code> does not carry that flag forward, so a blocked
-      launch can come back after upgrading. Run the <code>xattr</code> command
-      again, or upgrade by reinstalling:
+      A blocked launch comes back after <code>brew upgrade</code>, since the
+      new copy is quarantined too. Run the <code>xattr</code> command again.
     </p>
-    <pre><code class="language-bash">brew reinstall --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
 
     <h3>Hotkeys don't work</h3>
     <p>
@@ -588,6 +609,24 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       listed but greyed out, remove it and re-add it (toggle the switch
       off then on). A restart of the app may be needed after granting
       the permission.
+    </p>
+
+    <h3>An undo says it failed</h3>
+    <p>
+      Undo refuses when the file it needs is no longer where it was left, most
+      often because the note was renamed, moved or edited in Obsidian since.
+      The alert offers <strong>Keep</strong> and <strong>Discard Entry</strong>.
+      Keep leaves the record in place, which means it comes up again on the
+      next click and nothing older can be reached until it's dealt with.
+      Discard Entry drops the record and touches no files: use it once you've
+      decided you don't need that one reversed.
+    </p>
+    <p>
+      A delivery of several notes can also come back partly done. Undo tries
+      every file rather than stopping at the first failure, so the ones it
+      could reach are home and the alert names the ones that stayed put. That
+      record is spent; a second try can only re-fail on the files already
+      returned.
     </p>
 
     <h3>obsidian CLI not found</h3>

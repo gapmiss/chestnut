@@ -28,48 +28,58 @@ final class PetWindow: NSPanel {
     var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
     var hasPluginForType: ((PluginInputType) -> Bool)?
     var onUndoDelivery: (() -> Void)?
-    var canUndoDelivery: (() -> Bool)?
+    /// The Undo Last Delivery row, resolved from the record it would reverse;
+    /// nil when there's nothing journaled, which is also what disables it.
+    var undoDeliveryRow: (() -> UndoRow?)?
     /// Quick Capture: menu → Capture… (the global hotkey lands in the delegate).
     var onCapture: (() -> Void)?
     var onUndoCapture: (() -> Void)?
-    var canUndoCapture: (() -> Bool)?
+    var undoCaptureRow: (() -> UndoRow?)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
     /// Menu → Edit Configuration…; the delegate opens config.json.
     var onEditConfiguration: (() -> Void)?
+    /// True while the right-click menu is on screen. The delegate releases the
+    /// `menu` hotkey for that window; see `HotkeyCenter.setMenuHotkeyEnabled`.
+    var onMenuTrackingChange: ((Bool) -> Void)?
 
     private var state: AppState
-    /// Value readouts on the two Settings slider rows, updated live during a
-    /// drag. Weak: the menu owns them, and they die with the menu.
-    private weak var noticeDurationReadout: NSTextField?
-    private weak var opacityReadout: NSTextField?
     /// Hand-edited settings: read-only here, never written back.
     private let config: Config
 
-    /// Transparent margins around the sprite: room for the hop and z-drift
-    /// above, future panels at the sides, a whisker below the baseline.
-    enum Margin {
-        static let side: CGFloat = 24
-        static let top: CGFloat = 56
-        static let bottom: CGFloat = PetScene.baselineY
+    /// Whether each Undo row had a record when the menu was last built; see
+    /// `validateMenuItem`.
+    private var undoDeliveryAvailable = false
+    private var undoCaptureAvailable = false
+
+    /// See `PetGeometry.Margin` — kept as an alias so call sites read the same.
+    typealias Margin = PetGeometry.Margin
+
+    // The origin maths lives in `PetGeometry`, which takes screen rects rather
+    // than `NSScreen` so `make check` can reach it; this file is AppKit and
+    // can't join the check target. These wrappers supply the current displays.
+
+    private static var mainVisibleFrame: NSRect {
+        NSScreen.main?.visibleFrame ?? PetGeometry.fallbackVisibleFrame
+    }
+
+    private static var currentScreens: [PetScreen] {
+        NSScreen.screens.map { PetScreen(frame: $0.frame, visibleFrame: $0.visibleFrame) }
+    }
+
+    /// System Settings ▸ Accessibility ▸ Display ▸ Reduce Motion.
+    private static var systemReduceMotion: Bool {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
     static func contentSize(for size: AppState.PetSize) -> NSSize {
-        let scale = size.pixelScale
-        return NSSize(
-            width: CGFloat(PetFrames.gridWidth) * scale + Margin.side * 2,
-            height: CGFloat(PetFrames.gridHeight) * scale + Margin.bottom + Margin.top
-        )
+        PetGeometry.contentSize(for: size)
     }
 
     static func defaultOrigin(for contentSize: NSSize) -> NSPoint {
-        let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        return NSPoint(
-            x: screen.maxX - contentSize.width - 40,
-            y: screen.minY + 40
-        )
+        PetGeometry.defaultOrigin(for: contentSize, onVisible: mainVisibleFrame)
     }
 
     /// The sprite's current on-screen rect — the anchor for the notice
@@ -80,46 +90,26 @@ final class PetWindow: NSPanel {
 
     /// The sprite's rect within a window frame (frame minus the margins).
     static func petRect(inWindowFrame frame: NSRect, scale: CGFloat) -> NSRect {
-        NSRect(
-            x: frame.minX + Margin.side,
-            y: frame.minY + Margin.bottom,
-            width: frame.width - Margin.side * 2,
-            height: CGFloat(PetFrames.gridHeight) * scale
-        )
+        PetGeometry.petRect(inWindowFrame: frame, scale: scale)
     }
 
     /// Clamp a window origin so the whole sprite sits inside `screen`'s
-    /// visible frame (below the menu bar, above the Dock).
+    /// visible frame (below the menu bar, above the Dock). A nil screen means
+    /// there is nothing to clamp against, so the origin stands.
     static func clampedOrigin(
         _ origin: NSPoint, for petSize: AppState.PetSize, on screen: NSScreen?
     ) -> NSPoint {
         guard let visible = screen?.visibleFrame else { return origin }
-        let size = contentSize(for: petSize)
-        let sprite = petRect(
-            inWindowFrame: NSRect(origin: origin, size: size),
-            scale: petSize.pixelScale
-        )
-        var clamped = origin
-        clamped.x += max(0, visible.minX - sprite.minX)
-        clamped.x -= max(0, sprite.maxX - visible.maxX)
-        clamped.y += max(0, visible.minY - sprite.minY)
-        clamped.y -= max(0, sprite.maxY - visible.maxY)
-        return clamped
+        return PetGeometry.clampedOrigin(origin, for: petSize, onVisible: visible)
     }
 
     /// A saved position is only trusted if part of the sprite is on a screen —
     /// displays come and go, and constrainFrameRect no longer rescues us.
     /// Trusted positions are still clamped into the visible area.
     static func validatedOrigin(_ saved: NSPoint?, for petSize: AppState.PetSize) -> NSPoint {
-        let size = contentSize(for: petSize)
-        guard let saved else { return defaultOrigin(for: size) }
-        let sprite = petRect(
-            inWindowFrame: NSRect(origin: saved, size: size),
-            scale: petSize.pixelScale
+        PetGeometry.validatedOrigin(
+            saved, for: petSize, screens: currentScreens, mainVisible: mainVisibleFrame
         )
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(sprite) })
-        else { return defaultOrigin(for: size) }
-        return clampedOrigin(saved, for: petSize, on: screen)
     }
 
     init(state: AppState, config: Config, controller: PetController) {
@@ -161,6 +151,53 @@ final class PetWindow: NSPanel {
 
         acceptsMouseMovedEvents = true
         startClickThroughTracking()
+        applyMotionSetting()
+
+        // Reduce Motion can be switched on while the app runs, and the whole
+        // point of the setting is that it takes effect without hunting down
+        // each app. NSWorkspace posts this on its own centre, not the default.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(accessibilityDisplayOptionsChanged),
+            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
+
+        // Displays come and go while the app runs, not just between launches.
+        // `constrainFrameRect` is overridden to a no-op, so nothing else pulls
+        // a stranded pet back onto a screen — and a pet with no screen takes
+        // the right-click menu with it, which is the only route to Reset
+        // Position or Quit besides the menu hotkey.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil
+        )
+    }
+
+    @objc private func accessibilityDisplayOptionsChanged() {
+        applyMotionSetting()
+    }
+
+    /// Push the effective stillness down to the scene. Chestnut's setting and
+    /// the system's are combined in `AppState.motionFrozen`, which documents
+    /// why the system one wins.
+    private func applyMotionSetting() {
+        petScene.setMotionFrozen(AppState.motionFrozen(
+            app: state.reduceMotion, system: Self.systemReduceMotion
+        ))
+    }
+
+    /// Re-run the launch-time validation against the new display list.
+    ///
+    /// Deliberately does *not* persist the rescued origin. `state.position` is
+    /// the position the user chose, and a display they unplug now is one they
+    /// may plug back in later: keeping their coordinates means the pet returns
+    /// there on the next launch while docked, and gets rescued again while
+    /// undocked. Overwriting it would trade that for a permanent move to the
+    /// default corner. A drag still saves, as it always did.
+    @objc private func screenParametersChanged() {
+        let rescued = Self.validatedOrigin(frame.origin, for: state.size)
+        guard rescued != frame.origin else { return }
+        setFrameOrigin(rescued)
     }
 
     /// A floating .canJoinAllSpaces window shows over full-screen apps even
@@ -175,6 +212,7 @@ final class PetWindow: NSPanel {
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
+
 
     /// macOS pins a window's top edge below the menu bar; with our transparent
     /// top margin that held the visible pet ~56pt short of the screen top
@@ -225,16 +263,69 @@ final class PetWindow: NSPanel {
     /// one submenu. Size and Theme stay top-level on purpose — they're the
     /// pet's identity and the most rewarding thing to find early.
     func showMenu(with event: NSEvent, in view: NSView) {
+        NSMenu.popUpContextMenu(buildMenu(), with: event, for: view)
+    }
+
+    /// Keyboard route to the same menu (the `menu` hotkey). Two things this
+    /// needs that the click path gets for free: a location, since there's no
+    /// event to take one from, and app activation — menu tracking pulls key
+    /// events from *our* queue, and while Chestnut is a background accessory
+    /// app they go to whatever is frontmost instead, so the menu would appear
+    /// but not respond to arrow keys. macOS constrains the menu onto a screen,
+    /// so an off-screen sprite still yields a usable menu.
+    func showMenuFromHotkey() {
+        NSApp.activate(ignoringOtherApps: true)
+        let sprite = spriteFrame
+        let menu = buildMenu()
+        let screen = NSScreen.screens.first { $0.frame.intersects(sprite) } ?? NSScreen.main
+        menu.popUp(
+            positioning: nil,
+            at: Self.menuOrigin(for: menu.size, at: sprite, in: screen?.visibleFrame),
+            in: nil
+        )
+    }
+
+    /// Where to put a hotkey-invoked menu so the whole thing is on screen.
+    ///
+    /// `popUp(positioning:at:in:)` hangs the menu's top-left corner off the
+    /// given point and grows *down*, and when that doesn't fit it scrolls
+    /// rather than flipping the way a real context menu does. The pet defaults
+    /// to the bottom-right corner, so anchoring at the sprite's top hides most
+    /// of the menu behind a scroll arrow. Open downward when there's room and
+    /// flip above the sprite when there isn't, then clamp both axes.
+    /// Pure geometry, so it can be reasoned about without a screen: `visible`
+    /// is the target screen's visible frame, nil when there is none to consult.
+    static func menuOrigin(for menuSize: NSSize, at sprite: NSRect, in visible: NSRect?) -> NSPoint {
+        let below = NSPoint(x: sprite.midX, y: sprite.maxY)
+        guard let visible, menuSize.height > 0 else { return below }
+
+        // Open downward from the sprite's top when the menu fits; otherwise sit
+        // it on the bottom edge of the screen, which puts it above the sprite.
+        let y = below.y - menuSize.height < visible.minY
+            ? min(visible.maxY, visible.minY + menuSize.height)
+            : below.y
+        let rightmost = max(visible.minX, visible.maxX - menuSize.width)
+        return NSPoint(x: min(max(below.x, visible.minX), rightmost), y: y)
+    }
+
+    private func buildMenu() -> NSMenu {
         // Visual changes here should be mirrored in the website's re-creation
         // (docs/chestnut.js, renderMenu).
         let menu = NSMenu()
+        // Only the root menu gets the delegate: submenus opening and closing
+        // aren't the menu itself opening and closing.
+        menu.delegate = self
 
         menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
         menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
 
         menu.addItem(.separator())
-        menu.addItem(menuItem("Undo Last Delivery", #selector(undoDelivery)))
-        menu.addItem(menuItem("Undo Last Capture", #selector(undoCapture)))
+        let delivery = undoDeliveryRow?()
+        let capture = undoCaptureRow?()
+        undoDeliveryAvailable = delivery != nil
+        undoCaptureAvailable = capture != nil
+        menu.addItem(undoMenuItem("Undo Last Delivery", #selector(undoDelivery), delivery))
+        menu.addItem(undoMenuItem("Undo Last Capture", #selector(undoCapture), capture))
 
         menu.addItem(.separator())
         menu.addItem(sizeMenuItem())
@@ -254,7 +345,7 @@ final class PetWindow: NSPanel {
         menu.addItem(.separator())
         menu.addItem(menuItem("Quit Chestnut", #selector(quitApp)))
 
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        return menu
     }
 
     /// A plain action row targeting this window, optionally showing the key
@@ -268,6 +359,22 @@ final class PetWindow: NSPanel {
             item.keyEquivalent = key
             item.keyEquivalentModifierMask = mods
         }
+        return item
+    }
+
+    /// An Undo row. The title is fixed; the record it would reverse names
+    /// itself on the second line, because undo pops one record per click and
+    /// after the first click a bare title refers to a different, older
+    /// operation with nothing on screen to say so. Subtitle rather than title
+    /// so a long note name can't set the width of every row in the menu —
+    /// see `UndoRow`. A record from before names were kept draws plain, as
+    /// does every row on 14.0–14.3, where `subtitle` doesn't exist yet: the
+    /// row still works, it just goes back to being unnamed.
+    private func undoMenuItem(
+        _ title: String, _ action: Selector, _ row: UndoRow?
+    ) -> NSMenuItem {
+        let item = menuItem(title, action)
+        if #available(macOS 14.4, *) { item.subtitle = row?.subtitle }
         return item
     }
 
@@ -299,35 +406,57 @@ final class PetWindow: NSPanel {
         return Self.submenuItem("Theme", submenu)
     }
 
-    /// Everything you set once: two sliders, three toggles, two escape hatches.
-    /// Deliberately flat — nothing in here opens a further submenu, so the menu
-    /// never reaches a third level.
+    /// Everything you set once: two value pickers, three toggles, two escape
+    /// hatches.
+    ///
+    /// Opacity and Notice Bubble are the only rows that open a third level, and
+    /// they are why the "never a third level" rule now has an exception. They
+    /// were sliders, which are `NSMenuItem.view`s, and AppKit skips view items
+    /// in a menu's key loop — so neither value could be changed without a
+    /// mouse. For opacity that could strand you: faded to its floor, the sprite
+    /// is nearly invisible, and the only control that restored it was a slider
+    /// you had to find and drag on a pet you could no longer see. Discrete
+    /// items are ordinary items: arrow keys reach them, Return picks one, the
+    /// checkmark is the current value, and there is one control per value
+    /// rather than a slider shadowed by a keyboard stand-in. The cost is the
+    /// fine control the slider had, spent deliberately.
     private func settingsMenuItem() -> NSMenuItem {
         let submenu = NSMenu()
 
-        let opacity = sliderRow(
-            label: "Opacity",
+        submenu.addItem(presetMenuItem(
+            title: "Opacity",
             hint: "How solid Chestnut looks",
-            value: state.opacity,
-            range: AppState.opacityRange,
-            action: #selector(opacityChanged(_:)),
-            readout: Self.percentLabel
-        )
-        opacityReadout = opacity.readout
-        submenu.addItem(opacity.item)
-
-        let notice = sliderRow(
-            label: "Notice Bubble",
+            presets: AppState.opacityPresets,
+            current: state.opacity,
+            action: #selector(selectOpacity(_:)),
+            label: Self.percentLabel
+        ))
+        submenu.addItem(presetMenuItem(
+            title: "Notice Bubble",
             hint: "How long a notice bubble stays on screen",
-            value: state.noticeDuration,
-            range: AppState.noticeDurationRange,
-            action: #selector(noticeDurationChanged(_:)),
-            readout: Self.secondsLabel
-        )
-        noticeDurationReadout = notice.readout
-        submenu.addItem(notice.item)
+            presets: AppState.noticeDurationPresets,
+            current: state.noticeDuration,
+            action: #selector(selectNoticeDuration(_:)),
+            label: Self.secondsLabel
+        ))
 
         submenu.addItem(.separator())
+        // Sits with the pet's own presentation, above the courier and window
+        // toggles. Named after the system setting because that's the term the
+        // people who want it will look for; the subtitle is what stops the row
+        // being read as a *mirror* of that switch, which ticking it must never
+        // write. Disabled while the system asks, since this can only ever add
+        // stillness — `AppState.motionFrozen` says why. On 14.0–14.3 there's no
+        // subtitle API and the row draws bare but still dimmed.
+        let motionItem = menuItem("Reduce Motion", #selector(toggleReduceMotion))
+        let systemAsks = Self.systemReduceMotion
+        motionItem.state = AppState.motionFrozen(
+            app: state.reduceMotion, system: systemAsks
+        ) ? .on : .off
+        if systemAsks, #available(macOS 14.4, *) {
+            motionItem.subtitle = "Set in System Settings"
+        }
+        submenu.addItem(motionItem)
         let copyItem = menuItem("Copy on Drop", #selector(toggleCopyDefault))
         copyItem.state = state.courierCopyByDefault ? .on : .off
         submenu.addItem(copyItem)
@@ -392,59 +521,35 @@ final class PetWindow: NSPanel {
         return item
     }
 
-    /// One row shape for both sliders: label, slider, value. Fixed label and
-    /// readout widths (and monospaced digits) keep the two sliders aligned with
-    /// each other and stop `1s` → `30s` from shoving the track sideways.
-    /// `hint` becomes the row's tooltip — a slider row has no room to explain
-    /// itself, and "Opacity" is self-evident where a duration isn't.
-    private func sliderRow(
-        label: String,
+    /// One row shape for both value pickers: a parent naming the setting, and a
+    /// submenu of preset choices with the current one checked. The parent
+    /// carries the value as a badge so the setting can be read without opening
+    /// it, and `hint` becomes its tooltip — "Opacity" is self-evident where a
+    /// duration isn't.
+    ///
+    /// The checkmark is an exact match, so a value persisted between stops by
+    /// an older build shows none. That's deliberate: checking the nearest stop
+    /// would claim a value the app isn't using. Picking any preset resolves it.
+    private func presetMenuItem(
+        title: String,
         hint: String,
-        value: Double,
-        range: ClosedRange<Double>,
+        presets: [Double],
+        current: Double,
         action: Selector,
-        readout: (Double) -> String
-    ) -> (item: NSMenuItem, readout: NSTextField) {
-        let slider = NSSlider(
-            value: value,
-            minValue: range.lowerBound,
-            maxValue: range.upperBound,
-            target: self,
-            action: action
-        )
-        slider.isContinuous = true
-
-        let title = NSTextField(labelWithString: label)
-        title.font = .menuFont(ofSize: 0)
-        title.widthAnchor.constraint(equalToConstant: Self.sliderLabelWidth).isActive = true
-
-        let valueLabel = NSTextField(labelWithString: readout(value))
-        valueLabel.font = .monospacedDigitSystemFont(
-            ofSize: NSFont.smallSystemFontSize, weight: .regular
-        )
-        valueLabel.textColor = .secondaryLabelColor
-        valueLabel.alignment = .right
-        valueLabel.widthAnchor.constraint(equalToConstant: Self.sliderReadoutWidth).isActive = true
-
-        let row = NSStackView(views: [title, slider, valueLabel])
-        row.toolTip = hint
-        // Taller than a normal menu row on purpose: a slider knob is ~20pt, so
-        // at 24pt two stacked rows put their knobs 4pt apart and read as one
-        // mashed block. The vertical air is what makes them legible as a pair.
-        row.edgeInsets = NSEdgeInsets(top: 6, left: 21, bottom: 6, right: 14)
-        // NSMenu sizes itself to its widest item: the two rows must declare the
-        // same width or the submenu jumps between them.
-        row.frame = NSRect(x: 0, y: 0, width: Self.sliderRowWidth, height: 32)
-        row.autoresizingMask = [.width]
-
-        let item = NSMenuItem()
-        item.view = row
-        return (item, valueLabel)
+        label: (Double) -> String
+    ) -> NSMenuItem {
+        let submenu = NSMenu()
+        for preset in presets {
+            let item = menuItem(label(preset), action)
+            item.representedObject = preset
+            item.state = AppState.isPreset(preset, matching: current) ? .on : .off
+            submenu.addItem(item)
+        }
+        let parent = Self.submenuItem(title, submenu)
+        parent.badge = NSMenuItemBadge(string: label(current))
+        parent.toolTip = hint
+        return parent
     }
-
-    private static let sliderRowWidth: CGFloat = 290
-    private static let sliderLabelWidth: CGFloat = 96
-    private static let sliderReadoutWidth: CGFloat = 34
 
     /// Whole seconds only: a bubble that lingers 7.4s isn't a distinct choice
     /// from one that lingers 7.
@@ -456,26 +561,20 @@ final class PetWindow: NSPanel {
         "\(Int((fraction * 100).rounded()))%"
     }
 
-    @objc private func opacityChanged(_ sender: NSSlider) {
-        alphaValue = sender.doubleValue
-        opacityReadout?.stringValue = Self.percentLabel(sender.doubleValue)
-        state.opacity = sender.doubleValue
-        // The action fires for every tick of a drag; persist only on the final
-        // event (mouse-up, or a direct click on the track).
-        if NSApp.currentEvent?.type != .leftMouseDragged {
-            onStateChange?(state)
-        }
+    /// Both pickers persist immediately. The sliders they replaced had to wait
+    /// for mouse-up to avoid writing on every drag tick; a discrete choice is a
+    /// single event, so there's nothing to defer.
+    @objc private func selectOpacity(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        alphaValue = value
+        state.opacity = value
+        onStateChange?(state)
     }
 
-    @objc private func noticeDurationChanged(_ sender: NSSlider) {
-        let seconds = sender.doubleValue.rounded()
-        noticeDurationReadout?.stringValue = Self.secondsLabel(seconds)
-        state.noticeDuration = seconds
-        // Like the opacity slider: the action fires on every tick of a drag,
-        // so persist only on the final event (mouse-up, or a click on the track).
-        if NSApp.currentEvent?.type != .leftMouseDragged {
-            onStateChange?(state)
-        }
+    @objc private func selectNoticeDuration(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? Double else { return }
+        state.noticeDuration = value
+        onStateChange?(state)
     }
 
     @objc private func editConfiguration() {
@@ -546,6 +645,12 @@ final class PetWindow: NSPanel {
 
     @objc private func undoCapture() { onUndoCapture?() }
 
+    @objc private func toggleReduceMotion() {
+        state.reduceMotion.toggle()
+        applyMotionSetting()
+        onStateChange?(state)
+    }
+
     @objc private func toggleCopyDefault() {
         state.courierCopyByDefault.toggle()
         onStateChange?(state)
@@ -612,6 +717,15 @@ final class PetWindow: NSPanel {
         if let monitor = localMouseMonitor { NSEvent.removeMonitor(monitor) }
         globalMouseMonitor = nil
         localMouseMonitor = nil
+        // Same reason as the monitors above: a theme or size change rebuilds
+        // the window, and a stale observer would move a dead one.
+        NotificationCenter.default.removeObserver(
+            self, name: NSApplication.didChangeScreenParametersNotification, object: nil
+        )
+        NSWorkspace.shared.notificationCenter.removeObserver(
+            self, name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil
+        )
         super.close()
     }
 
@@ -655,13 +769,28 @@ final class PetWindow: NSPanel {
         }
     }
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if menuItem.action == #selector(undoDelivery) {
-            return canUndoDelivery?() == true
-        }
-        if menuItem.action == #selector(undoCapture) {
-            return canUndoCapture?() == true
-        }
+        // Answered from what buildMenu resolved a moment ago, rather than
+        // reading the journal a second time for every right-click.
+        if menuItem.action == #selector(undoDelivery) { return undoDeliveryAvailable }
+        if menuItem.action == #selector(undoCapture) { return undoCaptureAvailable }
+        // The system already stilled the pet; the row has nothing left to give
+        // and must not appear to offer a way back.
+        if menuItem.action == #selector(toggleReduceMotion) { return !Self.systemReduceMotion }
         return true
+    }
+}
+
+/// Reports menu tracking so the `menu` hotkey can be released for its duration
+/// — see `HotkeyCenter.setMenuHotkeyEnabled` for why holding it is worse than
+/// useless. Both entry points route through `buildMenu`, so a right-click is
+/// covered as well as the hotkey.
+extension PetWindow: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        onMenuTrackingChange?(true)
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        onMenuTrackingChange?(false)
     }
 }
 

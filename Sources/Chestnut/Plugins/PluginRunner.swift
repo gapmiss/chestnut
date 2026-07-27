@@ -151,7 +151,6 @@ enum PluginRunner {
 
             do {
                 try process.run()
-                setpgid(process.processIdentifier, process.processIdentifier)
             } catch {
                 stdoutPipe.fileHandleForReading.readabilityHandler = nil
                 stderrPipe.fileHandleForReading.readabilityHandler = nil
@@ -170,6 +169,14 @@ enum PluginRunner {
                 }
             }
 
+            // Signal the whole process group (`kill(-pid, …)`), not just the
+            // script, so a plugin that backgrounded something goes down with
+            // it. Nothing here has to create that group: `Process` already
+            // spawns the child as its own group leader, so pgid == pid.
+            // Calling `setpgid` ourselves would not work anyway — by the time
+            // `run()` returns the child has exec'd, and POSIX rejects the call
+            // with EACCES from then on (measured: 5/5 failures, and the
+            // grandchild reaped 5/5 regardless).
             DispatchQueue.global().asyncAfter(
                 deadline: .now() + timeout
             ) {

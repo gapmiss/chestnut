@@ -16,14 +16,24 @@
 	<string>Chestnut</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
+	<!-- Both are placeholders: `make bundle` stamps the real values from
+	     Makefile:VERSION and the commit count, and `make release-check`
+	     asserts the stamp. Kept in step with VERSION so the file can't be
+	     misread as a source of truth. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.0</string>
+	<string>0.4.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept on your Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept in your Documents folder.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Chestnut watches your Obsidian vaults so it can react while you write, and moves notes between them when you drop one on it. Allow access to use a vault kept in your Downloads folder.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

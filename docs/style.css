@@ -581,31 +581,6 @@ pre:hover .copy-btn { opacity: 1; }
 .menu-item:hover > .submenu { display: block; }
 .submenu.flip { left: auto; right: calc(100% - 4px); }
 
-.menu-slider {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px 4px var(--menu-label-x);
-  color: var(--text-secondary);
-}
-/* Fixed label and readout widths: the two slider rows line up with each other,
-   and "1s" doesn't shove the slider on the way to "30s". Tabular digits for
-   the same reason. */
-.menu-slider-label { flex: none; width: 88px; color: var(--text); }
-.menu-slider input {
-  flex: 1;
-  width: 110px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-.menu-readout {
-  flex: none;
-  width: 30px;
-  text-align: right;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 /* ---------- Chips, themes, CTA ---------- */
 
 .chips {

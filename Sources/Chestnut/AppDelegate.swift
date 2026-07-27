@@ -73,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkeys.onPaste = { [weak self] in
             self?.handlePasteHotkey()
         }
+        hotkeys.onMenu = { [weak self] in
+            self?.petWindow?.showMenuFromHotkey()
+        }
         hotkeys.start(config: config.hotkeys)
 
         pluginRegistry.onAPINotice = { [weak self] name, api in
@@ -123,8 +126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onPluginDrop = { [weak self] type, input in
             self?.handlePluginInput(type: type, input: input)
         }
-        window.canUndoDelivery = { [weak self] in
-            self?.journal.last() != nil
+        window.undoDeliveryRow = { [weak self] in
+            self?.journal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
         }
         window.onUndoDelivery = { [weak self] in
             self?.undoLastDelivery()
@@ -132,8 +135,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onCapture = { [weak self] in
             self?.toggleCapture()
         }
-        window.canUndoCapture = { [weak self] in
-            self?.captureJournal.last() != nil
+        window.undoCaptureRow = { [weak self] in
+            self?.captureJournal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
         }
         window.onUndoCapture = { [weak self] in
             self?.undoLastCapture()
@@ -166,6 +169,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.onEditConfiguration = { [weak self] in
             self?.openConfigForEditing()
+        }
+        window.onMenuTrackingChange = { [weak self] tracking in
+            self?.hotkeys.setMenuHotkeyEnabled(!tracking)
         }
         controller.onStateChange = { [weak window] state in
             window?.petScene.play(state)
@@ -347,10 +353,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try journal.removeLast()
             petWindow?.petScene.celebrateDelivery()
         } catch {
-            presentAlert(
-                "Undo failed",
-                "\(error.localizedDescription)\nThe journal entry was kept; files may need a manual check."
-            )
+            // A partial undo did reverse something, so it gets the honest
+            // title and the alert drops its "nothing was changed" promise.
+            let partial: Bool
+            if case CourierError.partiallyUndone = error { partial = true } else { partial = false }
+            let title = partial ? "Undo finished part-way" : "Undo failed"
+            if presentUndoFailure(title, error.localizedDescription, changedFiles: partial) {
+                discardUndoRecord { try journal.removeLast() }
+            }
         }
     }
 
@@ -407,36 +417,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         state.lastCaptureVaultPath = vault.path
         state.save()
 
-        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
-        if !attachments.isEmpty {
-            let vaultURL = URL(fileURLWithPath: vault.path)
-            let attDir = Courier().attachmentFolder(of: vaultURL)
-            try? FileManager.default.createDirectory(
-                at: attDir, withIntermediateDirectories: true
-            )
-            for att in attachments {
-                let dest = Courier.availableURL(
-                    for: attDir.appendingPathComponent(att.filename)
-                )
-                guard Courier.isContained(dest, inVault: vault.path) else {
-                    presentAlert(
-                        "Attachment save failed",
-                        "Target path would escape the vault root or write inside .obsidian/."
-                    )
-                    return
-                }
-                do {
-                    let src = URL(fileURLWithPath: att.source).standardizedFileURL
-                    try FileManager.default.copyItem(at: src, to: dest)
-                    if att.source.hasPrefix(tempPrefix) {
-                        try? FileManager.default.removeItem(at: src)
-                    }
-                } catch {
-                    presentAlert("Attachment save failed", error.localizedDescription)
-                    return
-                }
-            }
-        }
+        // Only files the note refers to are copied; see
+        // partitionAttachmentsByReference. A draft that survived a dismissed
+        // panel and was then rewritten carries none of the old plugin's files.
+        // The split is pure — nothing is copied or deleted until the note is
+        // safely written, so a failed capture leaves the vault and the queued
+        // temp files exactly as they were.
+        let (referenced, unreferenced) =
+            partitionAttachmentsByReference(attachments, inText: text)
 
         let capture = self.capture
         let vaultURL = URL(fileURLWithPath: vault.path)
@@ -447,8 +435,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }.value
             guard let self else { return }
             switch result {
-            case .success(let record):
+            case .success(var record):
                 DebugLog.log("capture: success → \(record.notePath), created=\(record.createdFile)")
+                let copied = self.copyCaptureAttachments(referenced, toVault: vault)
+                self.discardTempAttachments(unreferenced)
+                record.attachmentPaths = copied.isEmpty ? nil : copied
                 do {
                     try self.captureJournal.append(record)
                 } catch {
@@ -464,8 +455,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     ObsidianBridge.openNote(path: record.notePath, vaultPath: record.vaultPath)
                 }
             case .failure(let error):
+                // The panel cleared the draft when it submitted. Put it and
+                // the queued attachments back, so a failed capture doesn't
+                // discard what the user wrote — reopening shows it again.
+                self.captureDraft = text
+                self.captureAttachments = attachments
                 self.presentAlert("Capture failed", error.localizedDescription)
             }
+        }
+    }
+
+    /// Copies a capture's referenced attachments into the vault's attachment
+    /// folder, returning where each landed so undo can trash them. Called only
+    /// after the note is written. A failure part-way still returns the paths
+    /// that did land, so undo can clean up what exists.
+    private func copyCaptureAttachments(
+        _ attachments: [PluginAttachment], toVault vault: Vault
+    ) -> [String] {
+        guard !attachments.isEmpty else { return [] }
+        let attDir = Courier().attachmentFolder(of: URL(fileURLWithPath: vault.path))
+        try? FileManager.default.createDirectory(
+            at: attDir, withIntermediateDirectories: true
+        )
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        var copied: [String] = []
+        for att in attachments {
+            let dest = Courier.availableURL(
+                for: attDir.appendingPathComponent(att.filename)
+            )
+            guard Courier.isContained(dest, inVault: vault.path) else {
+                presentAlert(
+                    "Attachment save failed",
+                    "Target path would escape the vault root or write inside .obsidian/."
+                )
+                return copied
+            }
+            do {
+                let src = URL(fileURLWithPath: att.source).standardizedFileURL
+                try FileManager.default.copyItem(at: src, to: dest)
+                copied.append(dest.path)
+                if att.source.hasPrefix(tempPrefix) {
+                    try? FileManager.default.removeItem(at: src)
+                }
+            } catch {
+                presentAlert("Attachment save failed", error.localizedDescription)
+                return copied
+            }
+        }
+        return copied
+    }
+
+    /// Removes the temp files behind attachments the note didn't refer to.
+    private func discardTempAttachments(_ attachments: [PluginAttachment]) {
+        guard !attachments.isEmpty else { return }
+        DebugLog.log("capture: dropping \(attachments.count) unreferenced attachment(s)")
+        let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        for att in attachments where att.source.hasPrefix(tempPrefix) {
+            try? FileManager.default.removeItem(at: URL(fileURLWithPath: att.source))
         }
     }
 
@@ -487,10 +533,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try captureJournal.removeLast()
             petWindow?.petScene.celebrateDelivery()
         } catch {
-            presentAlert(
-                "Undo capture failed",
-                "\(error.localizedDescription)\nThe journal entry was kept; the note may need a manual check."
-            )
+            if presentUndoFailure("Undo capture failed", error.localizedDescription) {
+                discardUndoRecord { try captureJournal.removeLast() }
+            }
         }
     }
 
@@ -770,5 +815,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.runModal()
+    }
+
+    /// The alert an undo failure raises, offering a way past the record that
+    /// failed. Keeping it is the default and stays the safe answer — the files
+    /// are in an unknown state and forgetting them silently would strand them —
+    /// but a kept record sits on top of the stack forever, and undo retries it
+    /// on every click, so everything older becomes unreachable. Discarding
+    /// touches no files; it only stops Chestnut offering this one again.
+    /// Returns true when the caller should drop the record.
+    /// `changedFiles` is the difference between "undo refused" and "undo got
+    /// part of the way". Both keep the record, but only the first can honestly
+    /// promise nothing moved, and only the second is pointless to retry.
+    private func presentUndoFailure(
+        _ title: String, _ reason: String, changedFiles: Bool = false
+    ) -> Bool {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = changedFiles
+            ? """
+            \(reason)
+            What could be brought back already has been, so undoing again \
+            won't finish the job. Discarding this entry forgets the operation \
+            — no files are touched — so the next undo reaches the one before it.
+            """
+            : """
+            \(reason)
+            Nothing was changed. Keeping this entry means Chestnut offers the \
+            same operation the next time you undo; discarding it forgets the \
+            operation — no files are touched — so the next undo reaches the one \
+            before it.
+            """
+        alert.addButton(withTitle: "Keep")
+        alert.addButton(withTitle: "Discard Entry")
+        alert.buttons.last?.hasDestructiveAction = true
+        return alert.runModal() == .alertSecondButtonReturn
+    }
+
+    /// Drop a record whose undo failed, once the user has said to. A failure
+    /// here is the case the discard exists for, so it can only be reported.
+    private func discardUndoRecord(_ remove: () throws -> Void) {
+        do {
+            try remove()
+        } catch {
+            presentAlert(
+                "Could not discard the entry",
+                "\(error.localizedDescription)\nThe undo journal may need a manual check."
+            )
+        }
     }
 }

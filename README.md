@@ -48,7 +48,7 @@ CPU. No Electron, no bundled browser, no network calls.
 ### Homebrew
 
 ```bash
-brew install --cask --no-quarantine gapmiss/tap/chestnut
+brew install --cask gapmiss/tap/chestnut
 ```
 
 ### Manual
@@ -66,13 +66,8 @@ launch. To allow it:
 xattr -dr com.apple.quarantine /Applications/Chestnut.app
 ```
 
-`brew upgrade` does not carry `--no-quarantine` forward, so a blocked launch
-can come back after upgrading. Run the `xattr` command above, or upgrade by
-reinstalling:
-
-```bash
-brew reinstall --cask --no-quarantine gapmiss/tap/chestnut
-```
+A blocked launch comes back after `brew upgrade`, since the new copy is
+quarantined too. Run the `xattr` command above again.
 
 To start automatically, right-click the pet and toggle Settings → Launch at Login.
 
@@ -93,7 +88,7 @@ make check          # runtime checks (no XCTest dependency)
 make clean
 ```
 
-Quit with right-click → Quit, or `pkill -x Chestnut`.
+Quit with right-click → Quit, ⌃⌥M → Quit, or `pkill -x Chestnut`.
 
 ## Architecture
 

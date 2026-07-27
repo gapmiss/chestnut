@@ -21,16 +21,49 @@ struct CourierOperation: Codable, Equatable {
     let isCopy: Bool
     let transfers: [FileTransfer]
     let rewrites: [NoteRewrite]
+    /// What the user dropped, by source file name, so the Undo row can say
+    /// which delivery it takes back. Source names rather than delivered ones:
+    /// a conflict suffix (" 1") is Chestnut's bookkeeping, not what the user
+    /// recognises. `transfers` can't answer this — attachments are placed
+    /// before their note and several notes interleave. Nil in records
+    /// journaled before the menu named anything.
+    var deliveredNames: [String]?
+}
+
+extension CourierOperation {
+    /// Second line for the Undo row that reverses this delivery. Undo walks
+    /// back through history one record per click, so an unnamed row leaves the
+    /// user firing blind from the second click on. Nil for records journaled
+    /// before `deliveredNames`.
+    var undoMenuSubtitle: String? {
+        guard let names = deliveredNames, !names.isEmpty else { return nil }
+        if names.count == 1 { return UndoName.cut(names[0]) }
+        let allNotes = names.allSatisfy { ($0 as NSString).pathExtension.lowercased() == "md" }
+        return "\(names.count) \(allNotes ? "notes" : "files")"
+    }
 }
 
 enum CourierError: LocalizedError {
     case nothingToDeliver
     case destinationIsSource
+    /// Undo reversed what it could and could not reverse the rest. Carries
+    /// enough to tell the user which files stayed put — the state is known,
+    /// not a mystery, so the message says so rather than "undo failed".
+    case partiallyUndone(restored: Int, unreachable: [String])
 
     var errorDescription: String? {
         switch self {
-        case .nothingToDeliver: "No files to deliver."
-        case .destinationIsSource: "The note is already in that vault."
+        case .nothingToDeliver: return "No files to deliver."
+        case .destinationIsSource: return "The note is already in that vault."
+        case let .partiallyUndone(restored, unreachable):
+            let shown = unreachable.prefix(3).joined(separator: ", ")
+            let rest = unreachable.count > 3 ? " and \(unreachable.count - 3) more" : ""
+            let brought = restored == 0
+                ? "Nothing could be brought back."
+                : "Brought back \(restored) file\(restored == 1 ? "" : "s")."
+            return "\(brought) Chestnut couldn't restore \(shown)\(rest) — "
+                + "no longer where the delivery left \(unreachable.count == 1 ? "it" : "them"), "
+                + "or couldn't be moved back."
         }
     }
 }
@@ -84,40 +117,78 @@ struct Courier {
         }
 
         return CourierOperation(
-            date: Date(), isCopy: copy, transfers: transfers, rewrites: rewrites
+            date: Date(), isCopy: copy, transfers: transfers, rewrites: rewrites,
+            deliveredNames: files.map(\.lastPathComponent)
         )
     }
 
     /// Reverse a journaled delivery: moves go back (content restored where
     /// references were rewritten); copies are moved to the Trash, never deleted.
+    ///
+    /// Every transfer is attempted exactly once, and one that fails does not
+    /// stop the ones behind it. The common failure is a delivered file the
+    /// user has since deleted or renamed in Obsidian, and hard-stopping on it
+    /// stranded every remaining transfer half-reversed, with nothing saying
+    /// which. Reversing all that can be reversed leaves a *known* state, and
+    /// `partiallyUndone` names the rest. The record is spent either way — a
+    /// second undo can only re-fail on the transfers already reversed — so
+    /// this throws rather than returning quietly.
     func undo(_ op: CourierOperation) throws {
+        var unreachable: [String] = []
+
         if op.isCopy {
             for t in op.transfers.reversed() {
                 let url = URL(fileURLWithPath: t.to)
-                if fm.fileExists(atPath: url.path) {
+                // A copy that is already gone is not a failure: there is no
+                // copy left to take back.
+                guard fm.fileExists(atPath: url.path) else { continue }
+                do {
                     try fm.trashItem(at: url, resultingItemURL: nil)
+                } catch {
+                    unreachable.append(url.lastPathComponent)
                 }
             }
+            try reportIfIncomplete(unreachable, of: op)
             return
         }
+
         let originalByPath = Dictionary(
             op.rewrites.map { ($0.notePath, $0.original) },
             uniquingKeysWith: { first, _ in first }
         )
         for t in op.transfers.reversed() {
-            let home = availableURL(for: URL(fileURLWithPath: t.from))
-            try fm.createDirectory(
-                at: home.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            if t.dedup {
-                try fm.copyItem(at: URL(fileURLWithPath: t.to), to: home)
-            } else {
-                try fm.moveItem(at: URL(fileURLWithPath: t.to), to: home)
+            let delivered = URL(fileURLWithPath: t.to)
+            guard fm.fileExists(atPath: delivered.path) else {
+                unreachable.append(delivered.lastPathComponent)
+                continue
             }
-            if let original = originalByPath[t.to] {
-                try original.write(to: home, atomically: true, encoding: .utf8)
+            do {
+                let home = availableURL(for: URL(fileURLWithPath: t.from))
+                try fm.createDirectory(
+                    at: home.deletingLastPathComponent(), withIntermediateDirectories: true
+                )
+                if t.dedup {
+                    try fm.copyItem(at: delivered, to: home)
+                } else {
+                    try fm.moveItem(at: delivered, to: home)
+                }
+                if let original = originalByPath[t.to] {
+                    try original.write(to: home, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                unreachable.append(delivered.lastPathComponent)
             }
         }
+        try reportIfIncomplete(unreachable, of: op)
+    }
+
+    private func reportIfIncomplete(
+        _ unreachable: [String], of op: CourierOperation
+    ) throws {
+        guard !unreachable.isEmpty else { return }
+        throw CourierError.partiallyUndone(
+            restored: op.transfers.count - unreachable.count, unreachable: unreachable
+        )
     }
 
     // MARK: - Notes & attachments

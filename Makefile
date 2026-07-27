@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.4.0
+VERSION := 0.5.0
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
@@ -27,6 +27,7 @@ check: site-gen
 		Sources/$(APP)/Support/ObsidianCLI.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \
+		Sources/$(APP)/Pet/PetGeometry.swift \
 		Sources/$(APP)/Pet/SpriteTheme.swift \
 		Sources/$(APP)/Plugins/PluginManifest.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \

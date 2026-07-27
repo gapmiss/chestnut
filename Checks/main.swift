@@ -147,6 +147,8 @@ struct Check {
         watcher.stop()
 
         courierChecks()
+        petGeometryChecks()
+        undoMenuRowChecks()
         captureChecks()
         configChecks()
         appStateChecks()
@@ -160,9 +162,120 @@ struct Check {
         await pluginRunnerEndToEndChecks()
         pluginDispatchChecks()
         obsidianLinkChecks()
+        docsContractChecks()
 
         print(failures == 0 ? "\nALL CHECKS PASSED" : "\n\(failures) CHECK(S) FAILED")
         exit(failures == 0 ? 0 : 1)
+    }
+
+    // MARK: - T7: docs / code contract
+
+    /// Holds the published plugin reference to what the parser actually reads.
+    ///
+    /// Every other check here proves the app works. This one proves the
+    /// *instructions* work, which is a different failure and the one that bit:
+    /// the guide named the script field `command` where the parser requires
+    /// `script`, so every copy-pasted manifest silently failed to load, in the
+    /// reference table and both worked examples at once. Nothing in the app was
+    /// broken, so nothing in the app could have caught it.
+    ///
+    /// Located from `#filePath` rather than the working directory, so it holds
+    /// wherever the binary is run from.
+    static func docsContractChecks() {
+        let repoRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let docs = repoRoot.appendingPathComponent("docs")
+
+        func html(_ name: String) -> String {
+            (try? String(contentsOf: docs.appendingPathComponent(name), encoding: .utf8)) ?? ""
+        }
+        let guide = html("guide.html")
+        let index = html("index.html")
+        check(!guide.isEmpty && !index.isEmpty,
+              "docs/guide.html and docs/index.html are readable from #filePath")
+
+        // --- Reference tables vs the types they describe ---
+        // First-column <code> terms of the table following a marker.
+        func tableTerms(in page: String, after marker: String) -> Set<String> {
+            guard let start = page.range(of: marker),
+                  let open = page.range(of: "<tbody>", range: start.upperBound..<page.endIndex),
+                  let close = page.range(of: "</tbody>", range: open.upperBound..<page.endIndex)
+            else { return [] }
+            let body = page[open.upperBound..<close.lowerBound]
+            return Set(body.components(separatedBy: "<tr>").compactMap { row in
+                guard let o = row.range(of: "<code>"),
+                      let c = row.range(of: "</code>", range: o.upperBound..<row.endIndex)
+                else { return nil }
+                return String(row[o.upperBound..<c.lowerBound])
+            })
+        }
+
+        let documentedFields = tableTerms(in: guide, after: "manifest.json reference")
+        check(documentedFields == PluginManifest.manifestFields,
+              "the manifest reference table names exactly the parser's fields "
+              + "(documented-only: \(documentedFields.subtracting(PluginManifest.manifestFields).sorted()), "
+              + "undocumented: \(PluginManifest.manifestFields.subtracting(documentedFields).sorted()))")
+
+        let documentedInputs = tableTerms(in: guide, after: #"id="input-types""#)
+        let realInputs = Set(PluginInputType.allCases.map(\.rawValue))
+        check(documentedInputs == realInputs,
+              "the input-types table lists exactly PluginInputType's cases "
+              + "(missing: \(realInputs.subtracting(documentedInputs).sorted()))")
+
+        let documentedOutputs = tableTerms(in: guide, after: #"id="output-modes""#)
+        let realOutputs = Set(PluginOutputMode.allCases.map(\.rawValue))
+        check(documentedOutputs == realOutputs,
+              "the output-modes table lists exactly PluginOutputMode's cases "
+              + "(missing: \(realOutputs.subtracting(documentedOutputs).sorted()))")
+
+        // --- The copy-pasteable examples ---
+        // A reader trusts these more than the table, and they were wrong too.
+        func jsonBlocks(in page: String) -> [[String: Any]] {
+            page.components(separatedBy: #"<code class="language-json">"#).dropFirst()
+                .compactMap { chunk -> [String: Any]? in
+                    guard let end = chunk.range(of: "</code>") else { return nil }
+                    let text = String(chunk[chunk.startIndex..<end.lowerBound])
+                        .replacingOccurrences(of: "&quot;", with: "\"")
+                        .replacingOccurrences(of: "&lt;", with: "<")
+                        .replacingOccurrences(of: "&gt;", with: ">")
+                        .replacingOccurrences(of: "&amp;", with: "&")
+                    return (try? JSONSerialization.jsonObject(with: Data(text.utf8)))
+                        as? [String: Any]
+                }
+        }
+
+        var manifestExamples = 0
+        var envelopeExamples = 0
+        for (page, name) in [(guide, "guide.html"), (index, "index.html")] {
+            for object in jsonBlocks(in: page) {
+                let keys = Set(object.keys)
+                // A manifest declares `api`; an envelope declares `action`.
+                if object["api"] != nil {
+                    manifestExamples += 1
+                    check(keys.isSubset(of: PluginManifest.manifestFields),
+                          "\(name): manifest example uses only real fields "
+                          + "(stray: \(keys.subtracting(PluginManifest.manifestFields).sorted()))")
+                    let accepts = Set((object["accepts"] as? [String]) ?? [])
+                    check(accepts.isSubset(of: realInputs),
+                          "\(name): manifest example accepts only real input types "
+                          + "(stray: \(accepts.subtracting(realInputs).sorted()))")
+                    check(realOutputs.contains((object["output"] as? String) ?? ""),
+                          "\(name): manifest example declares a real output mode")
+                } else if object["action"] != nil {
+                    envelopeExamples += 1
+                    check(keys.isSubset(of: PluginEnvelope.envelopeFields),
+                          "\(name): envelope example uses only real fields "
+                          + "(stray: \(keys.subtracting(PluginEnvelope.envelopeFields).sorted()))")
+                }
+            }
+        }
+
+        // Without this the loops above pass by finding nothing — the failure
+        // mode of every scraper, and worse here than the drift it looks for.
+        check(manifestExamples >= 2,
+              "found the manifest examples to check (got \(manifestExamples), expected the guide's and the landing page's)")
+        check(envelopeExamples >= 1,
+              "found at least one structured-envelope example (got \(envelopeExamples))")
     }
 
     // MARK: - Capture
@@ -172,6 +285,38 @@ struct Check {
         let base = URL(fileURLWithPath:
             NSTemporaryDirectory() + "chestnut-check-capture-\(ProcessInfo.processInfo.processIdentifier)")
         defer { try? fm.removeItem(at: base) }
+
+        // --- Attachments are copied only when the note refers to them ---
+        // Regression test for a plugin's queued attachments surviving a
+        // dismissed capture panel and riding along on the next, unrelated one.
+        let png = PluginAttachment(source: "/tmp/x/scan.png", filename: "scan.png")
+        let pdf = PluginAttachment(source: "/tmp/x/doc.pdf", filename: "doc.pdf")
+
+        let wikilink = partitionAttachmentsByReference([png], inText: "![[scan.png]]")
+        check(wikilink.referenced.count == 1 && wikilink.unreferenced.isEmpty,
+              "attachments: wikilink reference → copied")
+
+        let markdown = partitionAttachmentsByReference([png], inText: "![shot](scan.png)")
+        check(markdown.referenced.count == 1,
+              "attachments: markdown embed reference → copied")
+
+        // The M2 scenario: draft rewritten into something unrelated.
+        let rewritten = partitionAttachmentsByReference([png], inText: "buy milk")
+        check(rewritten.referenced.isEmpty && rewritten.unreferenced.count == 1,
+              "attachments: rewritten draft → not copied")
+
+        let mixed = partitionAttachmentsByReference([png, pdf], inText: "see ![[doc.pdf]]")
+        check(mixed.referenced.map(\.filename) == ["doc.pdf"]
+              && mixed.unreferenced.map(\.filename) == ["scan.png"],
+              "attachments: partition keeps referenced only")
+
+        // An empty filename must not match every draft.
+        let empty = PluginAttachment(source: "/tmp/x/y", filename: "")
+        check(partitionAttachmentsByReference([empty], inText: "anything").referenced.isEmpty,
+              "attachments: empty filename → not copied")
+
+        check(partitionAttachmentsByReference([], inText: "").referenced.isEmpty,
+              "attachments: no attachments → nothing copied")
 
         func write(_ path: String, _ content: String) {
             let url = base.appendingPathComponent(path)
@@ -237,6 +382,16 @@ struct Check {
         check(Capture(inboxFileName: "Later.md").destination(inVault: v3, date: date).path
                 == v3.appendingPathComponent("Later.md").path,
               "configurable inbox name is honored")
+
+        // The inbox is the one target with no further fallback, so Capture
+        // sanitizes it on the way in rather than checking containment on the
+        // way out. v3 has daily notes off, so destination lands on the inbox.
+        let inboxDefault = v3.appendingPathComponent("Inbox.md").path
+        for bad in ["..", ".", "", "sub/Later.md", "../escape.md"] {
+            check(Capture(inboxFileName: bad).destination(inVault: v3, date: date).path
+                    == inboxDefault,
+                  "inbox name \"\(bad)\" is sanitized at construction, not trusted")
+        }
 
         // --- Chestnut-native captureFormat/captureFolder ---
         let v6 = vault("v6")
@@ -315,6 +470,32 @@ struct Check {
             // Note edited after capture → undo refuses rather than guesses.
             write("v3/Inbox.md", "no newline\nstray\nedited later\n")
             check((try? engine.undo(inboxed)) == nil, "undo refuses when the note changed")
+
+            // --- Undo reverses attachments too ---
+            write("v1/files/shot.png", "PNG")
+            var withAtt = try engine.capture("![[shot.png]]", toVault: v1, date: date)
+            withAtt.attachmentPaths = [base.appendingPathComponent("v1/files/shot.png").path]
+            try engine.undo(withAtt)
+            check(!exists("v1/files/shot.png"),
+                  "capture undo trashes the capture's attachments")
+
+            // A refused undo must not touch the files: the text is the thing
+            // the user asked to reverse, and it is still there.
+            write("v3/Inbox.md", "no newline\nstray\nedited later\n")
+            write("v3/files/keep.png", "PNG")
+            var refused = inboxed
+            refused.attachmentPaths = [base.appendingPathComponent("v3/files/keep.png").path]
+            check((try? engine.undo(refused)) == nil, "undo still refuses when the note changed")
+            check(exists("v3/files/keep.png"),
+                  "a refused undo leaves attachments alone")
+
+            // Records journaled before attachments were tracked must decode.
+            let legacy = #"{"date":"2026-07-14T00:00:00Z","vaultPath":"/v","notePath":"/v/n.md","appended":"x","createdFile":false}"#
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            let old = try? decoder.decode(CaptureRecord.self, from: Data(legacy.utf8))
+            check(old != nil && old?.attachmentPaths == nil,
+                  "capture record without attachmentPaths still decodes (no migration)")
         } catch {
             check(false, "capture round trip threw: \(error)")
         }
@@ -337,6 +518,14 @@ struct Check {
               "config inbox name round-trips")
         check(decode(#"{"captureInboxName":"../evil.md"}"#)?.captureInboxName == "Inbox.md",
               "inbox name with a path separator is rejected")
+        check(decode(#"{"captureInboxName":".."}"#)?.captureInboxName == "Inbox.md",
+              "inbox name of \"..\" is rejected (no separator to catch it)")
+        check(decode(#"{"captureInboxName":"."}"#)?.captureInboxName == "Inbox.md",
+              "inbox name of \".\" is rejected")
+        check(decode(#"{"captureInboxName":""}"#)?.captureInboxName == "Inbox.md",
+              "empty inbox name is rejected")
+        check(decode(#"{"captureInboxName":"sub/Later.md"}"#)?.captureInboxName == "Inbox.md",
+              "inbox name naming a subfolder is rejected")
         check(decode(#"{}"#)?.captureFormat == nil, "config without captureFormat defaults to nil")
         check(decode(#"{"captureFormat":"YYYY-MM-DD"}"#)?.captureFormat == "YYYY-MM-DD",
               "captureFormat round-trips")
@@ -415,6 +604,50 @@ struct Check {
         check(decode(#"{"noticeDuration":900}"#)?.noticeDuration
               == AppState.noticeDurationRange.upperBound,
               "noticeDuration above the ceiling is clamped")
+
+        // --- Settings ▸ Opacity / Notice Bubble presets ---
+        // These replaced sliders outright, so a preset that can't be selected
+        // is a value the user simply cannot reach.
+        let op = AppState.opacityPresets
+        let nd = AppState.noticeDurationPresets
+        check(op.allSatisfy { AppState.opacityRange.contains($0) },
+              "every opacity preset survives the clamp applied on read")
+        check(nd.allSatisfy { AppState.noticeDurationRange.contains($0) },
+              "every notice-duration preset survives the clamp applied on read")
+        check(Set(op).count == op.count && Set(nd).count == nd.count,
+              "no duplicate presets, which would check two rows at once")
+        check(op.contains(1.0), "opacity presets include fully opaque, the recovery value")
+        check(nd.contains(AppState.defaultNoticeDuration),
+              "notice-duration presets include the default, so it stays selectable")
+
+        // The checkmark: exact match only, since a nearest-match would claim a
+        // value the app isn't using.
+        check(AppState.isPreset(0.8, matching: 0.8), "a preset in effect is checked")
+        check(!AppState.isPreset(0.8, matching: 0.6), "a preset not in effect is unchecked")
+        check(!op.contains { AppState.isPreset($0, matching: 0.73) },
+              "a value between stops checks nothing rather than the nearest stop")
+        check(op.filter { AppState.isPreset($0, matching: 0.6) }.count == 1,
+              "exactly one preset is checked for a value that is one")
+
+        // --- Settings ▸ Reduce Motion ---
+        // Chestnut's row may only ever add stillness. The system setting is a
+        // request the user already made of the whole machine, and an
+        // always-on-top window is the last thing that should let a stray
+        // checkbox undo it.
+        check(!AppState.motionFrozen(app: false, system: false),
+              "the pet moves when neither Chestnut nor the system asks for stillness")
+        check(AppState.motionFrozen(app: true, system: false),
+              "Chestnut's own Reduce Motion stills the pet")
+        check(AppState.motionFrozen(app: false, system: true),
+              "the system's Reduce Motion stills the pet with Chestnut's row unticked")
+        check(AppState.motionFrozen(app: false, system: true)
+              == AppState.motionFrozen(app: true, system: true),
+              "Chestnut's row cannot release motion the system stilled")
+
+        check(decode(#"{}"#)?.reduceMotion == false,
+              "state without reduceMotion defaults to moving")
+        check(decode(#"{"reduceMotion":true}"#)?.reduceMotion == true,
+              "state reduceMotion round-trips")
 
         // A state.json from a build that predates a key decodes to defaults
         // rather than failing: the same tolerance Config relies on.
@@ -507,6 +740,16 @@ struct Check {
         check(HotkeySpec("control+option+a+b") == nil, "two keys returns nil")
         check(HotkeySpec("control+bogus+a") == nil, "unknown token returns nil")
 
+        // A registered hotkey consumes the keystroke everywhere, so a binding
+        // has to carry one of ⌃⌥⌘. Shift on its own doesn't make one.
+        check(HotkeySpec("space") == nil, "bare key without a modifier returns nil")
+        check(HotkeySpec("a") == nil, "bare letter without a modifier returns nil")
+        check(HotkeySpec("f12") == nil, "bare F-key without a modifier returns nil")
+        check(HotkeySpec("shift+a") == nil, "shift alone is not enough of a modifier")
+        check(HotkeySpec("control+shift+k") != nil, "shift alongside control still parses")
+        check(HotkeySpec("option+shift+space") != nil, "shift alongside option still parses")
+        check(HotkeySpec.display("space") == nil, "display of a modifier-less binding is nil")
+
         check(HotkeySpec.display("control+option+o") == "⌃⌥O", "display renders ⌃⌥O")
         check(HotkeySpec.display("cmd+shift+k") == "⇧⌘K", "display orders modifiers ⌃⌥⇧⌘")
         check(HotkeySpec.display("control+option+space") == "⌃⌥Space", "display labels space")
@@ -523,6 +766,13 @@ struct Check {
               "config hotkey override round-trips")
         check(decode(#"{"hotkeys":{"capture":"cmd+shift+c"}}"#)?.hotkeys.hopper == "control+option+v",
               "partial hotkeys object keeps defaults for missing keys")
+
+        // The menu binding is the only keyboard route to Settings, Undo and
+        // Quit, so a config written before it existed must still get one.
+        check(decode(#"{"hotkeys":{"capture":"cmd+shift+c"}}"#)?.hotkeys.menu == "control+option+m",
+              "a config predating the menu hotkey still gets the default binding")
+        check(HotkeySpec(HotkeyConfig().menu) != nil,
+              "the default menu binding parses")
     }
 
     // MARK: - Sprite themes
@@ -666,8 +916,9 @@ struct Check {
         let noScriptDir = writePlugin("no-script", manifest: """
         {"api":1,"name":"no-script","accepts":["text"],"output":"capture","script":"missing.sh"}
         """)
-        if case .invalid = PluginManifest.load(from: noScriptDir) {
-            check(true, "missing script → .invalid")
+        if case .invalid(let reason) = PluginManifest.load(from: noScriptDir) {
+            check(reason.contains("not executable") || reason.contains("missing"),
+                  "missing script → .invalid naming the script (\(reason))")
         } else {
             check(false, "manifest with missing script should be .invalid")
         }
@@ -676,10 +927,24 @@ struct Check {
         let escapeDir = writePlugin("escape", manifest: """
         {"api":1,"name":"escape","accepts":["text"],"output":"capture","script":"../../etc/passwd"}
         """, script: "#!/bin/bash\necho hi")
-        if case .invalid = PluginManifest.load(from: escapeDir) {
-            check(true, "script escaping plugin dir → .invalid")
+        if case .invalid(let reason) = PluginManifest.load(from: escapeDir) {
+            check(reason.contains("outside the plugin folder"),
+                  "script escaping plugin dir → .invalid saying so (\(reason))")
         } else {
             check(false, "manifest with escaping script path should be .invalid")
+        }
+
+        // The M4 failure itself: a manifest using the field name the guide
+        // used to document. It must be rejected with a reason that names the
+        // key, not vanish silently.
+        let wrongKeyDir = writePlugin("wrong-key", manifest: """
+        {"api":1,"name":"wrong-key","accepts":["text"],"output":"capture","command":"run.sh"}
+        """, script: "#!/bin/bash\necho hi")
+        if case .invalid(let reason) = PluginManifest.load(from: wrongKeyDir) {
+            check(reason.contains("did not parse") && reason.contains("script"),
+                  "manifest using \"command\" instead of \"script\" → .invalid naming the key")
+        } else {
+            check(false, "manifest with \"command\" instead of \"script\" should be .invalid")
         }
 
         // Default timeout.
@@ -1083,6 +1348,50 @@ struct Check {
             fm.fileExists(atPath: base.appendingPathComponent(path).path)
         }
 
+        // --- T1: isContained is lexical, by contract ---
+        // It collapses `../` and rejects `.obsidian`, but does not resolve
+        // symlinks. Pinned here so a future "hardening" has to change a test
+        // and read the rationale in CLAUDE.md first. Purely lexical — these
+        // need no files on disk.
+        let vaultPath = base.appendingPathComponent("src").path
+        check(Courier.isContained(base.appendingPathComponent("src/note.md"), inVault: vaultPath),
+              "isContained: plain child → true")
+        check(!Courier.isContained(base.appendingPathComponent("src/../escaped.md"), inVault: vaultPath),
+              "isContained: ../ escape → false")
+        check(!Courier.isContained(base.appendingPathComponent("src/.obsidian/app.json"), inVault: vaultPath),
+              "isContained: .obsidian component → false")
+        check(!Courier.isContained(base.appendingPathComponent("src"), inVault: vaultPath),
+              "isContained: vault root itself → false")
+
+        // --- T2: availableURL is the never-overwrite invariant ---
+        // Two callers now: deliverNote picks a free destination, and undo picks
+        // a free *source* to come home to (pinned separately below). Every
+        // never-overwrite promise in the app bottoms out here, so the naming
+        // rules are worth stating rather than inferring from a round trip.
+        let slots = base.appendingPathComponent("slots")
+        func free(_ name: String) -> String {
+            Courier.availableURL(for: slots.appendingPathComponent(name)).lastPathComponent
+        }
+        write("slots/taken.md", "x")
+        check(free("untaken.md") == "untaken.md", "availableURL: a free name is returned unchanged")
+        check(free("taken.md") == "taken 1.md", "availableURL: a taken name gets Obsidian's ' 1'")
+        write("slots/taken 1.md", "x")
+        check(free("taken.md") == "taken 2.md", "availableURL: suffixes climb past a taken ' 1'")
+        check(Courier.availableURL(for: slots.appendingPathComponent("taken.md"))
+                .deletingLastPathComponent().path == slots.path,
+              "availableURL: the free name stays in the requested directory")
+
+        // Extension handling, where a naive implementation goes wrong.
+        write("slots/README", "x")
+        check(free("README") == "README 1",
+              "availableURL: an extensionless name suffixes without gaining a dot")
+        write("slots/.env", "x")
+        check(free(".env") == ".env 1",
+              "availableURL: a dotfile keeps its leading dot rather than suffixing before it")
+        write("slots/notes.tar.gz", "x")
+        check(free("notes.tar.gz") == "notes.tar 1.gz",
+              "availableURL: only the last extension is treated as one")
+
         // --- Fixture: source vault with a note + attachments, busy destination ---
         let noteContent = """
         ![[img.png]]
@@ -1152,6 +1461,85 @@ struct Check {
             check(restored?.transfers == op.transfers && restored?.rewrites == op.rewrites
                     && restored?.isCopy == op.isCopy,
                   "journal encodes and decodes the operation")
+            check(restored?.deliveredNames == ["note.md", "second.md"],
+                  "delivery records what was dropped, in order, for the Undo row")
+            check(restored?.undoMenuSubtitle == "2 notes",
+                  "a real delivery names itself in the menu")
+
+            // --- Retention: journals are capped, not grown forever ---
+            let capped = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("capped.jsonl"))
+            for i in 0..<(JournalLimits.maxRecords + 15) {
+                try capped.append(CaptureRecord(
+                    date: Date(), vaultPath: "/v", notePath: "/v/n\(i).md",
+                    appended: "x", createdFile: false))
+            }
+            let cappedLines = (try? String(
+                contentsOf: base.appendingPathComponent("capped.jsonl"), encoding: .utf8))?
+                .split(separator: "\n").count ?? 0
+            check(cappedLines == JournalLimits.maxRecords,
+                  "journal keeps exactly maxRecords (got \(cappedLines))")
+            check(capped.last()?.notePath == "/v/n\(JournalLimits.maxRecords + 14).md",
+                  "trimming drops the oldest, newest still on top")
+
+            // A single record can carry a whole note body, so the byte
+            // ceiling has to bite before the record count does.
+            let heavy = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("heavy.jsonl"))
+            let bigBody = String(repeating: "x", count: 300_000)
+            for i in 0..<6 {
+                try heavy.append(CaptureRecord(
+                    date: Date(), vaultPath: "/v", notePath: "/v/big\(i).md",
+                    appended: bigBody, createdFile: false))
+            }
+            let heavySize = (try? FileManager.default.attributesOfItem(
+                atPath: base.appendingPathComponent("heavy.jsonl").path)[.size] as? Int) ?? 0
+            check(heavySize <= JournalLimits.maxBytes,
+                  "byte ceiling trims below the record cap (\(heavySize) bytes)")
+            check(heavy.last()?.notePath == "/v/big5.md",
+                  "byte-trimmed journal still returns the newest record")
+
+            // --- T6 / L10: a malformed trailing line does not jam undo ---
+            // Appends are whole-file atomic writes since M6, so this build
+            // cannot produce a half-line — but every journal written by an
+            // earlier build could, and those files are still on disk. A strict
+            // last() returned nil there, which reads as "nothing to undo": the
+            // row disables, and a disabled row can't be clicked, so U2's
+            // Discard Entry couldn't reach it either.
+            let torn = base.appendingPathComponent("torn.jsonl")
+            let good = Journal<CaptureRecord>(fileURL: torn)
+            try good.append(CaptureRecord(
+                date: Date(), vaultPath: "/v", notePath: "/v/kept.md",
+                appended: "x", createdFile: false))
+            let intact = try! String(contentsOf: torn, encoding: .utf8)
+            try! (intact + #"{"vaultPath":"/v","notePa"# + "\n")
+                .write(to: torn, atomically: true, encoding: .utf8)
+
+            check(good.last()?.notePath == "/v/kept.md",
+                  "last() walks back past a malformed trailing line")
+
+            // The trap the walk has to avoid: a line-counting removeLast would
+            // drop the damage and leave kept.md on top, so the next click would
+            // reverse the same operation a second time against real files.
+            // Both resolve the top through topIndex, so they can't disagree.
+            try good.removeLast()
+            check(good.last() == nil,
+                  "removeLast drops the record last() named, not the line above it")
+            let swept = try! String(contentsOf: torn, encoding: .utf8)
+            check(swept.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  "the malformed line is swept along with the record beneath it")
+
+            // Nothing decodable at all: there is genuinely nothing to undo, so
+            // the disabled row is correct and removeLast is a no-op.
+            let allBad = base.appendingPathComponent("allbad.jsonl")
+            try! (#"{"notePa"# + "\n" + #"{"vaultP"# + "\n")
+                .write(to: allBad, atomically: true, encoding: .utf8)
+            let unreadable = Journal<CaptureRecord>(fileURL: allBad)
+            check(unreadable.last() == nil,
+                  "a journal with no decodable line has nothing to undo")
+            try unreadable.removeLast()
+            check(unreadable.last() == nil,
+                  "removeLast on an unreadable journal is a no-op, not a throw")
 
             try courier.undo(op)
             try journal.removeLast()
@@ -1235,6 +1623,77 @@ struct Check {
                   "rollback clears the partial delivery from the destination")
         }
 
+        // --- T3/U3: one unreversible transfer must not strand the rest ---
+        // The realistic trigger is a delivered file the user has since deleted
+        // or renamed in Obsidian. Three notes, with the *middle* one deleted
+        // from the destination: undo walks in reverse, so a hard stop on it
+        // would leave `a.md` stranded at the destination with nothing saying
+        // so. Every transfer is attempted, and the ones that can't be are
+        // named in the error.
+        write("u/src/a.md", "A")
+        write("u/src/b.md", "B")
+        write("u/src/c.md", "C")
+        try! fm.createDirectory(at: base.appendingPathComponent("u/dst"), withIntermediateDirectories: true)
+        do {
+            let op = try courier.deliver(
+                files: ["a.md", "b.md", "c.md"].map {
+                    base.appendingPathComponent("u/src/\($0)")
+                },
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: base.appendingPathComponent("u/src"), copy: false
+            )
+            check(op.transfers.count == 3 && op.transfers[0].to.hasSuffix("a.md"),
+                  "three notes deliver as three transfers, in drop order")
+
+            try! fm.removeItem(at: base.appendingPathComponent("u/dst/b.md"))
+            do {
+                try courier.undo(op)
+                check(false, "undo of a deleted delivered file should report it")
+            } catch {
+                if case let CourierError.partiallyUndone(restored, unreachable) = error {
+                    check(restored == 2 && unreachable == ["b.md"],
+                          "partial undo counts what came home and names what didn't")
+                    check(error.localizedDescription.contains("b.md")
+                            && error.localizedDescription.contains("Brought back 2 files"),
+                          "the message tells the user which files stayed put")
+                } else {
+                    check(false, "undo threw \(error), not partiallyUndone")
+                }
+                check(read("u/src/a.md") == "A" && read("u/src/c.md") == "C",
+                      "a transfer that can't be reversed doesn't strand the ones behind it")
+                check(!exists("u/dst/a.md") && !exists("u/dst/c.md"),
+                      "everything reversible is cleared from the destination")
+                check(!exists("u/src/b.md"),
+                      "the file the user deleted is not conjured back")
+            }
+        } catch {
+            check(false, "T3 fixture failed to deliver: \(error)")
+        }
+
+        // The audit proposed pre-occupying a transfer's source as the way to
+        // make undo throw. It is not: undo routes the source through
+        // `availableURL`, so a file sitting at the original path gets a " 1"
+        // suffix and undo succeeds. Pinned so the next reader doesn't have to
+        // re-derive it — and because never-overwrite has to hold on the way
+        // back too, not just on delivery.
+        write("u2/src/note.md", "ORIGINAL")
+        try! fm.createDirectory(at: base.appendingPathComponent("u2/dst"), withIntermediateDirectories: true)
+        do {
+            let op = try courier.deliver(
+                files: [base.appendingPathComponent("u2/src/note.md")],
+                toVault: base.appendingPathComponent("u2/dst"),
+                sourceVault: base.appendingPathComponent("u2/src"), copy: false
+            )
+            write("u2/src/note.md", "WRITTEN SINCE")   // source path re-occupied
+            try courier.undo(op)
+            check(read("u2/src/note.md") == "WRITTEN SINCE",
+                  "undo never overwrites a re-occupied source path")
+            check(read("u2/src/note 1.md") == "ORIGINAL",
+                  "undo suffixes rather than throwing when the source path is taken")
+        } catch {
+            check(false, "undo with a re-occupied source threw: \(error)")
+        }
+
         // --- attachmentFolderPath variants ---
         for (setting, expected) in [
             (#"{"attachmentFolderPath":""}"#, ""),
@@ -1251,6 +1710,130 @@ struct Check {
             check(resolved.standardizedFileURL == expectedURL.standardizedFileURL,
                   "attachmentFolderPath \(setting) → \(expected.isEmpty ? "vault root" : expected)")
         }
+    }
+
+    // MARK: - Pet window geometry
+
+    /// T9: where the pet lands, and how a saved position is made safe. These
+    /// guard against a window the user cannot reach — the sprite is the only
+    /// mouse route to the menu, so an origin with no screen under it takes
+    /// Reset Position and Quit with it. Pure maths: `PetGeometry` takes screen
+    /// rects rather than `NSScreen` precisely so this can run headless.
+    static func petGeometryChecks() {
+        // .small: scale 4, so a 24×18 grid gives a 96×72 sprite, and the
+        // window adds 24 either side, 8 below, 56 above.
+        let size = PetGeometry.contentSize(for: .small)
+        check(size == NSSize(width: 144, height: 136),
+              "content size is the sprite plus its margins (got \(size))")
+        let sprite = PetGeometry.petRect(
+            inWindowFrame: NSRect(x: 100, y: 200, width: 144, height: 136), scale: 4)
+        check(sprite == NSRect(x: 124, y: 208, width: 96, height: 72),
+              "the sprite sits inset from the window frame (got \(sprite))")
+
+        // One display with a menu bar and a Dock: frame is the whole panel,
+        // visibleFrame is what's left.
+        let main = PetScreen(frame: NSRect(x: 0, y: 0, width: 1000, height: 800),
+                             visibleFrame: NSRect(x: 0, y: 50, width: 1000, height: 720))
+        func validated(_ saved: NSPoint?, screens: [PetScreen] = [main]) -> NSPoint {
+            PetGeometry.validatedOrigin(saved, for: .small, screens: screens,
+                                        mainVisible: main.visibleFrame)
+        }
+
+        let fallback = NSPoint(x: 816, y: 90)   // bottom-right, inset 40
+        check(validated(nil) == fallback,
+              "no saved position → the default corner")
+        check(validated(NSPoint(x: 50_000, y: 50_000)) == fallback,
+              "a saved position with no screen under it → the default corner")
+        check(validated(NSPoint(x: 400, y: 300)) == NSPoint(x: 400, y: 300),
+              "a position wholly on screen is left exactly where it was")
+
+        // The interesting half: partly off-screen is *clamped*, not reset.
+        // Resetting would throw away a position the user chose.
+        check(validated(NSPoint(x: 960, y: 400)) == NSPoint(x: 880, y: 400),
+              "a position hanging off the right edge is pulled back in, not reset")
+        check(validated(NSPoint(x: 400, y: 0)) == NSPoint(x: 400, y: 42),
+              "a sprite under the Dock is lifted clear of it, not reset")
+
+        // Intersection is tested against `frame`, clamping against
+        // `visibleFrame`. A sprite entirely behind the Dock is still on a
+        // display the user can see, so it must be rescued in place.
+        check(validated(NSPoint(x: 400, y: -8)) != fallback,
+              "a sprite entirely within the Dock strip is clamped, not sent to the corner")
+
+        // Two displays: the clamp must use the screen the pet is actually on.
+        let second = PetScreen(frame: NSRect(x: 1000, y: 0, width: 1000, height: 800),
+                               visibleFrame: NSRect(x: 1000, y: 50, width: 1000, height: 720))
+        check(validated(NSPoint(x: 1960, y: 300), screens: [main, second])
+                == NSPoint(x: 1880, y: 300),
+              "a pet on the second display is clamped to that display, not the main one")
+        // M14: the same origin once that display is unplugged.
+        check(validated(NSPoint(x: 1960, y: 300)) == fallback,
+              "unplugging the display the pet was on brings it back to the main one")
+        check(validated(NSPoint(x: 400, y: 300), screens: []) == fallback,
+              "an empty display list still yields a usable origin")
+
+        // Clamping is a no-op once the sprite is inside, so re-running it on
+        // every screen change can't walk the window across the desktop.
+        let once = PetGeometry.clampedOrigin(
+            NSPoint(x: 960, y: 400), for: .small, onVisible: main.visibleFrame)
+        let twice = PetGeometry.clampedOrigin(once, for: .small, onVisible: main.visibleFrame)
+        check(once == twice, "clamping is idempotent (got \(once) then \(twice))")
+    }
+
+    // MARK: - Undo menu rows
+
+    /// U1: the Undo rows name the record they'd reverse, on a second line.
+    /// Pure string work, and it lives beside the records rather than in
+    /// PetWindow (not in this check target) precisely so it can be asserted
+    /// here.
+    static func undoMenuRowChecks() {
+        func delivery(_ names: [String]?) -> CourierOperation {
+            CourierOperation(date: Date(), isCopy: false, transfers: [], rewrites: [],
+                             deliveredNames: names)
+        }
+        func capture(_ notePath: String) -> CaptureRecord {
+            CaptureRecord(date: Date(), vaultPath: "/v", notePath: notePath,
+                          appended: "x", createdFile: false)
+        }
+
+        check(delivery(["recipe.md"]).undoMenuSubtitle == "recipe.md",
+              "one delivered note is named in the row")
+        check(delivery(["a.md", "b.md", "c.md"]).undoMenuSubtitle == "3 notes",
+              "several notes are counted")
+        check(delivery(["a.md", "photo.png"]).undoMenuSubtitle == "2 files",
+              "a mixed drop counts files, not notes")
+        check(delivery(["photo.png"]).undoMenuSubtitle == "photo.png",
+              "a bare attachment drop is named too")
+
+        // Records journaled before deliveredNames existed, and the empty case
+        // deliver() can't produce: both draw a plain row rather than naming
+        // nothing. Note nil here means "unnamed", not "nothing to undo" —
+        // that distinction is UndoRow's, and it's why the row stays enabled.
+        check(delivery(nil).undoMenuSubtitle == nil,
+              "a record from before names were kept draws a plain row")
+        check(delivery([]).undoMenuSubtitle == nil,
+              "an empty name list draws a plain row")
+        let legacy = #"{"date":"2026-07-01T00:00:00Z","isCopy":false,"rewrites":[],"transfers":[]}"#
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let old = try? decoder.decode(CourierOperation.self, from: Data(legacy.utf8))
+        check(old != nil && old?.deliveredNames == nil,
+              "a pre-U1 journal line still decodes (no migration)")
+
+        check(capture("/v/2026-07-25.md").undoMenuSubtitle == "2026-07-25.md",
+              "capture names its target note")
+        check(capture("").undoMenuSubtitle == nil,
+              "a capture with no note path draws a plain row")
+
+        // A note name has no length limit; a menu row does.
+        let long = String(repeating: "n", count: 80) + ".md"
+        let cut = delivery([long]).undoMenuSubtitle
+        check(cut == String(repeating: "n", count: UndoName.budget - 1) + "…",
+              "an over-long name is cut to the budget")
+        check(cut?.count == UndoName.budget, "the cut name is exactly the budget")
+        let exact = String(repeating: "n", count: UndoName.budget)
+        check(delivery([exact]).undoMenuSubtitle == exact,
+              "a name exactly at the budget is left whole")
     }
 
     // MARK: - Obsidian link parsing

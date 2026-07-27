@@ -1,10 +1,13 @@
 import Foundation
 
-enum PluginInputType: String, Codable, Sendable {
+// `CaseIterable` on both is for `make check`, which holds the published guide
+// to these lists. `pdf` and `any` were real cases that appeared nowhere in the
+// docs, so a plugin author had no way to discover them.
+enum PluginInputType: String, Codable, Sendable, CaseIterable {
     case text, url, image, file, pdf, folder, any
 }
 
-enum PluginOutputMode: String, Codable, Sendable {
+enum PluginOutputMode: String, Codable, Sendable, CaseIterable {
     case capture, save, clipboard, notify, structured
 }
 
@@ -33,7 +36,10 @@ struct PluginManifest: Sendable {
 enum ManifestLoadResult: Sendable {
     case ok(PluginManifest)
     case apiTooHigh(name: String, api: Int)
-    case invalid
+    /// Rejected, with a reason to log. A rejected plugin has no menu entry and
+    /// no notice, so without this the author sees nothing at all — the failure
+    /// mode a `command`/`script` typo in the published guide used to produce.
+    case invalid(reason: String)
 }
 
 extension PluginManifest {
@@ -46,32 +52,67 @@ extension PluginManifest {
         let output: String
         let script: String
         let timeout: Double?
+
+        // Spelled out rather than synthesized so the names can be enumerated.
+        // Adding a property without a case here fails to compile, which is what
+        // keeps `manifestFields` honest.
+        enum CodingKeys: String, CodingKey, CaseIterable {
+            case api, name, description, accepts, extensions, output, script, timeout
+        }
+    }
+
+    /// Every field the parser reads, for `make check` to hold the published
+    /// reference table and examples to.
+    ///
+    /// The guide documented `command` where the parser requires `script`, in
+    /// the reference table *and* in both copy-pasteable examples. A manifest
+    /// missing `script` fails to decode, `rescan` swallows the `.invalid`, and
+    /// the plugin simply never appears — no notice, no log line. So the
+    /// documented on-ramp to the whole plugin system was broken with no
+    /// diagnostic anywhere, and it took an audit to notice (M4). Nothing about
+    /// that failure was detectable at runtime; comparing the two lists is.
+    static var manifestFields: Set<String> {
+        Set(Raw.CodingKeys.allCases.map(\.rawValue))
     }
 
     static func load(from directory: URL) -> ManifestLoadResult {
         let manifestURL = directory.appendingPathComponent("manifest.json")
-        guard let data = try? Data(contentsOf: manifestURL),
-              let raw = try? JSONDecoder().decode(Raw.self, from: data)
-        else { return .invalid }
+        guard let data = try? Data(contentsOf: manifestURL) else {
+            return .invalid(reason: "manifest.json is missing or unreadable")
+        }
+        let raw: Raw
+        do {
+            raw = try JSONDecoder().decode(Raw.self, from: data)
+        } catch {
+            // The decoder's message names the offending key, which is the
+            // whole point: a manifest using the wrong field name should say so.
+            return .invalid(reason: "manifest.json did not parse: \(error)")
+        }
 
         if raw.api > maxAPI {
             return .apiTooHigh(name: raw.name, api: raw.api)
         }
 
         guard let outputMode = PluginOutputMode(rawValue: raw.output) else {
-            return .invalid
+            return .invalid(reason: "unknown output mode \"\(raw.output)\"")
         }
 
         let accepts = raw.accepts.compactMap { PluginInputType(rawValue: $0) }
-        guard !accepts.isEmpty else { return .invalid }
+        guard !accepts.isEmpty else {
+            return .invalid(
+                reason: "no recognized input type in accepts \(raw.accepts)")
+        }
 
         let scriptURL = directory.appendingPathComponent(raw.script)
             .standardized
         let dirPrefix = directory.standardized.path + "/"
-        guard scriptURL.path.hasPrefix(dirPrefix),
-              FileManager.default.isExecutableFile(atPath: scriptURL.path)
-        else {
-            return .invalid
+        guard scriptURL.path.hasPrefix(dirPrefix) else {
+            return .invalid(
+                reason: "script \"\(raw.script)\" resolves outside the plugin folder")
+        }
+        guard FileManager.default.isExecutableFile(atPath: scriptURL.path) else {
+            return .invalid(
+                reason: "script \"\(raw.script)\" is missing or not executable (chmod +x)")
         }
 
         let exts = Set((raw.extensions ?? []).map { $0.lowercased() })
@@ -103,4 +144,15 @@ struct PluginEnvelope: Codable, Sendable {
     let folder: String?
     let notify: String?
     let attachments: [PluginAttachment]?
+
+    /// Same reason as `Raw.CodingKeys`: enumerable, and a new field that skips
+    /// this enum won't compile. The envelope docs were wrong about `vault`,
+    /// `filename` and `attachments` at once (M5).
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case action, content, filename, vault, folder, notify, attachments
+    }
+
+    static var envelopeFields: Set<String> {
+        Set(CodingKeys.allCases.map(\.rawValue))
+    }
 }

@@ -9,6 +9,47 @@ struct CaptureRecord: Codable, Equatable {
     let appended: String
     /// The note was created by this capture (undo trashes it if unchanged).
     let createdFile: Bool
+    /// Where this capture's attachments landed, so undo can trash them.
+    /// Nil in records journaled before attachments were tracked, and in
+    /// captures that had none — the decoder treats both the same.
+    var attachmentPaths: [String]?
+}
+
+extension CaptureRecord {
+    /// Second line for the Undo row that reverses this capture — see
+    /// `CourierOperation.undoMenuSubtitle` for why the row names its record.
+    var undoMenuSubtitle: String? {
+        let name = (notePath as NSString).lastPathComponent
+        return name.isEmpty ? nil : UndoName.cut(name)
+    }
+}
+
+/// Splits a plugin's queued attachments by whether the note text refers to
+/// them, so only referenced files are copied into the vault.
+///
+/// The draft is the only place a queued attachment is visible — every shipped
+/// attachment plugin writes a `![[filename]]` link into its content — so the
+/// draft is what the user is actually editing when they decide what this
+/// capture contains. Matching on it means deleting the link removes the file,
+/// and a draft rewritten into something unrelated carries nothing along. A
+/// file no note refers to would land in the vault as an orphan anyway.
+///
+/// Substring rather than link-syntax matching, so `![[a.png]]`, `![](a.png)`
+/// and a bare mention all count.
+func partitionAttachmentsByReference(
+    _ attachments: [PluginAttachment], inText text: String
+) -> (referenced: [PluginAttachment], unreferenced: [PluginAttachment]) {
+    var referenced: [PluginAttachment] = []
+    var unreferenced: [PluginAttachment] = []
+    for att in attachments {
+        // An empty filename would match every draft; treat it as unreferenced.
+        if !att.filename.isEmpty, text.contains(att.filename) {
+            referenced.append(att)
+        } else {
+            unreferenced.append(att)
+        }
+    }
+    return (referenced, unreferenced)
 }
 
 enum CaptureError: LocalizedError {
@@ -45,8 +86,16 @@ struct Capture {
     // the main actor to keep the CLI's blocking waits from freezing the UI.
     private var fm: FileManager { .default }
 
-    init(inboxFileName: String = "Inbox.md", captureFormat: String? = nil, captureFolder: String? = nil) {
-        self.inboxFileName = inboxFileName
+    /// `destination` returns the inbox as its last resort, with nothing left
+    /// to fall back to, so the inbox is kept safe by *construction* rather
+    /// than by a containment check there — sanitizing here means a bare file
+    /// name, which can only ever name a child of the vault root.
+    init(
+        inboxFileName: String = Config.defaultInboxName,
+        captureFormat: String? = nil,
+        captureFolder: String? = nil
+    ) {
+        self.inboxFileName = Config.sanitizedInboxName(inboxFileName)
         self.captureFormat = captureFormat
         self.captureFolder = captureFolder
     }
@@ -84,12 +133,32 @@ struct Capture {
         let appended = Data(record.appended.utf8)
         if record.createdFile, data == appended {
             try fm.trashItem(at: note, resultingItemURL: nil)
+            trashAttachments(of: record)
             return
         }
         guard data.count >= appended.count, data.suffix(appended.count) == appended else {
             throw CaptureError.noteChanged(record.notePath)
         }
         try data.dropLast(appended.count).write(to: note, options: .atomic)
+        trashAttachments(of: record)
+    }
+
+    /// Attachments copied by a capture go to the Trash on undo, never deleted
+    /// — mirroring `Courier.undo`. Called only once the text has been
+    /// reversed, so an undo that refuses leaves the files alone.
+    ///
+    /// A file that won't trash is skipped silently. The note is already
+    /// reversed by this point, so throwing would report the whole undo as
+    /// failed when the part the user asked about succeeded; and this runs off
+    /// the main actor, where `DebugLog.log` isn't reachable. The file simply
+    /// stays put, which is the same outcome as before attachments were
+    /// journaled at all.
+    private func trashAttachments(of record: CaptureRecord) {
+        for path in (record.attachmentPaths ?? []).reversed() {
+            let url = URL(fileURLWithPath: path)
+            guard fm.fileExists(atPath: url.path) else { continue }
+            try? fm.trashItem(at: url, resultingItemURL: nil)
+        }
     }
 
     // MARK: - Direct-FS append
@@ -119,6 +188,12 @@ struct Capture {
     /// vault root. Tries Obsidian's daily-notes plugin first, then Chestnut's
     /// own captureFormat/captureFolder, then the static inbox. Anything
     /// suspicious (escaping the vault, `.obsidian/`) lands on the inbox.
+    ///
+    /// Both daily-note branches are containment-checked because their input is
+    /// a path that can carry folders — Obsidian's `daily-notes.json` or the
+    /// user's `captureFormat`. The inbox is not, and does not need to be:
+    /// `Config.sanitizedInboxName` has already reduced it to a bare file name,
+    /// so it names a child of the vault root structurally.
     func destination(inVault vault: URL, date: Date = Date()) -> URL {
         let inbox = vault.appendingPathComponent(inboxFileName)
         if let relative = Self.dailyNoteRelativePath(vault: vault, date: date) {
