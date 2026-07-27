@@ -106,7 +106,7 @@ final class PetScene: SKScene {
     /// like it should be a chance to drop it further, but the texture swaps
     /// that survive run as fast as 0.2s a frame (chatter) and 0.3s (chew), so a
     /// lower rate would render them as a stutter. Steady-state CPU is unchanged
-    /// at ~2%; this setting buys stillness, not battery.
+    /// at ~3%; this setting buys stillness, not battery.
     func setMotionFrozen(_ frozen: Bool) {
         guard motionFrozen != frozen else { return }
         motionFrozen = frozen

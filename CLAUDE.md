@@ -2,8 +2,10 @@
 
 Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top
 pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity
-and acts as a control surface across vaults. Shipped as v0.1.0 — free app with
-a Ko-fi tip jar, no license mechanism, no paywall, no network calls.
+and acts as a control surface across vaults. Free app funded by GitHub Sponsors,
+no license mechanism, no paywall, no network calls. Current release is `VERSION`
+in the Makefile (0.5.0), shipped as a DMG and a Homebrew cask
+(`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Build & run
 
@@ -83,7 +85,7 @@ Sources/Chestnut/
     Hotkeys.swift         # global hotkey registration (Carbon)
     Journal.swift         # courier/capture operation journal for undo
     ObsidianCLI.swift     # trusted-path CLI lookup (/opt/homebrew, /usr/local)
-    AppInfo.swift         # version, URLs (GitHub releases, Ko-fi, support)
+    AppInfo.swift         # version, URLs (GitHub releases, GitHub Sponsors)
 
 Scripts/                  # code generators (no runtime dependency)
   generate-icon.swift     # sprite -> AppIcon.icns
@@ -107,7 +109,9 @@ Checks/
   drive animation in `PetScene`. Writing state detected via `VaultWatcher`
   FSEvents.
 - **FPS management:** 10fps steady-state, 60fps only during hop/gulp gestures.
-  Idle CPU ~2%.
+  Idle CPU ~3% of one core (measured on 0.5.0 by sampling `ps -o cputime` over
+  a 30s and a 45s idle window: 3.8% and 2.4%; `ps -o %cpu` reports a
+  since-launch average, ~2.5%, and is the wrong number to quote).
 - **Reduce Motion** is honored, and it is the *effect* that is conditional, not
   the frame rate. `PetScene.setMotionFrozen` stops everything that moves or
   scales — breathing (which otherwise runs in every state, forever), the sleep

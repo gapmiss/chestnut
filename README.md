@@ -12,8 +12,8 @@ your writing activity and acts as a control surface across all your vaults. It
 watches the filesystem directly, no Obsidian plugin required, no settings
 modified.
 
-Native Swift and SpriteKit: ~1 MB download, under 2 MB installed, ~2% idle
-CPU. No Electron, no bundled browser, no network calls.
+Native Swift and SpriteKit: ~1.2 MB download, ~2 MB installed, ~3% idle CPU.
+No Electron, no bundled browser, no network calls.
 
 > [!IMPORTANT]
 > 
