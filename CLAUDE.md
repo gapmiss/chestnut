@@ -227,7 +227,8 @@ Checks/
   root only when it's unset) — the envelope's `folder` field moves the note but
   not its attachments. On `capture`, only attachments the submitted note refers
   to by filename are copied; see `partitionAttachmentsByReference`. Scripts are
-  exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
+  exec'd directly (shebang), configurable timeout (default 10s, clamped to
+  1–300). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an

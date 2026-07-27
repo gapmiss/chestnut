@@ -75,6 +75,18 @@ extension PluginManifest {
         Set(Raw.CodingKeys.allCases.map(\.rawValue))
     }
 
+    /// Manifest timeouts are clamped rather than trusted, like everything
+    /// else read from disk: 0 (or negative) schedules the SIGTERM at launch,
+    /// so the plugin dies instantly and every run reports "timed out"; a huge
+    /// value keeps the pet chewing on a hung plugin effectively forever.
+    static let timeoutRange: ClosedRange<TimeInterval> = 1...300
+    static let defaultTimeout: TimeInterval = 10
+
+    static func clampedTimeout(_ raw: Double?) -> TimeInterval {
+        guard let raw else { return defaultTimeout }
+        return raw.clamped(to: timeoutRange)
+    }
+
     static func load(from directory: URL) -> ManifestLoadResult {
         let manifestURL = directory.appendingPathComponent("manifest.json")
         guard let data = try? Data(contentsOf: manifestURL) else {
@@ -117,6 +129,13 @@ extension PluginManifest {
 
         let exts = Set((raw.extensions ?? []).map { $0.lowercased() })
 
+        let timeout = clampedTimeout(raw.timeout)
+        if let rawTimeout = raw.timeout, rawTimeout != timeout {
+            NSLog("Plugin \"%@\": timeout %g is outside %g–%g, using %g",
+                  raw.name, rawTimeout,
+                  timeoutRange.lowerBound, timeoutRange.upperBound, timeout)
+        }
+
         return .ok(PluginManifest(
             api: raw.api,
             name: raw.name,
@@ -125,7 +144,7 @@ extension PluginManifest {
             extensions: exts,
             output: outputMode,
             script: raw.script,
-            timeout: raw.timeout ?? 10,
+            timeout: timeout,
             scriptURL: scriptURL
         ))
     }

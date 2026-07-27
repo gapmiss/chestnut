@@ -66,7 +66,7 @@ output.
 | `accepts` | yes | Array of input types this plugin handles. |
 | `output` | yes | How Chestnut interprets stdout (see Output modes). |
 | `script` | yes | Filename of the executable, relative to the plugin directory. |
-| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`. |
+| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`, clamped to 1–300. |
 
 ### Input types
 
@@ -99,7 +99,8 @@ one recognized type is required.
   For `structured` mode, truncation breaks the JSON; the error message will
   note that stdout was truncated.
 - **Timeout** defaults to 10 seconds (configurable via `timeout` in the
-  manifest). On timeout the plugin and any child processes are terminated
+  manifest, clamped to 1–300; a value outside that range is logged and
+  adjusted). On timeout the plugin and any child processes are terminated
   (SIGTERM, then SIGKILL after 1 s).
 
 ## Environment variables

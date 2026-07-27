@@ -957,6 +957,33 @@ struct Check {
             check(false, "no-timeout manifest should load")
         }
 
+        // Timeout clamping: 0 would SIGTERM the script at launch; a huge
+        // value would let a hung plugin chew forever.
+        let zeroTimeoutDir = writePlugin("zero-timeout", manifest: """
+        {"api":1,"name":"zero-timeout","accepts":["text"],"output":"notify","script":"run.sh","timeout":0}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: zeroTimeoutDir) {
+            check(m.timeout == PluginManifest.timeoutRange.lowerBound,
+                  "timeout 0 clamped to floor")
+        } else {
+            check(false, "zero-timeout manifest should load")
+        }
+        let hugeTimeoutDir = writePlugin("huge-timeout", manifest: """
+        {"api":1,"name":"huge-timeout","accepts":["text"],"output":"notify","script":"run.sh","timeout":1e9}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: hugeTimeoutDir) {
+            check(m.timeout == PluginManifest.timeoutRange.upperBound,
+                  "timeout 1e9 clamped to ceiling")
+        } else {
+            check(false, "huge-timeout manifest should load")
+        }
+        check(PluginManifest.clampedTimeout(nil) == PluginManifest.defaultTimeout,
+              "clampedTimeout(nil) is the default")
+        check(PluginManifest.clampedTimeout(-5) == PluginManifest.timeoutRange.lowerBound,
+              "negative timeout clamped to floor")
+        check(PluginManifest.clampedTimeout(30) == 30,
+              "in-range timeout untouched")
+
         // Envelope parsing with missing optional fields.
         let envelopeJSON = #"{"action":"save","content":"hello"}"#
         if let data = envelopeJSON.data(using: .utf8),
@@ -1289,6 +1316,35 @@ struct Check {
             check(raw.stdout.count >= 128 * 1024, "runner: large stdout fully drained (\(raw.stdout.count) bytes)")
         } catch {
             check(false, "runner: large stdout should not throw (\(error))")
+        }
+
+        // A script that backgrounds a child (inheriting the stdout pipe) and
+        // exits must still resolve promptly: EOF never arrives while the
+        // child lives, so the grace path returns with what's buffered.
+        let bg = writeScript("bg", "echo 'front'\nsleep 5 &\nexit 0")
+        do {
+            let started = Date()
+            let raw = try await PluginRunner.run(manifest: bg, pluginDir: base.appendingPathComponent("bg"), input: input)
+            let elapsed = Date().timeIntervalSince(started)
+            check(raw.exitCode == 0, "runner: backgrounded child exits 0")
+            check(raw.stdout.contains("front"), "runner: backgrounded child stdout captured")
+            check(elapsed < 2.5, "runner: backgrounded child resolves promptly (\(elapsed)s)")
+        } catch {
+            check(false, "runner: backgrounded child should not throw (\(error))")
+        }
+
+        // A plugin that never reads stdin, fed more than the ~64 KB pipe
+        // buffer: the write fails with EPIPE, which must not crash or hang.
+        let deaf = writeScript("deaf", "exit 0")
+        let bigInput = PluginRunner.Input(
+            type: .text, text: String(repeating: "x", count: 200_000),
+            filePath: nil, sourceApp: nil
+        )
+        do {
+            let raw = try await PluginRunner.run(manifest: deaf, pluginDir: base.appendingPathComponent("deaf"), input: bigInput)
+            check(raw.exitCode == 0, "runner: unread 200 KB stdin survives (exit 0)")
+        } catch {
+            check(false, "runner: unread stdin should not throw (\(error))")
         }
     }
 
