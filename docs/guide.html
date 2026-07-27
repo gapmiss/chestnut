@@ -51,7 +51,7 @@
       <a href="https://github.com/gapmiss/chestnut/releases/latest/download/Chestnut.dmg">Chestnut.dmg</a>,
       open it, and drag Chestnut into Applications. Or use Homebrew:
     </p>
-    <pre><code class="language-bash">brew install --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
+    <pre><code class="language-bash">brew install --cask gapmiss/tap/chestnut</code></pre>
 
     <h3>First launch (Gatekeeper)</h3>
     <p>
@@ -359,8 +359,8 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </p>
     <p>
       <code>state.json</code> is Chestnut's: window position, size, opacity,
-      theme, notice duration, pinned vault, disabled plugins, last capture
-      vault. Everything
+      theme, notice duration, reduce motion, pinned vault, disabled plugins,
+      last capture vault. Everything
       in it has a control in the right-click menu, so there's no reason to
       edit it by hand. Chestnut rewrites it every time you move the window.
     </p>
@@ -491,12 +491,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Notice duration</h3>
     <p>
       How long the speech bubble stays visible. Set it from the right-click
-      menu → Settings → Notice Bubble, anywhere from 1 to 30 seconds. The slider
-      prints the value as you drag, and the next bubble uses it: no relaunch.
+      menu → Settings → Notice Bubble, which lists 3, 5, 10, 20 and 30 seconds
+      with the current one checked. The next bubble uses it: no relaunch.
       It's stored in <code>state.json</code>.
     </p>
     <pre><code class="language-json">{
-  "noticeDuration": 8
+  "noticeDuration": 10
 }</code></pre>
 
     <h3>Disabled plugins</h3>
@@ -539,6 +539,11 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
             <td>Notice action</td>
             <td>Follow through on the active speech bubble (e.g. open the note in Obsidian). Only registered while a bubble is visible.</td>
           </tr>
+          <tr>
+            <td><span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>M</kbd></span></td>
+            <td>Right-click menu</td>
+            <td>Opens the menu at Chestnut, with arrow keys and <kbd>&#x23CE;</kbd>. The only route to Size, Theme, Settings, Plugins, Undo and Quit that doesn't need a mouse.</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -559,13 +564,14 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
         <tbody>
           <tr><td>Vaults&hellip;</td><td>Opens the Vault Hopper palette.</td></tr>
           <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
-          <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy).</td></tr>
-          <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append.</td></tr>
+          <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy). A second line names what it would take back (<code>recipe.md</code>, <code>3 notes</code>); on macOS 14.0&ndash;14.3, which has no second line, the row is unnamed.</td></tr>
+          <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append, and trashes any attachments it saved. Named the same way.</td></tr>
           <tr><td><strong>Size &rarr;</strong></td><td>Small, Medium (default), or Large sprite.</td></tr>
           <tr><td><strong>Theme &rarr;</strong></td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
           <tr><td><strong>Settings &rarr;</strong></td><td>Everything you set once, one level down.</td></tr>
-          <tr><td>Settings &rarr; Opacity</td><td>Slider from 10% to 100%.</td></tr>
-          <tr><td>Settings &rarr; Notice Bubble</td><td>Slider from 1 to 30 seconds, with a live readout. Applies to the next speech bubble.</td></tr>
+          <tr><td>Settings &rarr; Opacity</td><td>100%, 80%, 60%, 40% or 20%, with the current one checked.</td></tr>
+          <tr><td>Settings &rarr; Notice Bubble</td><td>3, 5, 10, 20 or 30 seconds. Applies to the next speech bubble.</td></tr>
+          <tr><td>Settings &rarr; Reduce Motion</td><td>Stops everything that moves: breathing, the sleep z's, the click hop, the delivery squash. Chestnut keeps blinking and chattering, so you can still read its state. Checked and greyed out while System&nbsp;Settings &rarr; Accessibility &rarr; Display &rarr; Reduce&nbsp;Motion is on.</td></tr>
           <tr><td>Settings &rarr; Copy on Drop</td><td>Toggle default behavior: copy files instead of moving them.</td></tr>
           <tr><td>Settings &rarr; Show in Full Screen</td><td>Keep the pet visible over full-screen apps.</td></tr>
           <tr><td>Settings &rarr; Launch at Login</td><td>Toggle auto-start at login (uses SMAppService).</td></tr>
@@ -589,15 +595,12 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     <h3>Gatekeeper blocks the app</h3>
     <p>
       See <a href="#getting-started">Getting started</a>. The quickest fix is
-      the <code>xattr</code> command. Homebrew's <code>--no-quarantine</code>
-      flag avoids it on install.
+      the <code>xattr</code> command.
     </p>
     <p>
-      <code>brew upgrade</code> does not carry that flag forward, so a blocked
-      launch can come back after upgrading. Run the <code>xattr</code> command
-      again, or upgrade by reinstalling:
+      A blocked launch comes back after <code>brew upgrade</code>, since the
+      new copy is quarantined too. Run the <code>xattr</code> command again.
     </p>
-    <pre><code class="language-bash">brew reinstall --cask --no-quarantine gapmiss/tap/chestnut</code></pre>
 
     <h3>Hotkeys don't work</h3>
     <p>
@@ -606,6 +609,24 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       listed but greyed out, remove it and re-add it (toggle the switch
       off then on). A restart of the app may be needed after granting
       the permission.
+    </p>
+
+    <h3>An undo says it failed</h3>
+    <p>
+      Undo refuses when the file it needs is no longer where it was left, most
+      often because the note was renamed, moved or edited in Obsidian since.
+      The alert offers <strong>Keep</strong> and <strong>Discard Entry</strong>.
+      Keep leaves the record in place, which means it comes up again on the
+      next click and nothing older can be reached until it's dealt with.
+      Discard Entry drops the record and touches no files: use it once you've
+      decided you don't need that one reversed.
+    </p>
+    <p>
+      A delivery of several notes can also come back partly done. Undo tries
+      every file rather than stopping at the first failure, so the ones it
+      could reach are home and the alert names the ones that stayed put. That
+      record is spent; a second try can only re-fail on the files already
+      returned.
     </p>
 
     <h3>obsidian CLI not found</h3>
