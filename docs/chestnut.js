@@ -423,6 +423,10 @@ window.addEventListener("keydown", (ev) => {
       if (!pet.gesture) pet.gesture = { type: "hop", start: performance.now() / 1000 };
     }
   }
+  if (ev.ctrlKey && ev.altKey && ev.code === "KeyM") {
+    ev.preventDefault();
+    toggleMenuAtPet();
+  }
   if (ev.key === "Escape") closePanels();
 });
 
@@ -865,9 +869,14 @@ const HEART_SVG =
 // `badge: true` renders the opens-in-browser arrow; a string renders as-is, so
 // Check for Updates… can carry the version too (the app's NSMenuItem allows
 // only one badge, hence the combined string).
-function menuItem({ label, check, hint, badge, icon, disabled, submenu, action }) {
+// `hint` is the shortcut printed at the row's trailing edge. `tooltip` is the
+// app's NSMenuItem.toolTip, which shows on hover and never on the row, and
+// `subtitle` its NSMenuItem.subtitle, which draws on a second line — passing
+// either as a hint prints it across the row, which the app never does.
+function menuItem({ label, check, hint, tooltip, subtitle, badge, icon, disabled, submenu, action }) {
   const item = document.createElement("div");
   item.className = "menu-item" + (disabled ? " disabled" : "");
+  if (tooltip) item.title = tooltip;
   let html = `<span class="menu-check">${check ? "✓" : ""}</span>`;
   if (icon) html += `<span class="menu-icon">${icon}</span>`;
   html += `<span class="menu-label"></span>`;
@@ -877,6 +886,12 @@ function menuItem({ label, check, hint, badge, icon, disabled, submenu, action }
   item.innerHTML = html;
   if (check !== undefined) item.classList.add("checkable");
   item.querySelector(".menu-label").textContent = label;
+  if (subtitle) {
+    const line = document.createElement("span");
+    line.className = "menu-desc";
+    line.textContent = subtitle;
+    item.querySelector(".menu-label").appendChild(line);
+  }
   if (badge) {
     item.querySelector(".menu-badge").textContent = badge === true ? "↗" : badge;
   }
@@ -914,31 +929,6 @@ function applyCheckColumn(menu) {
   const checkable = Array.from(menu.children)
     .some((c) => c.classList.contains("checkable"));
   menu.classList.toggle("has-checks", checkable);
-}
-
-// One row shape for both sliders, like the app's: label, slider, value readout.
-// Fixed label and readout widths keep the two rows aligned with each other.
-function sliderRow({ label, hint, min, max, value, format, onInput }) {
-  const row = document.createElement("div");
-  row.className = "menu-slider";
-  row.innerHTML =
-    '<span class="menu-slider-label"></span>' +
-    `<input type="range" min="${min}" max="${max}">` +
-    '<span class="menu-readout"></span>';
-  const input = row.querySelector("input");
-  const readout = row.querySelector(".menu-readout");
-  row.querySelector(".menu-slider-label").textContent = label;
-  row.title = hint; // the app puts the same hint in the row's tooltip
-  input.setAttribute("aria-label", label);
-  input.value = String(value);
-  readout.textContent = format(Number(input.value));
-  input.addEventListener("input", () => {
-    const n = Number(input.value);
-    readout.textContent = format(n);
-    onInput(n);
-  });
-  row.addEventListener("click", (ev) => ev.stopPropagation());
-  return row;
 }
 
 function renderMenu() {
@@ -1008,7 +998,7 @@ function renderMenu() {
   const settingsSub = submenuOf([
     menuItem({
       label: "Opacity",
-      hint: "How solid Chestnut looks",
+      tooltip: "How solid Chestnut looks",
       badge: Math.round(menuState.opacity * 100) + "%",
       submenu: submenuOf(OPACITY_PRESETS.map((p) => menuItem({
         label: Math.round(p * 100) + "%",
@@ -1022,7 +1012,7 @@ function renderMenu() {
     }),
     menuItem({
       label: "Notice Bubble",
-      hint: "How long a notice bubble stays on screen",
+      tooltip: "How long a notice bubble stays on screen",
       badge: menuState.noticeDuration + "s",
       submenu: submenuOf(NOTICE_PRESETS.map((p) => menuItem({
         label: p + "s",
@@ -1038,7 +1028,7 @@ function renderMenu() {
       label: "Reduce Motion",
       check: motionFrozen(),
       disabled: systemReduceMotion(),
-      hint: systemReduceMotion() ? "Set in System Settings" : undefined,
+      subtitle: systemReduceMotion() ? "Set in System Settings" : undefined,
       action() {
         if (systemReduceMotion()) return;
         menuState.reduceMotion = !menuState.reduceMotion;
@@ -1167,13 +1157,17 @@ canvas.addEventListener("contextmenu", (ev) => {
   openMenuAt(ev.clientX - rect.left, ev.clientY - rect.top);
 });
 
-chipMenu.addEventListener("click", () => {
+// Opens the menu at the pet rather than at the pointer, which is where the
+// app's ⌃⌥M puts it. The chip and the hotkey share it.
+function toggleMenuAtPet() {
   if (!menuEl.hidden) { closeMenu(); return; }
   openMenuAt(
     stageEl.clientWidth / 2 + 40,
     stageEl.clientHeight - BASELINE - S.gridHeight * SCALE - 10
   );
-});
+}
+
+chipMenu.addEventListener("click", toggleMenuAtPet);
 
 document.addEventListener("pointerdown", (ev) => {
   if (menuEl.hidden) return;
