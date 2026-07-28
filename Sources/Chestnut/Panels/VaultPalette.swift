@@ -72,10 +72,14 @@ struct VaultPaletteView: View {
 
             Divider()
 
+            // The panel is a fixed size once open (`PetPanel.host`), so the
+            // empty state has to occupy the space the list would have. Left to
+            // hug its text it floats centred in a transparent window, which
+            // reads as the panel jumping away from the pet.
             if model.filtered.isEmpty {
                 Text("No matching vault")
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -103,15 +107,18 @@ struct VaultPaletteView: View {
                         }
                     }
                 }
-
-                Text(onOpenDaily == nil
-                     ? "⏎ open    ⌥⏎ reveal in Finder    ⌘P pin"
-                     : "⏎ open    ⌘⏎ today's note    ⌥⏎ reveal    ⌘P pin")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .padding(.bottom, 6)
             }
+
+            // Outside the branch: the key hints are as true with no matches as
+            // with some, and a footer that comes and goes changes the layout's
+            // shape under a fixed-size panel.
+            Text(onOpenDaily == nil
+                 ? "⏎ open    ⌥⏎ reveal in Finder    ⌘P pin"
+                 : "⏎ open    ⌘⏎ today's note    ⌥⏎ reveal    ⌘P pin")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .padding(.bottom, 6)
         }
         .frame(width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -240,10 +247,7 @@ final class VaultPalettePanel: PetPanel {
             onTogglePin: { [weak self] vault in self?.togglePin(vault) },
             onDismiss: { [weak self] in self?.dismiss() }
         )
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame.size = hosting.fittingSize
-        contentView = hosting
-        setContentSize(hosting.fittingSize)
+        host(view)
 
         // The shared monitor handles ↑/↓/⏎; `extra` adds this palette's
         // chords: ⌘P pins, ⌥⏎ reveals in Finder (also on the rows'

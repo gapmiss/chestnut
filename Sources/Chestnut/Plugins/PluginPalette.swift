@@ -56,10 +56,11 @@ struct PluginPaletteView: View {
 
             Divider()
 
+            // Fills the list's space on purpose — see VaultPaletteView.
             if model.filtered.isEmpty {
                 Text("No matching plugin")
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -92,13 +93,13 @@ struct PluginPaletteView: View {
                         }
                     }
                 }
-
-                Text("\u{23CE} run    esc cancel")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .padding(.bottom, 6)
             }
+
+            Text("\u{23CE} run    esc cancel")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .padding(.bottom, 6)
         }
         .frame(width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -165,10 +166,7 @@ final class PluginPalettePanel: PetPanel {
             },
             onDismiss: { [weak self] in self?.dismiss() }
         )
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame.size = hosting.fittingSize
-        contentView = hosting
-        setContentSize(hosting.fittingSize)
+        host(view)
 
         installPaletteKeyMonitor(
             moveSelection: { [model] in model.moveSelection(by: $0) },

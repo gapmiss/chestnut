@@ -474,7 +474,12 @@ function openPalette(mode, drop) {
   hopperEl.hidden = false;
   pet.openWide = true;
   syncChips();
+  hopperList.style.minHeight = "";
   renderHopper();
+  // Mirrors PetPanel.host: the panel is measured once, when it opens, and
+  // holds that height for the rest of its life. Filtering to nothing must
+  // not shrink it out from under the pet.
+  hopperList.style.minHeight = `${hopperList.offsetHeight}px`;
   hopperFilter.focus();
 }
 

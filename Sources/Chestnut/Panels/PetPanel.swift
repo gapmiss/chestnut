@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 /// Shared chrome for the small panels that pop up beside the pet (Vault
 /// Hopper, courier destination picker, capture bubble): borderless, floating,
@@ -49,6 +50,27 @@ class PetPanel: NSPanel {
         default:
             return false
         }
+    }
+
+    /// Host `view` at its fitting size and pin the panel to that size for
+    /// good. A filtering palette's content shrinks as the query narrows and
+    /// collapses hardest when nothing matches — the list and its footer are
+    /// replaced by one line of text. An `NSHostingView` left to drive the
+    /// window pushes that collapsed measurement into the window's content
+    /// min/max size, AppKit clamps the panel down to it, and backspacing
+    /// grows the *content* back but never the window: the full list returns
+    /// into a slot two rows too short, scrollbar and all. Sizing is a
+    /// one-time decision here, so SwiftUI must not keep voting on it.
+    /// Order matters: a hosting view with no sizing options stops reporting a
+    /// fitting size at all — it answers 0×0, and the panel opens invisible.
+    /// Measure while it still will, then take the vote away.
+    func host(_ view: some View) {
+        let hosting = NSHostingView(rootView: view)
+        let size = hosting.fittingSize
+        hosting.sizingOptions = []
+        hosting.frame.size = size
+        contentView = hosting
+        setContentSize(size)
     }
 
     /// Anchor above the pet window, clamped to the screen.

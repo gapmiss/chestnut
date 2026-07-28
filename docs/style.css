@@ -349,10 +349,15 @@ pre:hover .copy-btn { opacity: 1; }
 .pin-btn.pinned { visibility: visible; color: var(--accent-bright); }
 .pin-btn svg { width: 13px; height: 13px; }
 
+/* Fills the list's space rather than hugging its text, so the panel keeps the
+   height it opened at (the app does the same in VaultPaletteView). */
 .no-match {
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 40px;
   color: var(--text-secondary);
-  padding: 12px 0;
 }
 
 /* Quick Capture */

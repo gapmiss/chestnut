@@ -83,6 +83,11 @@ output.
 Unknown type names in `accepts` are silently ignored (forward-compat). At least
 one recognized type is required.
 
+A *pasted* image (as opposed to a dropped file) is written to a temp file first,
+and `CHESTNUT_FILE_PATH` points at that. A screenshot pasteboard carries both
+PNG and TIFF; Chestnut writes the PNG, since Obsidian renders no TIFF. The
+extension always describes the actual bytes, so trust the path's suffix.
+
 Plugins receive single-item drops only: dropping several files (or folders) at
 once is a courier delivery, all of it. Drop an item on its own to route it to
 a plugin.

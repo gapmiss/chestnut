@@ -1402,6 +1402,23 @@ struct Check {
 
         check(PluginInputType(rawValue: "folder") == .folder, "folder raw value round-trips")
 
+        // A screenshot pasteboard carries PNG *and* TIFF, so the choice of
+        // bytes and the choice of name must come from one decision: naming
+        // TIFF bytes `.png` embeds as a blank image in Obsidian.
+        let pngBytes = Data([0x89, 0x50, 0x4E, 0x47])
+        let tiffBytes = Data([0x4D, 0x4D, 0x00, 0x2A])
+        var payload = PluginDispatch.imagePayload(png: pngBytes, tiff: tiffBytes)
+        check(payload?.ext == "png", "pasteboard image: PNG preferred over TIFF")
+        check(payload?.data == pngBytes, "pasteboard image: bytes match .png name")
+        payload = PluginDispatch.imagePayload(png: nil, tiff: tiffBytes)
+        check(payload?.ext == "tiff", "pasteboard image: TIFF-only names itself .tiff")
+        check(payload?.data == tiffBytes, "pasteboard image: bytes match .tiff name")
+        payload = PluginDispatch.imagePayload(png: pngBytes, tiff: nil)
+        check(payload?.ext == "png", "pasteboard image: PNG-only stays .png")
+        check(payload?.data == pngBytes, "pasteboard image: PNG-only bytes carried")
+        check(PluginDispatch.imagePayload(png: nil, tiff: nil) == nil,
+              "pasteboard image: no image data → nil")
+
         let fm = FileManager.default
         let tmpDir = URL(fileURLWithPath:
             NSTemporaryDirectory() + "chestnut-check-folder-\(ProcessInfo.processInfo.processIdentifier)")

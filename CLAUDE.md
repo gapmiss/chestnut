@@ -199,6 +199,22 @@ Checks/
   from the same `HotkeySpec` parse that backs Carbon registration
   (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
   hotkey backs.
+- **Palettes are sized once, when they open** (`PetPanel.host`, used by both
+  filtering palettes). An `NSHostingView` left to drive its window writes the
+  *current* content's measurement into the window's content min/max size, and
+  a filter that matches nothing collapses that content hardest — the list and
+  its footer are replaced by one line of text. AppKit clamps the panel down to
+  it and backspacing grows the content back but never the window, so the full
+  list returns into a slot two rows too short. `host` measures, then sets
+  `sizingOptions = []` to take SwiftUI's vote away. **Order is load-bearing:**
+  a hosting view with no sizing options answers `fittingSize` of 0×0, so
+  measuring after clearing opens the panel invisible. Because the panel no
+  longer shrinks, an empty state must *fill* the list's space
+  (`.frame(maxHeight: .infinity)`) or it floats centred in a transparent
+  window, which reads as the panel jumping away from the pet; for the same
+  reason the key-hint footer stays outside the empty/non-empty branch. The
+  website mirrors this by pinning `min-height` on open (`docs/chestnut.js`,
+  `openPalette`).
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
@@ -239,7 +255,14 @@ Checks/
   `attachmentFolderPath` from `.obsidian/app.json`, falling back to the vault
   root only when it's unset) — the envelope's `folder` field moves the note but
   not its attachments. On `capture`, only attachments the submitted note refers
-  to by filename are copied; see `partitionAttachmentsByReference`. Scripts are
+  to by filename are copied; see `partitionAttachmentsByReference`. A *pasted*
+  image is written to a temp file that `CHESTNUT_FILE_PATH` points at, and
+  `PluginDispatch.imagePayload` picks **PNG over TIFF**: an ordinary screenshot
+  puts both on the pasteboard, TIFF is several times larger, and Obsidian
+  renders no TIFF at all, so a TIFF attachment embeds as a blank. The extension
+  comes from the same decision as the bytes — reading them from two separate
+  pasteboard queries once wrote TIFF into a `.png`, which embeds broken *and*
+  hides why. Scripts are
   exec'd directly (shebang), configurable timeout (default 10s, clamped to
   1–300). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
