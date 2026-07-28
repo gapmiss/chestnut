@@ -764,17 +764,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             let attDir = Courier().attachmentFolder(of: vaultURL)
             let noteURL = dir.appendingPathComponent(filename)
-            let allURLs = [noteURL] + attachments.map {
+            // Every path this function creates or writes gets checked, not
+            // just the files. `dir` comes straight from the envelope's
+            // `folder`, and checking only `noteURL` left a gap: an escaping
+            // `folder` paired with a `filename` that walked back in cancelled
+            // out, so the note landed correctly inside the vault while
+            // createDirectory made the escaped folder anyway.
+            let dirs = attachments.isEmpty ? [dir] : [dir, attDir]
+            let files = [noteURL] + attachments.map {
                 attDir.appendingPathComponent($0.filename)
             }
-            for url in allURLs {
-                guard Courier.isContained(url, inVault: vault.path) else {
-                    presentAlert(
-                        "Plugin save failed",
-                        "Target path would escape the vault root or write inside .obsidian/."
-                    )
-                    return
-                }
+            let escapes = dirs.contains {
+                !Courier.isContainedDirectory($0, inVault: vault.path)
+            } || files.contains {
+                !Courier.isContained($0, inVault: vault.path)
+            }
+            if escapes {
+                presentAlert(
+                    "Plugin save failed",
+                    "Target path would escape the vault root or write inside .obsidian/."
+                )
+                return
             }
             do {
                 try FileManager.default.createDirectory(

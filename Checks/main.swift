@@ -1526,6 +1526,35 @@ struct Check {
         check(!Courier.isContained(base.appendingPathComponent("src"), inVault: vaultPath),
               "isContained: vault root itself → false")
 
+        // isContainedDirectory differs from isContained on exactly one case,
+        // and that difference is load-bearing: a plugin save with no `folder`
+        // targets the vault root, as does attachmentFolder(of:) when
+        // attachmentFolderPath is unset. Collapsing the two functions — the
+        // obvious "simplification" — refuses every ordinary plugin save. It
+        // exists because checking only the note path let an escaping `folder`
+        // pair with a filename that walked back in: the note landed inside the
+        // vault while createDirectory made the escaped folder anyway.
+        check(Courier.isContainedDirectory(base.appendingPathComponent("src"), inVault: vaultPath),
+              "isContainedDirectory: vault root itself → true (unlike isContained)")
+        check(Courier.isContainedDirectory(base.appendingPathComponent("src/Notes/Daily"), inVault: vaultPath),
+              "isContainedDirectory: nested child → true")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/../out"), inVault: vaultPath),
+              "isContainedDirectory: ../ escape → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/Notes/../../etc"), inVault: vaultPath),
+              "isContainedDirectory: traversal out via a nested folder → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/.obsidian"), inVault: vaultPath),
+              "isContainedDirectory: .obsidian component → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("srcEvil"), inVault: vaultPath),
+              "isContainedDirectory: sibling sharing a prefix → false")
+        // The L1 pair, spelled out: each half looks innocent to the check the
+        // other half is subject to.
+        let escFolder = base.appendingPathComponent("src").appendingPathComponent("../../tmp/cn-escape")
+        let escNote = escFolder.appendingPathComponent("../../\(base.lastPathComponent)/src/note.md")
+        check(Courier.isContained(escNote, inVault: vaultPath),
+              "L1 pair: the note path alone still passes containment")
+        check(!Courier.isContainedDirectory(escFolder, inVault: vaultPath),
+              "L1 pair: the escaping folder is refused, closing the gap")
+
         // --- T2: availableURL is the never-overwrite invariant ---
         // Two callers now: deliverNote picks a free destination, and undo picks
         // a free *source* to come home to (pinned separately below). Every

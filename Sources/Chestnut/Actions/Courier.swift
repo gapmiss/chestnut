@@ -500,4 +500,19 @@ struct Courier {
         return fileStd.path.hasPrefix(vaultStd.path + "/")
             && !fileStd.pathComponents.contains(".obsidian")
     }
+
+    /// Directory variant of `isContained`, which the vault root itself fails:
+    /// the prefix test needs a trailing `/`, and no *file* is ever written at
+    /// the root path itself, so rejecting it there is correct. A *directory*
+    /// argument is different — the root is where a plugin save with no
+    /// `folder` lands, and where `attachmentFolder(of:)` falls back when
+    /// `attachmentFolderPath` is unset. Both are ordinary, so a caller
+    /// checking directories must accept the root or refuse every normal save.
+    static func isContainedDirectory(_ url: URL, inVault vaultPath: String) -> Bool {
+        let vaultStd = URL(fileURLWithPath: vaultPath).standardizedFileURL
+        let dirStd = url.standardizedFileURL
+        guard !dirStd.pathComponents.contains(".obsidian") else { return false }
+        return dirStd.path == vaultStd.path
+            || dirStd.path.hasPrefix(vaultStd.path + "/")
+    }
 }
