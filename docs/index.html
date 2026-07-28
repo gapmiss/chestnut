@@ -141,8 +141,9 @@
           Drop a note onto Chestnut to move or copy it into another vault.
           Attachments travel with it, name conflicts get Obsidian-style suffixes,
           nothing is ever overwritten, and every delivery is journaled for undo.
-          Non-markdown files and folders route to a matching plugin when one
-          exists; <code>.md</code> drops always go to the courier.
+          A single non-markdown file or folder routes to a matching plugin when
+          one exists; <code>.md</code> drops, and drops of several items at
+          once, always go to the courier.
         </p>
       </div>
       <div class="card">
@@ -182,7 +183,7 @@
           environment variables and stdin; output goes to stdout.
         </p>
         <p>
-          When you drop a non-markdown file onto Chestnut or press
+          When you drop a single non-markdown file onto Chestnut or press
           <span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>C</kbd></span>
           to paste, Chestnut classifies the content and routes it to a matching
           plugin. If several plugins match, a picker lets you choose. Markdown

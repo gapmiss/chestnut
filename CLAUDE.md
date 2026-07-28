@@ -4,7 +4,7 @@ Native macOS desktop companion for Obsidian users (one vault or many). An always
 pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity
 and acts as a control surface across vaults. Free app funded by GitHub Sponsors,
 no license mechanism, no paywall, no network calls. Current release is `VERSION`
-in the Makefile (0.5.0), shipped as a DMG and a Homebrew cask
+in the Makefile (0.6.0), shipped as a DMG and a Homebrew cask
 (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Build & run
