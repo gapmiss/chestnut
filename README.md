@@ -56,18 +56,19 @@ brew install --cask gapmiss/tap/chestnut
 Download [`Chestnut.dmg`](https://github.com/gapmiss/chestnut/releases/latest/download/Chestnut.dmg) from the [latest release](https://github.com/gapmiss/chestnut/releases/latest), open it, and drag
 Chestnut.app into Applications.
 
-Chestnut is ad-hoc signed (not notarized), so macOS will block the first
+Chestnut is ad-hoc signed (not notarized), so macOS may block the first
 launch. To allow it:
 
-- Right-click the app, then Open, then click Open in the dialog, or
+- **macOS 15+:** System Settings → Privacy & Security, then Open Anyway, or
+- **macOS 14:** right-click the app, then Open, then click Open in the dialog, or
 - Remove the quarantine flag:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Chestnut.app
 ```
 
-A blocked launch comes back after `brew upgrade`, since the new copy is
-quarantined too. Run the `xattr` command above again.
+Whether a later `brew upgrade` asks again varies by macOS version. If it
+does, the same fix applies.
 
 To start automatically, right-click the pet and toggle Settings → Launch at Login.
 
