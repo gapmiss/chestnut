@@ -1819,6 +1819,59 @@ struct Check {
                   "rollback clears the partial delivery from the destination")
         }
 
+        // --- An undecodable note is refused, not half-delivered ---
+        // deliverNote used to coerce the read failure to "", which resolves no
+        // references: the note moved alone, its attachments stayed behind, no
+        // rewrite was journaled, and the operation reported success. Reachable
+        // without any exotic encoding — a dataless iCloud placeholder fails the
+        // read the same way. The contract is refusal, so the rollback path
+        // leaves the source vault as it was.
+        let badVault = base.appendingPathComponent("u/src")
+        try! fm.createDirectory(at: badVault, withIntermediateDirectories: true)
+        try! fm.createDirectory(at: base.appendingPathComponent("u/dst"),
+                                withIntermediateDirectories: true)
+        var undecodable = Data("![[pic.png]]\n".utf8)
+        undecodable.append(contentsOf: [0xFF, 0xFE, 0x21])
+        try! undecodable.write(to: badVault.appendingPathComponent("broken.md"))
+        write("u/src/pic.png", "PNGDATA")
+        do {
+            _ = try courier.deliver(
+                files: [badVault.appendingPathComponent("broken.md")],
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: badVault, copy: false
+            )
+            check(false, "an undecodable note should not deliver")
+        } catch let error as CourierError {
+            if case .unreadableNote = error {
+                check(true, "undecodable note throws .unreadableNote")
+            } else {
+                check(false, "expected .unreadableNote, got \(error)")
+            }
+            check(exists("u/src/broken.md"), "refused note stays at its source")
+            check(exists("u/src/pic.png"), "refused note's attachment stays at its source")
+            let left = (try? fm.contentsOfDirectory(
+                atPath: base.appendingPathComponent("u/dst").path)) ?? ["?"]
+            check(left.isEmpty, "refused delivery leaves the destination untouched")
+        } catch {
+            check(false, "undecodable note threw the wrong error type: \(error)")
+        }
+
+        // Control against over-refusal: a readable note whose embed does not
+        // exist still delivers. The refusal above must key off the *note* being
+        // unreadable, not off any reference failing to resolve.
+        write("u/src/fine.md", "![[nope.png]]\n")
+        do {
+            let op = try courier.deliver(
+                files: [badVault.appendingPathComponent("fine.md")],
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: badVault, copy: false
+            )
+            check(op.transfers.count == 1 && exists("u/dst/fine.md"),
+                  "readable note with a missing embed still delivers")
+        } catch {
+            check(false, "readable note with a missing embed was refused: \(error)")
+        }
+
         // --- T3/U3: one unreversible transfer must not strand the rest ---
         // The realistic trigger is a delivered file the user has since deleted
         // or renamed in Obsidian. Three notes, with the *middle* one deleted

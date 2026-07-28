@@ -46,6 +46,11 @@ extension CourierOperation {
 enum CourierError: LocalizedError {
     case nothingToDeliver
     case destinationIsSource
+    /// A note whose text can't be decoded. Refused rather than delivered:
+    /// without the text there is no way to know which attachments the note
+    /// embeds, and moving it alone strands them in the source vault with the
+    /// operation still reporting success. See `deliverNote`.
+    case unreadableNote(name: String, reason: String)
     /// Undo reversed what it could and could not reverse the rest. Carries
     /// enough to tell the user which files stayed put — the state is known,
     /// not a mystery, so the message says so rather than "undo failed".
@@ -55,6 +60,12 @@ enum CourierError: LocalizedError {
         switch self {
         case .nothingToDeliver: return "No files to deliver."
         case .destinationIsSource: return "The note is already in that vault."
+        case let .unreadableNote(name, reason):
+            // No promise that nothing moved: rollback is best-effort, and a
+            // multi-file drop may have placed earlier files already.
+            return "Couldn't read \(name) as text, so Chestnut can't tell which "
+                + "attachments it needs. The delivery was cancelled rather than "
+                + "move the note and leave them behind. (\(reason))"
         case let .partiallyUndone(restored, unreachable):
             let shown = unreachable.prefix(3).joined(separator: ", ")
             let rest = unreachable.count > 3 ? " and \(unreachable.count - 3) more" : ""
@@ -202,7 +213,22 @@ struct Courier {
         rewrites: inout [CourierOperation.NoteRewrite],
         placed: inout [String: URL]
     ) throws {
-        let content = (try? String(contentsOf: note, encoding: .utf8)) ?? ""
+        // Bind the error rather than coercing it to "". An empty note resolves
+        // no references, so the coercion delivered the note alone, journaled
+        // no rewrite, and reported success — the attachments stayed in the
+        // source vault and nothing said so. The read fails for a dataless
+        // iCloud placeholder as readily as for a non-UTF-8 file, so this is
+        // reachable without any exotic encoding. Refusing costs nothing extra:
+        // deliver's catch already rolls back and rethrows.
+        let content: String
+        do {
+            content = try String(contentsOf: note, encoding: .utf8)
+        } catch {
+            throw CourierError.unreadableNote(
+                name: note.lastPathComponent,
+                reason: error.localizedDescription
+            )
+        }
         let searchRoot = sourceVault ?? note.deletingLastPathComponent()
 
         // Resolve and place attachments first, so the note can be rewritten
