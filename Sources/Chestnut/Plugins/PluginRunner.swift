@@ -51,7 +51,7 @@ enum PluginRunner {
         env["CHESTNUT_INPUT_TYPE"] = input.type.rawValue
         env["CHESTNUT_SOURCE_APP"] = input.sourceApp ?? ""
         env["CHESTNUT_FILE_PATH"] = input.filePath ?? ""
-        env["CHESTNUT_TIMESTAMP"] = iso8601.string(from: Date())
+        env["CHESTNUT_TIMESTAMP"] = iso8601Timestamp()
         env["CHESTNUT_PLUGIN_DIR"] = pluginDir.path
         let basePath = ProcessInfo.processInfo.environment["PATH"]
             ?? "/usr/bin:/bin"
