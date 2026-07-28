@@ -1111,6 +1111,46 @@ struct Check {
         registry.rescan()
         check(registry.plugins.count == 1 && registry.plugins.first?.name == "alpha",
               "rescan reflects removed plugin")
+
+        // --- D2: start() must create the plugins directory ---
+        // It looks like dead weight: rescan() handles a missing directory, and
+        // "Open Plugins Folder" creates one on demand, so an audit proposed
+        // dropping it as the one thing keeping a plugin-free user's disk clean.
+        // It is load-bearing. `start()` hands the path straight to
+        // FSEventStreamCreate, and a stream created on a path that does not
+        // exist never begins delivering events — not when the directory is
+        // later created, and not for any install after that either. Measured:
+        // without this line the registry saw 0 plugins through two installs
+        // over 8s; with it, 1 then 2. Removing it costs hot-reload for the
+        // whole session, and the user has no reason to suspect a relaunch.
+        let coldBase = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-registry-cold-\(ProcessInfo.processInfo.processIdentifier)")
+        try? fm.removeItem(at: coldBase)
+        defer { try? fm.removeItem(at: coldBase) }
+        let coldDir = coldBase.appendingPathComponent("never/made/plugins")
+        let cold = PluginRegistry(directory: coldDir)
+        cold.start()
+        check(fm.fileExists(atPath: coldDir.path),
+              "start() creates the plugins directory, so FSEvents watches a live path")
+
+        // The reason, driven for real: install a plugin after start() and the
+        // registry must notice without a relaunch.
+        let latecomer = coldDir.appendingPathComponent("gamma")
+        try! fm.createDirectory(at: latecomer, withIntermediateDirectories: true)
+        try! #"{"api":1,"name":"gamma","accepts":["text"],"output":"notify","script":"run.sh"}"#
+            .write(to: latecomer.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+        let lateScript = latecomer.appendingPathComponent("run.sh")
+        try! "#!/bin/bash\necho g".write(to: lateScript, atomically: true, encoding: .utf8)
+        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lateScript.path)
+
+        // Self-limiting: a regression fails this check rather than hanging it.
+        let deadline = Date().addingTimeInterval(5)
+        while cold.plugins.isEmpty, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        check(cold.plugins.map(\.name) == ["gamma"],
+              "a plugin installed after start() hot-reloads (got \(cold.plugins.map(\.name)))")
+        cold.stop()
     }
 
     // MARK: - Plugin runner
