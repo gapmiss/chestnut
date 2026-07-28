@@ -2404,6 +2404,56 @@ struct Check {
             NSPoint(x: 960, y: 400), for: .small, onVisible: main.visibleFrame)
         let twice = PetGeometry.clampedOrigin(once, for: .small, onVisible: main.visibleFrame)
         check(once == twice, "clamping is idempotent (got \(once) then \(twice))")
+
+        // --- T1: menuOrigin, the keyboard route's half of the same problem ---
+        // The hotkey menu exists because the pet may be unreachable, so a menu
+        // placed off-screen takes Settings, Undo, Reset Position and Quit with
+        // it. `popUp` grows *down* from the point and scrolls rather than
+        // flipping, which is why this can't just anchor at the sprite's top.
+        let screen = NSRect(x: 0, y: 50, width: 1000, height: 720)   // maxY 770
+        func origin(_ menu: NSSize, _ sprite: NSRect, _ visible: NSRect? = nil) -> NSPoint {
+            PetGeometry.menuOrigin(for: menu, at: sprite, in: visible ?? screen)
+        }
+
+        // Room below: hang the menu off the sprite's top edge, centred on it.
+        let roomy = NSRect(x: 400, y: 500, width: 96, height: 72)    // maxY 572, midX 448
+        check(origin(NSSize(width: 200, height: 300), roomy) == NSPoint(x: 448, y: 572),
+              "a menu with room below hangs off the sprite's top edge, centred")
+
+        // The default corner: sprite low on screen, menu taller than the gap.
+        // It must flip above rather than scroll.
+        let low = NSRect(x: 400, y: 90, width: 96, height: 72)       // maxY 162
+        let flipped = origin(NSSize(width: 200, height: 400), low)
+        check(flipped.y == 450, "a menu too tall for the gap sits on the screen's bottom edge (got \(flipped.y))")
+        check(flipped.y - 400 >= screen.minY, "the flipped menu's bottom stays on screen")
+        check(flipped.y <= screen.maxY, "the flipped menu's top stays on screen")
+
+        // A menu taller than the whole screen can't fit either way; it must
+        // still be pinned to the screen rather than run off the top.
+        check(origin(NSSize(width: 200, height: 2000), low).y == screen.maxY,
+              "a menu taller than the display is pinned to the top, not sent past it")
+
+        // Right edge: the pet's default home. x is clamped so the menu's full
+        // width stays on screen.
+        let atRight = NSRect(x: 940, y: 500, width: 96, height: 72)  // midX 988
+        check(origin(NSSize(width: 200, height: 300), atRight) == NSPoint(x: 800, y: 572),
+              "a sprite at the right edge pulls the menu back by its own width")
+
+        // Left edge, and a menu wider than the display: clamping must not push
+        // x past the left edge trying to fit the right.
+        let atLeft = NSRect(x: -80, y: 500, width: 96, height: 72)   // midX -32
+        check(origin(NSSize(width: 200, height: 300), atLeft).x == screen.minX,
+              "a sprite off the left edge clamps to the screen's left, not past it")
+        check(origin(NSSize(width: 5000, height: 300), atRight).x == screen.minX,
+              "a menu wider than the display starts at the left edge rather than off it")
+
+        // No screen to consult (display list empty mid-reconfiguration) and the
+        // zero-height early-out both return the unclamped anchor.
+        check(PetGeometry.menuOrigin(for: NSSize(width: 200, height: 300), at: low, in: nil)
+                == NSPoint(x: 448, y: 162),
+              "with no screen to consult, the anchor is returned unclamped")
+        check(origin(NSSize(width: 200, height: 0), low) == NSPoint(x: 448, y: 162),
+              "a zero-height menu takes the documented early-out")
     }
 
     // MARK: - Undo menu rows
