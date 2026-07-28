@@ -1229,6 +1229,60 @@ struct Check {
             check(false, "structured interpret should succeed")
         }
 
+        // --- Plain `save` and the structured envelope share one filename
+        // grammar --- The structured path used to apply none of plain save's
+        // sanitizing, so "notes/today.md" addressed a directory the save never
+        // creates (bare ENOENT) and "today" wrote an extension-less file
+        // Obsidian won't display, reporting success. Separators become "-"
+        // rather than an error because subfolders have their own field
+        // (`folder`), which is created with intermediates and containment-
+        // checked, so nothing is expressible only through a separator here.
+        // Table-driven on purpose: the rule is "these two agree", not any
+        // particular output, so a future change to the grammar only has to
+        // stay consistent.
+        let saveManifestT5 = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        func filenameViaPlain(_ raw: String) -> String? {
+            try? PluginRunner.interpret(
+                result: PluginRunner.RawResult(exitCode: 0, stdout: raw + "\nbody", stderr: ""),
+                manifest: saveManifestT5
+            ).filename
+        }
+        func filenameViaStructured(_ raw: String) -> String? {
+            guard let json = try? JSONSerialization.data(withJSONObject: [
+                "action": "save", "content": "body", "filename": raw,
+            ]), let stdout = String(data: json, encoding: .utf8) else { return nil }
+            return try? PluginRunner.interpret(
+                result: PluginRunner.RawResult(exitCode: 0, stdout: stdout, stderr: ""),
+                manifest: structuredManifest
+            ).filename
+        }
+        for raw in ["a/b", "x:y", "back\\slash", "no-extension", "  padded  ",
+                    "already.md", "/", String(repeating: "z", count: 300)] {
+            let shown = raw.count > 20 ? "\(raw.prefix(8))…(\(raw.count) chars)" : raw
+            check(filenameViaPlain(raw) == filenameViaStructured(raw),
+                  "filename grammar agrees across save paths: \"\(shown)\"")
+        }
+        check(filenameViaStructured("notes/today.md") == "notes-today.md",
+              "structured filename: separator collapsed, not left addressing a directory")
+        check(filenameViaStructured("today") == "today.md",
+              "structured filename: .md enforced as in plain save")
+        check(filenameViaStructured(String(repeating: "z", count: 300))?.count == 203,
+              "structured filename: capped at 200 plus \".md\"")
+
+        // Attachment names run through the same sanitizer, but are never
+        // forced to .md — an attachment is whatever it is.
+        let attJSON = #"{"action":"save","content":"b","filename":"n.md","attachments":[{"source":"/tmp/a.png","filename":"sub/pic.png"},{"source":"/tmp/b.png","filename":"   "}]}"#
+        if let interp = try? PluginRunner.interpret(
+            result: PluginRunner.RawResult(exitCode: 0, stdout: attJSON, stderr: ""),
+            manifest: structuredManifest
+        ) {
+            let names = (interp.attachments ?? []).map(\.filename)
+            check(names == ["sub-pic.png", "attachment"],
+                  "attachment filenames are sanitized without forcing .md")
+        } else {
+            check(false, "attachment-bearing envelope should interpret")
+        }
+
         // Interpret: bad structured output.
         let badStructured = PluginRunner.RawResult(exitCode: 0, stdout: "not json", stderr: "")
         do {
