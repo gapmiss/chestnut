@@ -72,6 +72,43 @@ does, the same fix applies.
 
 To start automatically, right-click the pet and toggle Settings → Launch at Login.
 
+## Uninstall
+
+If you turned on Settings → Launch at Login, switch it off before you quit.
+That deregisters the login item, which deleting the app does not. Then quit
+Chestnut (right-click → Quit, ⌃⌥M → Quit, or `pkill -x Chestnut`) and remove
+the app:
+
+```bash
+brew uninstall --cask chestnut      # installed with Homebrew
+rm -rf /Applications/Chestnut.app   # installed manually
+```
+
+Chestnut writes to four places outside its own bundle, and nowhere else:
+
+| Path | Contents |
+| --- | --- |
+| `~/Library/Application Support/Chestnut/` | `config.json`, `state.json`, the undo journals `journal.jsonl` and `captures.jsonl`, and any backups beside them (`.bak`, `.bak.1`, … from a settings file that failed to parse, or a `.pre-0.3` left by an old build) |
+| `~/.config/chestnut/plugins/` | Installed plugins. Created at every launch, so it exists even if you never wrote one |
+| `~/Library/Logs/Chestnut/` | `chestnut.log` and `chestnut.log.1`, written only while `debug` is on in `config.json` |
+| `$TMPDIR/chestnut-plugins/` | Scratch copies of pasted images on their way to a plugin. Swept at every launch, and macOS clears it anyway |
+
+```bash
+rm -rf ~/Library/Application\ Support/Chestnut \
+       ~/.config/chestnut \
+       ~/Library/Logs/Chestnut
+```
+
+None of those paths holds a vault or a note, so removing them leaves your
+writing where it is.
+
+Worth knowing whether or not you are uninstalling: **the undo journals hold
+your note text.** `captures.jsonl` keeps the exact text of each capture, and
+`journal.jsonl` keeps a note's pre-delivery text whenever a delivery rewrote
+its links, because that is what Undo puts back. Both are capped at 20 records
+or 1 MB, so older text rolls off as you keep working, and neither is ever sent
+anywhere.
+
 ## Requirements
 
 - macOS 14+
