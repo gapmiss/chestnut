@@ -4,6 +4,35 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Chestnut no longer freezes while carrying files.** A delivery did all of
+  its work on the same thread that draws the pet and opens the menu, so a
+  large copy, or a note with several stale image links in a big vault, could
+  leave the pet motionless and every hotkey dead until it finished. macOS
+  could even mark the app as not responding. Deliveries now run in the
+  background, and Chestnut chews while it works.
+
+- **A note Chestnut cannot read is no longer delivered without its images.**
+  If the text of a note could not be read, Chestnut treated the note as empty,
+  which meant it found no images to bring along. The note moved anyway and the
+  delivery reported success, leaving the images behind in the old vault and
+  the links broken in both. The likely cause is a vault in iCloud Drive, where
+  a note you have not opened lately may not be downloaded yet. Chestnut now
+  says it could not read the note and cancels the delivery.
+
+### Changed
+
+- **Plugins: filenames in structured output follow the same rules as plain
+  save mode.** Path separators become `-`, names are capped at 200 characters,
+  and `.md` is added when missing. Previously the structured envelope applied
+  none of this, so `"notes/today.md"` failed with a confusing "file doesn't
+  exist" and `"today"` silently wrote a file Obsidian would not display. Use
+  the `folder` field for subfolders. Attachment filenames are sanitized the
+  same way, without forcing `.md`.
+
 ## [0.6.0] — 2026-07-27
 
 ### Changed

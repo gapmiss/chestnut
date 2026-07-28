@@ -194,7 +194,12 @@ Checks/
   load-bearing, a menu binding that fails — registration conflict or a string
   that doesn't parse — raises a one-time notice naming the binding and
   pointing at config.json (`HotkeyCenter.onMenuHotkeyFailure`); the other
-  hotkeys just log. An empty/"none"/"disabled" menu binding is a deliberate
+  hotkeys just log. The same notice fires when `InstallEventHandler` fails,
+  and `start` then registers **nothing**: `RegisterEventHotKey` returns
+  `noErr` whether or not the handler installed, so continuing would claim all
+  five keys system-wide with none able to dispatch — ⌃⌥M dead in Chestnut
+  *and* in every other app. `menuBinding` is therefore set before that guard,
+  or the notice names an empty string. An empty/"none"/"disabled" menu binding is a deliberate
   opt-out and stays silent. Menu key equivalents in the right-click menu come
   from the same `HotkeySpec` parse that backs Carbon registration
   (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
@@ -237,6 +242,14 @@ Checks/
   means the pet returns there once the display is back. `PetScene.baselineY` is
   `PetGeometry.Margin.bottom` — one constant, since the scene's baseline and
   the window's bottom margin are the same number.
+- **The courier runs off the main actor** (`Task.detached` in
+  `completeDelivery`), like captures and for a stronger reason: a cross-volume
+  `place()` is a full byte copy, `resolve()` walks the whole source vault once
+  per unresolved reference, and `contentsEqual` byte-compares every deduped
+  file. Run on the main actor, any of the three freezes the pet, the menu and
+  every hotkey until it finishes. `Courier`'s `fm` is *computed, not stored*,
+  so the struct holds no state and stays `Sendable` — the same move `Capture`
+  made. The chewing pose is held for the duration so the wait reads as work.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
   fallback. Trusted path lookup only (never `$PATH`). Known trade: the
   direct-FS capture append is a read-modify-write that can race Obsidian's
@@ -262,7 +275,16 @@ Checks/
   renders no TIFF at all, so a TIFF attachment embeds as a blank. The extension
   comes from the same decision as the bytes — reading them from two separate
   pasteboard queries once wrote TIFF into a `.png`, which embeds broken *and*
-  hides why. Scripts are
+  hides why. **Filenames are one grammar**
+  (`PluginRunner.sanitizedFilename`): separators collapse to `-`, the name is
+  capped at 200 characters and trimmed, and `.md` is appended for a note but
+  never for an attachment. Plain `save` mode and the structured envelope both
+  go through it — the envelope used to bypass it, so `"notes/today.md"`
+  addressed a directory the save never creates (bare ENOENT) and `"today"`
+  wrote a file Obsidian won't display while reporting success. Separators
+  collapse rather than error because subfolders have their own field,
+  `folder`, which *is* created with intermediates and containment-checked.
+  Scripts are
   exec'd directly (shebang), configurable timeout (default 10s, clamped to
   1–300). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
@@ -284,14 +306,28 @@ Checks/
   no plugins installed — courier and all existing features work identically.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
-  `/`), rejecting `.obsidian` path components. Three callers, all of them
-  paths the user did not type by hand: plugin `save` output
-  (`AppDelegate.swift:660`), plugin capture attachments (`:421`), and
-  `obsidian://` drop resolution (`PetWindow.swift:739`, a read path). It
+  `/`), rejecting `.obsidian` path components. Callers are all paths the user
+  did not type by hand: plugin `save` output (`AppDelegate.swift:780`), plugin
+  capture attachments (`:538`), and `obsidian://` drop resolution
+  (`PetWindow.swift:831`, a read path). It
   collapses `../`, which is the case it exists to catch — a buggy plugin
   emitting `"folder": "../.."`. It does **not** resolve symlinks: a directory
   you symlink out of the vault is followed. That is deliberate, not an
   oversight; see Hard invariants.
+  **`isContainedDirectory` is the variant for paths that get *created*, and
+  the vault root is the difference.** `isContained` tests
+  `hasPrefix(vaultPath + "/")`, so the root itself fails it — correct for a
+  file, since nothing is ever written *at* the root path. A directory
+  argument is different: the root is where a plugin `save` with no `folder`
+  lands, and where `attachmentFolder(of:)` falls back when
+  `attachmentFolderPath` is unset. Collapsing the two functions is the
+  obvious simplification and refuses every ordinary plugin save; `make check`
+  pins the distinction. `savePluginOutput` checks *both* the directories it
+  creates and the files it writes, because checking only the note let an
+  escaping `folder` pair with a `filename` that walked back in — the note
+  landed inside the vault while `createDirectory` made the escaped folder
+  anyway. Nothing yet asserts that routing: `AppDelegate.swift` is AppKit and
+  outside the check target, so the guard is only as good as the call site.
   The courier does not call it and does not need to — `deliverNote` builds
   destinations as `dir.appendingPathComponent(source.lastPathComponent)`
   (`Courier.swift:195`), and a `lastPathComponent` cannot contain a `/`, so it
@@ -353,6 +389,17 @@ Checks/
   already running as the user with full filesystem access, and the only way a
   symlink enters a vault is if the user put it there. Resolving would break a
   symlinked attachment folder to buy a guarantee that `cp` bypasses anyway.
+  The promise covers every path a write *creates*, not just the files it
+  writes — see `isContainedDirectory` above.
+- **The courier refuses what it cannot read.** `deliverNote` needs the note's
+  text to know which attachments to carry, so a failed read is thrown
+  (`CourierError.unreadableNote`), not coerced to `""`. The coercion resolved
+  no references, so the note moved alone and its attachments stayed behind
+  with the operation reporting success — reachable from a dataless iCloud
+  placeholder, not just an exotic encoding. Refusal is free here because
+  `deliver`'s catch already rolls back and rethrows. The message does not
+  promise "nothing was moved": rollback is best-effort (`try?`) and a
+  multi-file drop may have placed earlier files already.
 - **No reuse of Obsidian's gem logo;** "for Obsidian" nominative phrasing only.
 - **Cross-Vault Search is permanently out of scope** — decided early, won't build it.
 

@@ -149,7 +149,7 @@ with full control over what Chestnut does:
 |-------|----------|-------------|
 | `action` | yes | One of `capture`, `save`, `clipboard`, `notify` |
 | `content` | no | The text content (note body, clipboard text, or notice title) |
-| `filename` | no | Filename for `save` action (default: `Untitled.md`) |
+| `filename` | no | Filename for `save` action (default: `Untitled.md`). Sanitized: `/`, `\` and `:` become `-`, capped at 200 characters, trimmed, and `.md` appended if missing. Use `folder` for subfolders. |
 | `vault` | no | Vault hint for `save`: `"ask"` (picker), `"pinned"`, `"last"`, or a vault path |
 | `folder` | no | Subfolder within the vault for `save` (created if needed) |
 | `notify` | no | Subtitle text for the notice bubble |
@@ -176,11 +176,16 @@ plugin save additional files (images, PDFs, etc.) into the vault:
 | Field | Description |
 |-------|-------------|
 | `source` | Absolute path to the file to copy |
-| `filename` | Destination filename inside the vault folder |
+| `filename` | Destination filename. Sanitized as above, but no `.md` is appended |
 
-For `save`, attachments land in the same directory as the note. For `capture`,
-attachments are copied to the vault root when the user submits. Name conflicts
-get Obsidian-style suffixes in both cases.
+Attachments land in the vault's configured attachment folder, read from
+`attachmentFolderPath` in `.obsidian/app.json` and falling back to the vault
+root when that is unset. This is true for both `save` and `capture`, and the
+`folder` field does not move them: `folder` places the note, its attachments
+still go to the attachment folder. For `capture`, only attachments the
+submitted note actually refers to by filename are copied, and the copy happens
+when the user submits. Name conflicts get Obsidian-style suffixes in every
+case.
 
 ## Error handling
 
