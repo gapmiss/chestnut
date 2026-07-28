@@ -188,9 +188,14 @@ struct Capture {
     /// is exposed.
     func appendDirectly(_ text: String, toVault vault: URL, date: Date = Date()) throws -> CaptureRecord {
         let note = destination(inVault: vault, date: date)
+        // Asserts the same predicate `destination` selected on, not a weaker
+        // spelling of it. A raw `pathComponents` scan would fire on a path that
+        // merely names `.obsidian` on the way somewhere else — `destination`
+        // can now return `<vault>/.obsidian/../notes/x.md`, which resolves
+        // outside `.obsidian/` and is a legal target.
         precondition(
-            !note.pathComponents.contains(".obsidian"),
-            "Capture must never write inside .obsidian/"
+            Courier.isContained(note, inVault: vault.path),
+            "Capture must write inside the vault and never inside .obsidian/"
         )
         let existing = try? Data(contentsOf: note)
         var appended = text + "\n"
@@ -217,21 +222,22 @@ struct Capture {
     /// user's `captureFormat`. The inbox is not, and does not need to be:
     /// `Config.sanitizedInboxName` has already reduced it to a bare file name,
     /// so it names a child of the vault root structurally.
+    ///
+    /// The check is `Courier.isContained`, the one named invariant, rather than
+    /// a copy of it — see CLAUDE.md. It judges the *standardized* path, so a
+    /// format like `.obsidian/../notes/%Y.md` is taken at its word and lands in
+    /// `notes/`; the hand-inlined copy this replaced scanned the raw components
+    /// and sent that case to the inbox instead. Nothing resolving inside
+    /// `.obsidian/` is accepted by either.
     func destination(inVault vault: URL, date: Date = Date()) -> URL {
         let inbox = vault.appendingPathComponent(inboxFileName)
         if let relative = Self.dailyNoteRelativePath(vault: vault, date: date) {
             let note = vault.appendingPathComponent(relative)
-            if !note.pathComponents.contains(".obsidian"),
-               note.standardizedFileURL.path.hasPrefix(vault.standardizedFileURL.path + "/") {
-                return note
-            }
+            if Courier.isContained(note, inVault: vault.path) { return note }
         }
         if let relative = chestnutDailyRelativePath(date: date) {
             let note = vault.appendingPathComponent(relative)
-            if !note.pathComponents.contains(".obsidian"),
-               note.standardizedFileURL.path.hasPrefix(vault.standardizedFileURL.path + "/") {
-                return note
-            }
+            if Courier.isContained(note, inVault: vault.path) { return note }
         }
         return inbox
     }
@@ -350,9 +356,7 @@ struct Capture {
         let note = vault.appendingPathComponent(rawPath)
         // The CLI targets by *name*. The caller only passes unique names, but
         // verify the path lands in the expected vault before writing anything.
-        guard !note.pathComponents.contains(".obsidian"),
-              note.standardizedFileURL.path.hasPrefix(vault.standardizedFileURL.path + "/")
-        else { return nil }
+        guard Courier.isContained(note, inVault: vault.path) else { return nil }
 
         let before = try? Data(contentsOf: note)
         let escaped = text.replacingOccurrences(of: "\n", with: "\\n")

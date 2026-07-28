@@ -421,6 +421,69 @@ struct Check {
                 == v7.appendingPathComponent("daily/2026-07-14.md").path,
               "Obsidian daily notes take priority over captureFormat")
 
+        // --- D1: capture uses the one named containment predicate ---
+        // Three hand-inlined copies of `Courier.isContained` lived here. They
+        // are not the same function in the abstract — the copies scanned the
+        // *raw* path components for ".obsidian" while `isContained` judges the
+        // standardized path, so they disagree about `.obsidian/../notes/x.md`
+        // (copy: reject, isContained: accept, and isContained is right, since
+        // that path resolves nowhere near `.obsidian/`).
+        //
+        // They agree on every input that can actually arrive, and these
+        // assertions are why: both producers of the relative path already
+        // refuse a `..` component outright (`dailyNoteRelativePath`,
+        // `chestnutDailyRelativePath`), so a path that needs standardizing to
+        // judge never reaches the predicate. That upstream guard is what makes
+        // swapping the predicates a no-op rather than a behavior change — if it
+        // ever goes, these two implementations start disagreeing.
+        let v8 = vault("v8")
+        write("v8/.obsidian/core-plugins.json", #"{"daily-notes":false}"#)
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: ".obsidian/../notes")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "captureFolder with a .. component is refused upstream, before containment is asked")
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: ".obsidian/plugins")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "a captureFolder inside .obsidian/ falls back to the inbox")
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: "../../escaped")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "a captureFolder escaping the vault falls back to the inbox")
+
+        // Same guard on Obsidian's side of the fork, where the folder comes
+        // from the vault's own daily-notes.json rather than Chestnut's config.
+        check(Capture.dailyNoteRelativePath(
+                vault: URL(fileURLWithPath: "/tmp/nonexistent-vault"), date: date) != nil,
+              "daily notes default on for a vault with no core-plugins.json")
+        let v9 = vault("v9")
+        write("v9/.obsidian/daily-notes.json", #"{"format":"YYYY-MM-DD","folder":"../escaped"}"#)
+        check(Capture.dailyNoteRelativePath(vault: v9, date: date) == nil,
+              "daily-notes.json folder with a .. component is refused upstream")
+        check(engine.destination(inVault: v9, date: date).path
+                == v9.appendingPathComponent("Inbox.md").path,
+              "that vault's capture falls back to the inbox")
+
+        let v10 = vault("v10")
+        write("v10/.obsidian/daily-notes.json", #"{"format":"YYYY-MM-DD","folder":".obsidian/daily"}"#)
+        check(engine.destination(inVault: v10, date: date).path
+                == v10.appendingPathComponent("Inbox.md").path,
+              "a daily-notes folder inside .obsidian/ falls back to the inbox")
+
+        // `appendDirectly`'s precondition asserts the same predicate
+        // `destination` selected on, so an ordinary capture must sail through
+        // it rather than abort the app.
+        let plainRecord = try? Capture(captureFormat: "YYYY-MM-DD", captureFolder: "notes")
+            .appendDirectly("captured", toVault: v8, date: date)
+        check(plainRecord.map {
+                URL(fileURLWithPath: $0.notePath).path
+                    == v8.appendingPathComponent("notes/2026-07-14.md").path
+              } == true,
+              "an ordinary capture passes the containment precondition and writes")
+
         // --- existingDestination: read-only open (never creates) ---
         check(engine.existingDestination(inVault: v2, date: date) == nil,
               "existingDestination is nil before the note exists")
