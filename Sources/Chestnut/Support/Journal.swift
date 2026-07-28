@@ -1,10 +1,27 @@
 import Foundation
 
+/// A record that can give up part of itself when it alone exceeds the byte cap.
+///
+/// `trimmed` cannot enforce the cap against a single record: it stops at one
+/// rather than leave an empty journal, since an empty journal reads as
+/// "nothing to undo", disables the row, and takes the Discard Entry escape
+/// hatch out of reach with it. So an oversized record is asked to shed its
+/// payload instead of being dropped or kept whole.
+///
+/// The two record types answer differently, and the difference is whether the
+/// payload is a *copy* of something or an *instruction*. See each conformance.
+protocol JournalShedding {
+    /// The same record with its unbounded payload dropped, or nil when the
+    /// payload is what makes the record reversible and shedding would leave a
+    /// record that undoes nothing.
+    func sheddingPayload() -> Self?
+}
+
 /// Persistent record of Chestnut's writes: one JSON object per line, newest last,
 /// in ~/Library/Application Support/Chestnut/. Storage only — the actual undo
 /// file operations live with each record's engine (`Courier.undo`,
 /// `Capture.undo`). One file per record type, so the logs stay decodable.
-struct Journal<Record: Codable> {
+struct Journal<Record: Codable & JournalShedding> {
     let fileURL: URL
 
     init(fileURL: URL) {
@@ -17,7 +34,18 @@ struct Journal<Record: Codable> {
     }
 
     func append(_ record: Record) throws {
-        let line = try JournalCoding.encoder.encode(record)
+        var line = try JournalCoding.encoder.encode(record)
+        // A record that blows the cap on its own survives `trimmed` at full
+        // size, so the ceiling is enforced here instead — before the line is
+        // ever written, not after. Only shed if it actually helps: a record
+        // that is large for some other reason (thousands of transfers) has
+        // nothing useful to give up and is kept whole rather than mangled.
+        if line.count >= JournalLimits.maxBytes,
+           let shed = record.sheddingPayload(),
+           let shedLine = try? JournalCoding.encoder.encode(shed),
+           shedLine.count < line.count {
+            line = shedLine
+        }
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
         )
@@ -32,6 +60,10 @@ struct Journal<Record: Codable> {
     /// the count bounds how far back the stack goes, and the byte ceiling
     /// catches the case the count can't, since a single delivery can journal
     /// an entire note body in `NoteRewrite.original`.
+    ///
+    /// The `count > 1` floor means this can never bind a single oversized
+    /// record — deliberately, since an empty journal is worse than a large
+    /// one. That gap is closed in `append` by `JournalShedding`, not here.
     private static func trimmed(_ records: [Data]) -> [Data] {
         var kept = Array(records.suffix(JournalLimits.maxRecords))
         while kept.count > 1,

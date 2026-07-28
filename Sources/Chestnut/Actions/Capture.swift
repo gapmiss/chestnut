@@ -15,6 +15,17 @@ struct CaptureRecord: Codable, Equatable {
     var attachmentPaths: [String]?
 }
 
+extension CaptureRecord: JournalShedding {
+    /// Nothing to shed. `appended` looks like the courier's `original` but is
+    /// the opposite kind of field: not a copy of the note kept for reference,
+    /// but the exact text `Capture.undo` strips back off the end of it. A
+    /// capture record without it reverses nothing and would delete the wrong
+    /// bytes if it tried, so an oversized capture is journaled whole and the
+    /// byte cap goes unenforced for it — the honest trade, since the
+    /// alternative is a record that silently can't undo.
+    func sheddingPayload() -> CaptureRecord? { nil }
+}
+
 extension CaptureRecord {
     /// Second line for the Undo row that reverses this capture — see
     /// `CourierOperation.undoMenuSubtitle` for why the row names its record.

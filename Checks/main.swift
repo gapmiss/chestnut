@@ -1818,6 +1818,124 @@ struct Check {
             check(heavy.last()?.notePath == "/v/big5.md",
                   "byte-trimmed journal still returns the newest record")
 
+            // --- T4 / L5: the byte cap against a *single* oversized record ---
+            // `trimmed` stops at one record rather than leave an empty journal,
+            // so it can never trim a record that blows the cap on its own. The
+            // courier's `original` is exactly that case: a whole note body.
+            // `append` sheds the payload instead of storing it or dropping the
+            // record, and the reversal — the part users want — must survive.
+            let oversized = base.appendingPathComponent("oversized.jsonl")
+            let shedJournal = Journal<CourierOperation>(fileURL: oversized)
+            let hugeBody = String(repeating: "x", count: JournalLimits.maxBytes * 2)
+            try shedJournal.append(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(from: "/a/big.md", to: "/b/big.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/big.md", original: hugeBody)],
+                deliveredNames: ["big.md"]))
+            let shedSize = (try? FileManager.default.attributesOfItem(
+                atPath: oversized.path)[.size] as? Int) ?? 0
+            check(shedSize < JournalLimits.maxBytes,
+                  "a single oversized record is shed below the byte cap (\(shedSize) bytes)")
+            let shedBack = shedJournal.last()
+            check(shedBack != nil,
+                  "a shed record still decodes — an empty journal would read as nothing to undo")
+            check(shedBack?.transfers.count == 1,
+                  "shedding keeps the transfers, which are what undo reverses")
+            check(shedBack?.rewrites.isEmpty == true,
+                  "shedding drops the note body it could not afford to keep")
+            check(shedBack?.textNotRestored == ["big.md"],
+                  "a shed record names the note whose text undo can no longer restore")
+            check(shedBack?.deliveredNames == ["big.md"],
+                  "shedding keeps the Undo row's subtitle")
+
+            // Shedding is a last resort, not the normal path: an ordinary
+            // record keeps its text so undo restores it exactly.
+            let ordinary = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("ordinary.jsonl"))
+            try ordinary.append(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(from: "/a/s.md", to: "/b/s.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/s.md", original: "the original text")],
+                deliveredNames: ["s.md"]))
+            check(ordinary.last()?.rewrites.first?.original == "the original text",
+                  "a record under the cap keeps its rewrite payload")
+            check(ordinary.last()?.textNotRestored == nil,
+                  "an unshed record warns about nothing")
+
+            // A copy is undone by trashing the copy; the source was never
+            // rewritten, so there is no text to warn about losing.
+            let copies = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("copies.jsonl"))
+            try copies.append(CourierOperation(
+                date: Date(), isCopy: true,
+                transfers: [.init(from: "/a/c.md", to: "/b/c.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/c.md", original: hugeBody)],
+                deliveredNames: ["c.md"]))
+            check(copies.last()?.rewrites.isEmpty == true,
+                  "an oversized copy record sheds too")
+            check(copies.last()?.textNotRestored == nil,
+                  "a shed copy record warns about nothing — undo trashes the copy")
+
+            // Nothing to give up: large for another reason, so keep it whole
+            // rather than mangle a record shedding cannot shrink.
+            let wide = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("wide.jsonl"))
+            let manyTransfers = (0..<30_000).map {
+                CourierOperation.FileTransfer(from: "/a/\($0)", to: "/b/\($0)", dedup: false)
+            }
+            try wide.append(CourierOperation(
+                date: Date(), isCopy: false, transfers: manyTransfers,
+                rewrites: [], deliveredNames: ["many"]))
+            check(wide.last()?.transfers.count == 30_000,
+                  "an oversized record with nothing to shed is kept whole")
+
+            // A capture's `appended` is the undo instruction, not a copy of
+            // anything — shedding it would delete the wrong bytes. Oversized
+            // captures are kept whole, and that limit is deliberate.
+            let bigCapture = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("bigcapture.jsonl"))
+            try bigCapture.append(CaptureRecord(
+                date: Date(), vaultPath: "/v", notePath: "/v/n.md",
+                appended: hugeBody, createdFile: false))
+            check(bigCapture.last()?.appended.count == hugeBody.count,
+                  "a capture record keeps `appended` whole — it is what undo strips off")
+
+            // Undo of a shed record against real files: everything comes home,
+            // and the outcome says the text did not.
+            let shedSrc = base.appendingPathComponent("shed-src")
+            let shedDst = base.appendingPathComponent("shed-dst")
+            try FileManager.default.createDirectory(at: shedSrc, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: shedDst, withIntermediateDirectories: true)
+            let shedDelivered = shedDst.appendingPathComponent("big.md")
+            try "links as the delivery rewrote them".write(
+                to: shedDelivered, atomically: true, encoding: .utf8)
+            let shedOutcome = try Courier().undo(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(
+                    from: shedSrc.appendingPathComponent("big.md").path,
+                    to: shedDelivered.path, dedup: false)],
+                rewrites: [], deliveredNames: ["big.md"],
+                textNotRestored: ["big.md"]))
+            check(FileManager.default.fileExists(
+                    atPath: shedSrc.appendingPathComponent("big.md").path),
+                  "undo of a shed record still brings the file home")
+            check(!FileManager.default.fileExists(atPath: shedDelivered.path),
+                  "undo of a shed record clears the destination")
+            check(shedOutcome.textNotRestored == ["big.md"],
+                  "undo reports the note it could not restore the text of")
+
+            // The ordinary undo says nothing, so the notice can't cry wolf.
+            let quietDst = shedDst.appendingPathComponent("quiet.md")
+            try "x".write(to: quietDst, atomically: true, encoding: .utf8)
+            let quietOutcome = try Courier().undo(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(
+                    from: shedSrc.appendingPathComponent("quiet.md").path,
+                    to: quietDst.path, dedup: false)],
+                rewrites: [], deliveredNames: ["quiet.md"]))
+            check(quietOutcome.textNotRestored.isEmpty,
+                  "an ordinary undo reports nothing left unrestored")
+
             // --- T6 / L10: a malformed trailing line does not jam undo ---
             // Appends are whole-file atomic writes since M6, so this build
             // cannot produce a half-line — but every journal written by an

@@ -28,6 +28,38 @@ struct CourierOperation: Codable, Equatable {
     /// before their note and several notes interleave. Nil in records
     /// journaled before the menu named anything.
     var deliveredNames: [String]?
+    /// Notes this record can no longer restore the text of, by file name,
+    /// because the record was too large to journal with their pre-rewrite
+    /// bodies and shed them (see `sheddingPayload`). Undo still brings the
+    /// files home; it just leaves the delivery's link rewrites in place.
+    /// Nil in every ordinary record.
+    var textNotRestored: [String]?
+}
+
+extension CourierOperation: JournalShedding {
+    /// The unbounded field is `rewrites[].original`, and it is a *copy* of the
+    /// note's pre-delivery text rather than an instruction — undo needs it only
+    /// to put the link rewrites back, so a record without it still reverses
+    /// every move and copy, which is the part users reach for undo to get.
+    /// Dropping it trades exact text restoration for a bounded journal, and
+    /// names the notes that lost it so undo can say so rather than quietly
+    /// hand back a note with the delivery's links still in it.
+    ///
+    /// Nil when there is nothing to give up: a record this large with no
+    /// rewrites is large for some other reason, and shedding would only strip
+    /// a field that was already empty.
+    func sheddingPayload() -> CourierOperation? {
+        guard !rewrites.isEmpty else { return nil }
+        return CourierOperation(
+            date: date, isCopy: isCopy, transfers: transfers, rewrites: [],
+            deliveredNames: deliveredNames,
+            // Copies don't restore text on undo (they're trashed, and the
+            // source was never rewritten), so there is nothing to warn about.
+            textNotRestored: isCopy
+                ? nil
+                : rewrites.map { ($0.notePath as NSString).lastPathComponent }
+        )
+    }
 }
 
 extension CourierOperation {
@@ -41,6 +73,19 @@ extension CourierOperation {
         let allNotes = names.allSatisfy { ($0 as NSString).pathExtension.lowercased() == "md" }
         return "\(names.count) \(allNotes ? "notes" : "files")"
     }
+}
+
+/// What an undo finished without, even though every file came home.
+///
+/// Distinct from `CourierError.partiallyUndone`, which means files stayed put:
+/// here the reversal is complete and only the note's *text* is short of where
+/// it started, so it is a return value rather than a throw — the record is
+/// spent and should be dropped exactly as a clean undo would drop it.
+struct UndoOutcome: Equatable {
+    /// Notes moved back to their source path still carrying the link rewrites
+    /// the delivery applied, because the record was journaled without their
+    /// original text. Empty in every ordinary undo.
+    let textNotRestored: [String]
 }
 
 enum CourierError: LocalizedError {
@@ -146,7 +191,8 @@ struct Courier {
     /// `partiallyUndone` names the rest. The record is spent either way — a
     /// second undo can only re-fail on the transfers already reversed — so
     /// this throws rather than returning quietly.
-    func undo(_ op: CourierOperation) throws {
+    @discardableResult
+    func undo(_ op: CourierOperation) throws -> UndoOutcome {
         var unreachable: [String] = []
 
         if op.isCopy {
@@ -162,7 +208,7 @@ struct Courier {
                 }
             }
             try reportIfIncomplete(unreachable, of: op)
-            return
+            return UndoOutcome(textNotRestored: [])
         }
 
         let originalByPath = Dictionary(
@@ -193,6 +239,7 @@ struct Courier {
             }
         }
         try reportIfIncomplete(unreachable, of: op)
+        return UndoOutcome(textNotRestored: op.textNotRestored ?? [])
     }
 
     private func reportIfIncomplete(

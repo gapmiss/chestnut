@@ -401,9 +401,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func undoLastDelivery() {
         guard let op = journal.last() else { return }
         do {
-            try courier.undo(op)
+            let outcome = try courier.undo(op)
             try journal.removeLast()
             petWindow?.petScene.celebrateDelivery()
+            // Every file came home, but a note too large to journal whole came
+            // home with the delivery's link rewrites still in it. Rare enough
+            // to be a bubble rather than an alert, loud enough not to be silent.
+            if !outcome.textNotRestored.isEmpty {
+                let names = outcome.textNotRestored
+                showNotice(
+                    "Links left as they were",
+                    names.count == 1
+                        ? "\(names[0]) was too large to journal its original text"
+                        : "\(names.count) notes were too large to journal their original text"
+                )
+            }
         } catch {
             // A partial undo did reverse something, so it gets the honest
             // title and the alert drops its "nothing was changed" promise.
