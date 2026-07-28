@@ -75,7 +75,9 @@ enum CourierError: LocalizedError {
 /// The only files modified are the delivered notes themselves, when their
 /// references must change to keep resolving; originals are journaled.
 struct Courier {
-    private let fm = FileManager.default
+    // Computed (not stored) so the struct stays Sendable — deliveries run off
+    // the main actor to keep byte copies and vault walks from freezing the UI.
+    private var fm: FileManager { .default }
 
     // MARK: - Delivery
 

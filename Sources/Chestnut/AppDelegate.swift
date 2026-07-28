@@ -335,45 +335,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func completeDelivery(of files: [URL], to vault: Vault, from source: Vault?, copy: Bool) {
         palette?.dismiss()
         DebugLog.log("courier: delivering \(files.count) file(s) to \(vault.name) (\(vault.path))")
-        do {
-            let op = try courier.deliver(
-                files: files,
-                toVault: URL(fileURLWithPath: vault.path),
-                sourceVault: source.map { URL(fileURLWithPath: $0.path) },
-                copy: copy
-            )
-            do {
-                try journal.append(op)
-            } catch {
-                NSLog("Journal append failed (delivery succeeded): %@", error.localizedDescription)
-            }
-            if DebugLog.enabled {
-                for t in op.transfers {
-                    DebugLog.log("courier:   \(t.from) → \(t.to)\(t.dedup ? " (dedup)" : "")")
+        // Deliveries run off the main actor, for the same reason captures do
+        // and more so: a cross-volume place() is a full byte copy, resolve()
+        // walks the whole source vault once per unresolved reference, and
+        // contentsEqual byte-compares every deduped file. Run here, any of the
+        // three freezes the pet, the menu and every hotkey until it finishes.
+        // The chewing pose says the work is still going, as the plugin runner
+        // does for the same reason.
+        petWindow?.petScene.setChewing(true)
+        let courier = self.courier
+        let destVault = URL(fileURLWithPath: vault.path)
+        let sourceVault = source.map { URL(fileURLWithPath: $0.path) }
+        Task { [weak self] in
+            let result = await Task.detached {
+                Result {
+                    try courier.deliver(
+                        files: files, toVault: destVault,
+                        sourceVault: sourceVault, copy: copy
+                    )
                 }
-            }
-            petWindow?.petScene.celebrateDelivery()
-            controller.noteInteraction()
-            guard !op.transfers.isEmpty else {
-                showNotice("Already in \(vault.name)", "File already exists, skipped")
-                return
-            }
-            let note = op.transfers.first { $0.to.hasSuffix(".md") }?.to
-            let subtitle = op.transfers.count == 1
-                ? (op.transfers[0].to as NSString).lastPathComponent
-                : "\(op.transfers.count) files"
-            showNotice(copy ? "Copied to \(vault.name)" : "Delivered to \(vault.name)", subtitle) {
-                if let note {
-                    ObsidianBridge.openNote(path: note, vaultPath: vault.path)
-                } else if op.transfers.count == 1 {
-                    ObsidianBridge.presentFile(path: op.transfers[0].to, vaultPath: vault.path)
-                } else {
-                    let folder = (op.transfers[0].to as NSString).deletingLastPathComponent
-                    ObsidianBridge.presentFile(path: folder, vaultPath: vault.path)
+            }.value
+            guard let self else { return }
+            self.petWindow?.petScene.setChewing(false)
+            switch result {
+            case .success(let op):
+                do {
+                    try self.journal.append(op)
+                } catch {
+                    NSLog("Journal append failed (delivery succeeded): %@",
+                          error.localizedDescription)
                 }
+                if DebugLog.enabled {
+                    for t in op.transfers {
+                        DebugLog.log("courier:   \(t.from) → \(t.to)\(t.dedup ? " (dedup)" : "")")
+                    }
+                }
+                self.petWindow?.petScene.celebrateDelivery()
+                self.controller.noteInteraction()
+                guard !op.transfers.isEmpty else {
+                    self.showNotice("Already in \(vault.name)", "File already exists, skipped")
+                    return
+                }
+                let note = op.transfers.first { $0.to.hasSuffix(".md") }?.to
+                let subtitle = op.transfers.count == 1
+                    ? (op.transfers[0].to as NSString).lastPathComponent
+                    : "\(op.transfers.count) files"
+                self.showNotice(
+                    copy ? "Copied to \(vault.name)" : "Delivered to \(vault.name)", subtitle
+                ) {
+                    if let note {
+                        ObsidianBridge.openNote(path: note, vaultPath: vault.path)
+                    } else if op.transfers.count == 1 {
+                        ObsidianBridge.presentFile(path: op.transfers[0].to, vaultPath: vault.path)
+                    } else {
+                        let folder = (op.transfers[0].to as NSString).deletingLastPathComponent
+                        ObsidianBridge.presentFile(path: folder, vaultPath: vault.path)
+                    }
+                }
+            case .failure(let error):
+                self.presentAlert("Delivery failed", error.localizedDescription)
             }
-        } catch {
-            presentAlert("Delivery failed", error.localizedDescription)
         }
     }
 
