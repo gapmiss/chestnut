@@ -160,6 +160,7 @@ struct Check {
         await pluginRegistryChecks()
         pluginRunnerChecks()
         await pluginRunnerEndToEndChecks()
+        obsidianCLIChecks()
         pluginDispatchChecks()
         dropRouterChecks()
         obsidianLinkChecks()
@@ -1433,6 +1434,78 @@ struct Check {
         } catch {
             check(false, "runner: unread stdin should not throw (\(error))")
         }
+    }
+
+    // MARK: - Obsidian CLI
+
+    /// Drives `ObsidianCLI.run` against real subprocesses via its injected-
+    /// executable overload. The cases that matter are the pipe ones: read only
+    /// after the child exits and a reply past the ~64 KB pipe buffer blocks the
+    /// child in `write()` forever, so both the large-stdout and large-stderr
+    /// cases used to burn the whole timeout and answer nil. Each fixture stays
+    /// self-limiting (`sleep 5`, not `sleep 30`) so a regression fails these
+    /// checks instead of hanging `make check`.
+    static func obsidianCLIChecks() {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory
+            .appendingPathComponent("chestnut-cli-checks-\(UUID().uuidString)")
+        try! fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        func script(_ name: String, _ body: String) -> URL {
+            let url = base.appendingPathComponent("\(name).sh")
+            try! "#!/bin/sh\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url
+        }
+        // Timed so a deadlock shows up as a slow pass turning into a failure
+        // rather than as a nil nobody can attribute.
+        func timed(_ url: URL, timeout: TimeInterval = 2) -> (String?, TimeInterval) {
+            let started = Date()
+            let out = ObsidianCLI.run(url, arguments: [], timeout: timeout)
+            return (out, Date().timeIntervalSince(started))
+        }
+
+        let small = timed(script("small", "echo /Users/gm/Vaults/Master"))
+        check(small.0?.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "/Users/gm/Vaults/Master",
+              "cli: short reply returned verbatim")
+
+        // ~128 KB, twice the pipe buffer.
+        let bigOut = timed(script("bigout", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'A'"))
+        check((bigOut.0?.utf8.count ?? 0) >= 128 * 1024,
+              "cli: stdout past the pipe buffer is fully drained (\(bigOut.0?.utf8.count ?? 0) bytes)")
+        check(bigOut.1 < 1.5, "cli: large stdout does not burn the timeout (\(bigOut.1)s)")
+
+        // stderr was set and never read at all, so a long trace wedged a call
+        // whose actual reply was one line.
+        let bigErr = timed(script("bigerr", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'A' 1>&2\necho ok"))
+        check(bigErr.0?.trimmingCharacters(in: .whitespacesAndNewlines) == "ok",
+              "cli: large stderr does not block the reply")
+        check(bigErr.1 < 1.5, "cli: large stderr does not burn the timeout (\(bigErr.1)s)")
+
+        // EOF never arrives while the backgrounded child holds the write end;
+        // the grace period answers with what was buffered.
+        let bg = timed(script("bg", "echo front\nsleep 5 &\nexit 0"))
+        check(bg.0?.trimmingCharacters(in: .whitespacesAndNewlines) == "front",
+              "cli: backgrounded child's stdout still captured")
+        check(bg.1 < 2.5, "cli: backgrounded child resolves on the grace path (\(bg.1)s)")
+
+        // Past the cap the reply is not a reply; the caller falls back.
+        let huge = timed(script("huge", "dd if=/dev/zero bs=1024 count=1200 2>/dev/null | tr '\\0' 'A'"))
+        check(huge.0 == nil, "cli: output past maxOutputBytes is refused, not truncated silently")
+        check(ObsidianCLI.maxOutputBytes == 1_048_576, "cli: output cap is 1 MB")
+
+        check(ObsidianCLI.run(script("fail", "echo partial\nexit 3"), arguments: [], timeout: 2) == nil,
+              "cli: non-zero exit returns nil")
+        check(ObsidianCLI.run(script("err", "echo 'Error: no vault'"), arguments: [], timeout: 2) == nil,
+              "cli: an Error reply returns nil")
+        check(ObsidianCLI.run(base.appendingPathComponent("absent.sh"), arguments: [], timeout: 2) == nil,
+              "cli: a missing executable returns nil rather than throwing")
+
+        let hang = timed(script("hang", "sleep 5"), timeout: 1)
+        check(hang.0 == nil, "cli: a hung child returns nil")
+        check(hang.1 < 2, "cli: a hung child is bounded by the timeout (\(hang.1)s)")
     }
 
     // MARK: - Plugin dispatch
