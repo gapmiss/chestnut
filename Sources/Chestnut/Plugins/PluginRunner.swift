@@ -103,11 +103,13 @@ enum PluginRunner {
             let maxBytes = 1_048_576
             let stdoutBuf = PipeBuffer(limit: maxBytes)
             let stderrBuf = PipeBuffer(limit: maxBytes)
+            let drained = DrainGate(streams: 2)
 
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 if chunk.isEmpty {
                     handle.readabilityHandler = nil
+                    drained.streamClosed()
                 } else {
                     stdoutBuf.append(chunk)
                 }
@@ -116,6 +118,7 @@ enum PluginRunner {
                 let chunk = handle.availableData
                 if chunk.isEmpty {
                     handle.readabilityHandler = nil
+                    drained.streamClosed()
                 } else {
                     stderrBuf.append(chunk)
                 }
@@ -123,29 +126,37 @@ enum PluginRunner {
 
             let timedOut = OnceFlag()
 
+            // Resolve on EOF, never with a blocking tail read. EOF only
+            // arrives once every writer closes the pipe, and a child the
+            // script backgrounded (`helper &`) inherits the write end — a
+            // blocking read here waited on that child forever, leaking the
+            // continuation and leaving the pet chewing. The readability
+            // handlers already capture everything written, so EOF is purely
+            // the "no more is coming" signal; when a surviving child keeps it
+            // from ever arriving, the grace period resumes with what's
+            // buffered.
             process.terminationHandler = { proc in
-                DispatchQueue.global().asyncAfter(
-                    deadline: .now() + 0.1
-                ) {
+                let status = proc.terminationStatus
+                let finish: @Sendable () -> Void = {
                     stdoutPipe.fileHandleForReading.readabilityHandler = nil
                     stderrPipe.fileHandleForReading.readabilityHandler = nil
-                    stdoutBuf.append(
-                        stdoutPipe.fileHandleForReading.availableData)
-                    stderrBuf.append(
-                        stderrPipe.fileHandleForReading.availableData)
-
-                    if once.tryFire() {
-                        if timedOut.hasFired {
-                            continuation.resume(throwing: PluginError.timeout)
-                        } else {
-                            continuation.resume(returning: RawResult(
-                                exitCode: proc.terminationStatus,
-                                stdout: stdoutBuf.string,
-                                stderr: stderrBuf.string,
-                                stdoutTruncated: stdoutBuf.truncated
-                            ))
-                        }
+                    guard once.tryFire() else { return }
+                    if timedOut.hasFired {
+                        continuation.resume(throwing: PluginError.timeout)
+                    } else {
+                        continuation.resume(returning: RawResult(
+                            exitCode: status,
+                            stdout: stdoutBuf.string,
+                            stderr: stderrBuf.string,
+                            stdoutTruncated: stdoutBuf.truncated
+                        ))
                     }
+                }
+                drained.whenAllClosed(finish)
+                DispatchQueue.global().asyncAfter(
+                    deadline: .now() + 0.5
+                ) {
+                    finish()
                 }
             }
 
@@ -163,15 +174,30 @@ enum PluginRunner {
             if let pipe = stdinPipe, let text = stdinText {
                 let data = Data(text.utf8)
                 let handle = pipe.fileHandleForWriting
+                // Close the parent's copy of the read end — the child has its
+                // own dup. Left open, it props the pipe up after the child
+                // exits, and a write past the ~64 KB buffer to a plugin that
+                // never reads stdin would block until the Process object dies.
+                try? pipe.fileHandleForReading.close()
                 DispatchQueue.global().async {
-                    handle.write(data)
-                    handle.closeFile()
+                    // The write is best-effort: a plugin that exits without
+                    // reading stdin (env-vars-only is a normal shape) makes it
+                    // fail with EPIPE. NOSIGPIPE turns the signal — whose
+                    // default action kills the whole app — into that error,
+                    // and the throwing write surfaces it as a catchable throw
+                    // where the legacy `write(_:)` raised an uncatchable ObjC
+                    // exception.
+                    _ = fcntl(handle.fileDescriptor, F_SETNOSIGPIPE, 1)
+                    try? handle.write(contentsOf: data)
+                    try? handle.close()
                 }
             }
 
             // Signal the whole process group (`kill(-pid, …)`), not just the
             // script, so a plugin that backgrounded something goes down with
-            // it. Nothing here has to create that group: `Process` already
+            // it — on this path only; a script that exits cleanly leaves its
+            // background children alive, which the termination handler above
+            // tolerates. Nothing here has to create that group: `Process` already
             // spawns the child as its own group leader, so pgid == pid.
             // Calling `setpgid` ourselves would not work anyway — by the time
             // `run()` returns the child has exec'd, and POSIX rejects the call
@@ -258,6 +284,39 @@ enum PluginRunner {
             notifyText: nil,
             attachments: nil
         )
+    }
+}
+
+/// Coordinates the termination handler with pipe EOF: both readability
+/// handlers report EOF here, and the termination handler asks to run once
+/// both have — immediately, if they already did. Waiting on this alone would
+/// re-create the hang it replaces (a surviving child can hold a write end
+/// open forever), so the caller pairs it with a bounded grace period.
+private final class DrainGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var remaining: Int
+    private var action: (@Sendable () -> Void)?
+
+    init(streams: Int) { remaining = streams }
+
+    func streamClosed() {
+        lock.lock()
+        remaining -= 1
+        let fire = remaining == 0 ? action : nil
+        if fire != nil { action = nil }
+        lock.unlock()
+        fire?()
+    }
+
+    func whenAllClosed(_ block: @escaping @Sendable () -> Void) {
+        lock.lock()
+        if remaining == 0 {
+            lock.unlock()
+            block()
+        } else {
+            action = block
+            lock.unlock()
+        }
     }
 }
 

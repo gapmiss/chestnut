@@ -4,6 +4,111 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] — 2026-07-27
+
+### Changed
+
+- **Dropping several files at once is always a delivery.** A drop used to
+  hand its first non-markdown file to a matching plugin and, until this
+  release, quietly discard every file after it: drop three images with an
+  image plugin installed and two of them went nowhere, with no notice saying
+  so. A plugin run and a delivery also compete for the same screen — the
+  vault palette and the speech bubble are one at a time — so a picker opened
+  by one could be dismissed by the other before you saw it. Now a drop of two
+  or more items is a courier delivery, all of it, even when a plugin would
+  have matched the first item. Drop an item on its own to send it to a
+  plugin. Nothing is discarded either way.
+
+### Added
+
+- **A second copy of Chestnut now bows out instead of fighting the first.**
+  Launching the app from two places at once — the copy in the DMG beside the
+  one in Applications is the easy way to do it — gave you two pets, and both
+  of them rewrote the same undo journals, so whichever wrote last erased the
+  other's records and an undo could simply vanish. The second copy now says
+  which copy is already running, and quits.
+
+- **A menu hotkey that never registered now tells you.** ⌃⌥M is the only
+  keyboard route to Settings, Undo and Quit, and if another app already owned
+  that combination, or the binding in `config.json` didn't parse, Chestnut
+  started with that route dead and said nothing anywhere you'd look. It now
+  raises a bubble at launch naming the binding and pointing at the file.
+  Setting the binding to empty, `none` or `disabled` is taken as meaning it,
+  and stays silent.
+
+### Fixed
+
+- **Delivering a note to a vault Chestnut knew under two names could delete
+  it.** If Obsidian had recorded the same vault twice, once through a
+  symlink, the two paths looked like two vaults, and delivering a note from
+  one to the other landed it on top of itself. Chestnut read that as
+  delivering a file that was already there, and moving means removing the
+  original: the only copy was deleted, and not to the Trash. Chestnut now
+  recognizes a file as itself regardless of the path it arrived by, and does
+  nothing.
+
+- **A pasted screenshot reached plugins as an image Obsidian can't show.**
+  Copying a screenshot puts two versions of it on the clipboard, and Chestnut
+  picked one to save and named the file after the other, so a plugin that
+  attached the image to a note produced an embed that rendered blank, with a
+  `.png` on the end to hide why. The image and its name are now the same
+  decision, and it's the PNG, which is what a vault can display and a third
+  of the size.
+
+- **Filtering a palette down to nothing no longer shrinks it for good.**
+  Type in the vault hopper or the plugin picker until nothing matches, then
+  backspace: the full list came back into a slot two rows tall with a
+  scrollbar, and stayed that way until you closed and reopened the panel.
+  Panels are now sized once, when they open, and the "no matches" message
+  fills the space the list left rather than collapsing it.
+
+- **A plugin that starts a background helper no longer leaves Chestnut
+  chewing forever.** Backgrounding something (`sleep 5 &`, a helper daemon,
+  anything started without redirecting its output) is ordinary shell
+  practice, and it kept Chestnut waiting for output that would never end,
+  even after the plugin itself had finished: the chewing pose never stopped,
+  no result appeared, and only quitting cleared it. The plugin's output is
+  now collected as it arrives, so a surviving child can't hold the run open.
+
+- **A plugin that ignores what it's fed no longer crashes the app.** Chestnut
+  writes a plugin's input to it on standard input as well as in environment
+  variables; a plugin that reads only the variables and exits — perfectly
+  reasonable, and what several of the shipped examples do — left that write
+  with nowhere to go, and the failure took the whole app down with it. The
+  write is now allowed to fail quietly, which is all it ever meant.
+
+- **A plugin's `timeout` is now kept within 1 to 300 seconds.** A manifest
+  with `"timeout": 0` had its script killed the instant it started, so every
+  single run reported "Plugin timed out" and nothing said why; an enormous
+  value let a stuck plugin hold the chewing pose indefinitely. Values outside
+  the range are pulled into it and the adjustment is logged, so the author
+  finds out.
+
+- **Themes with see-through colors render cleanly.** A custom theme in
+  `config.json` may give a color an alpha value, and any value between fully
+  transparent and fully opaque came out over-bright with fringes along the
+  pixel edges. The built-in themes were never affected.
+
+- **The keys shown in the right-click menu are the keys that work.** The menu
+  and the hotkey system read `config.json` with two separate parsers that had
+  drifted apart, so a binding like `shift+a` was displayed beside a menu row
+  but never fired, and `f1` fired but showed nothing. There is one parser
+  now, so the menu can't offer a shortcut that isn't registered.
+
+- **Pasted images no longer leave temp files behind.** An image pasted to a
+  plugin is written to a temporary file first. If several plugins matched and
+  you dismissed the picker, or you dismissed a capture panel a plugin had
+  filled in, that file stayed on disk until macOS got around to it. Cancelled
+  pickers now clean up immediately, and anything left from an earlier session
+  is swept at launch.
+
+- **The debug log no longer records what you copied.** With `debug` enabled,
+  the first 80 characters of pasted text and URLs were written to
+  `~/Library/Logs/Chestnut/`, which is a poor place for whatever was on your
+  clipboard last. It now records the type and the length only. The log has
+  always been off by default and local to your Mac. (A plugin that echoes its
+  own input to standard error still puts it in the log by its own hand.)
+
 ## [0.5.0] — 2026-07-26
 
 ### Added
@@ -297,6 +402,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.6.0]: https://github.com/gapmiss/chestnut/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gapmiss/chestnut/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gapmiss/chestnut/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gapmiss/chestnut/compare/v0.2.1...v0.3.0

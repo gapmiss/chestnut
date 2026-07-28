@@ -145,9 +145,10 @@
           move and copy (the default is set in the menu).</li>
     </ul>
     <p>
-      Non-markdown files and folders route to a matching
+      A single non-markdown file or folder routes to a matching
       <a href="#plugins">plugin</a> first. If no plugin matches, the courier
-      handles them as plain file copies.
+      handles it as a plain file copy. Drop two or more items at once and the
+      whole drop is a delivery, plugins included.
     </p>
   </section>
 
@@ -186,7 +187,7 @@
           <tr><td><code>accepts</code></td><td>string[]</td><td>Input types this plugin handles. See <a href="#input-types">input types</a>.</td></tr>
           <tr><td><code>extensions</code></td><td>string[]</td><td>Optional. Narrows <code>file</code> matching to specific extensions (e.g. <code>["csv", "txt"]</code>). Omit to accept all files.</td></tr>
           <tr><td><code>output</code></td><td>string</td><td>Output mode. See <a href="#output-modes">output modes</a>.</td></tr>
-          <tr><td><code>timeout</code></td><td>number</td><td>Optional. Max seconds before the script is killed. Default: <code>10</code>.</td></tr>
+          <tr><td><code>timeout</code></td><td>number</td><td>Optional. Max seconds before the script is killed. Default: <code>10</code>, clamped to 1 to 300.</td></tr>
         </tbody>
       </table>
     </div>
@@ -198,7 +199,7 @@
         <tbody>
           <tr><td><code>text</code></td><td>Plain text on the clipboard.</td></tr>
           <tr><td><code>url</code></td><td>A URL on the clipboard or dropped as a web location.</td></tr>
-          <tr><td><code>image</code></td><td>An image on the clipboard (TIFF/PNG data) or an image file drop.</td></tr>
+          <tr><td><code>image</code></td><td>An image on the clipboard or an image file drop. A pasted image is written to a temp file first, as PNG when the clipboard offers one.</td></tr>
           <tr><td><code>file</code></td><td>A non-markdown file drop. Narrow with <code>extensions</code>.</td></tr>
           <tr><td><code>pdf</code></td><td>A PDF file drop, matched on the <code>.pdf</code> extension.</td></tr>
           <tr><td><code>folder</code></td><td>A folder drop.</td></tr>
@@ -291,8 +292,11 @@
     <h3>Drag-and-drop routing</h3>
     <ul>
       <li><code>.md</code> files always go to the courier.</li>
-      <li>Non-<code>.md</code> files go to a matching plugin, or fall through to the courier.</li>
-      <li>Folders go to a <code>folder</code> plugin if one exists, otherwise the courier copies/moves them as-is.</li>
+      <li>A single non-<code>.md</code> file goes to a matching plugin, or falls through to the courier.</li>
+      <li>A single folder goes to a <code>folder</code> plugin if one exists, otherwise the courier copies/moves it as-is.</li>
+      <li>Two or more items dropped together are a courier delivery, all of
+          them, even when a plugin would match one. Drop an item on its own to
+          route it to a plugin.</li>
     </ul>
 
     <h3>Hot-reload</h3>

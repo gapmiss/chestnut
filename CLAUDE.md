@@ -4,7 +4,7 @@ Native macOS desktop companion for Obsidian users (one vault or many). An always
 pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity
 and acts as a control surface across vaults. Free app funded by GitHub Sponsors,
 no license mechanism, no paywall, no network calls. Current release is `VERSION`
-in the Makefile (0.5.0), shipped as a DMG and a Homebrew cask
+in the Makefile (0.6.0), shipped as a DMG and a Homebrew cask
 (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Build & run
@@ -190,7 +190,31 @@ Checks/
   right-click to opaque sprite pixels, and an `LSUIElement` app is absent from
   Force Quit — without it there is no keyboard route to Settings, Undo, or
   Quit. `showMenuFromHotkey` must activate the app first or menu tracking
-  reads key events from whatever is frontmost instead.
+  reads key events from whatever is frontmost instead. Because the route is
+  load-bearing, a menu binding that fails — registration conflict or a string
+  that doesn't parse — raises a one-time notice naming the binding and
+  pointing at config.json (`HotkeyCenter.onMenuHotkeyFailure`); the other
+  hotkeys just log. An empty/"none"/"disabled" menu binding is a deliberate
+  opt-out and stays silent. Menu key equivalents in the right-click menu come
+  from the same `HotkeySpec` parse that backs Carbon registration
+  (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
+  hotkey backs.
+- **Palettes are sized once, when they open** (`PetPanel.host`, used by both
+  filtering palettes). An `NSHostingView` left to drive its window writes the
+  *current* content's measurement into the window's content min/max size, and
+  a filter that matches nothing collapses that content hardest — the list and
+  its footer are replaced by one line of text. AppKit clamps the panel down to
+  it and backspacing grows the content back but never the window, so the full
+  list returns into a slot two rows too short. `host` measures, then sets
+  `sizingOptions = []` to take SwiftUI's vote away. **Order is load-bearing:**
+  a hosting view with no sizing options answers `fittingSize` of 0×0, so
+  measuring after clearing opens the panel invisible. Because the panel no
+  longer shrinks, an empty state must *fill* the list's space
+  (`.frame(maxHeight: .infinity)`) or it floats centred in a transparent
+  window, which reads as the panel jumping away from the pet; for the same
+  reason the key-hint footer stays outside the empty/non-empty branch. The
+  website mirrors this by pinning `min-height` on open (`docs/chestnut.js`,
+  `openPalette`).
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
@@ -214,7 +238,12 @@ Checks/
   `PetGeometry.Margin.bottom` — one constant, since the scene's baseline and
   the window's bottom margin are the same number.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
-  fallback. Trusted path lookup only (never `$PATH`).
+  fallback. Trusted path lookup only (never `$PATH`). Known trade: the
+  direct-FS capture append is a read-modify-write that can race Obsidian's
+  debounced save of the same open note (last writer wins, either side's text
+  can drop). The CLI path avoids the race and is already preferred whenever
+  it can be trusted (Obsidian running, vault open, name unique) — see
+  `Capture.appendDirectly`'s doc comment before "fixing" this.
 - **Plugin system** (api: 1): shell scripts in `~/.config/chestnut/plugins/<name>/`
   with a `manifest.json` declaring accepted pasteboard types and output mode.
   Plugins receive input via env vars + stdin, produce output on stdout. Output
@@ -226,16 +255,32 @@ Checks/
   `attachmentFolderPath` from `.obsidian/app.json`, falling back to the vault
   root only when it's unset) — the envelope's `folder` field moves the note but
   not its attachments. On `capture`, only attachments the submitted note refers
-  to by filename are copied; see `partitionAttachmentsByReference`. Scripts are
-  exec'd directly (shebang), configurable timeout (default 10s). Hot-reloaded via
+  to by filename are copied; see `partitionAttachmentsByReference`. A *pasted*
+  image is written to a temp file that `CHESTNUT_FILE_PATH` points at, and
+  `PluginDispatch.imagePayload` picks **PNG over TIFF**: an ordinary screenshot
+  puts both on the pasteboard, TIFF is several times larger, and Obsidian
+  renders no TIFF at all, so a TIFF attachment embeds as a blank. The extension
+  comes from the same decision as the bytes — reading them from two separate
+  pasteboard queries once wrote TIFF into a `.png`, which embeds broken *and*
+  hides why. Scripts are
+  exec'd directly (shebang), configurable timeout (default 10s, clamped to
+  1–300). Hot-reloaded via
   FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
   within a broad `accepts` category — unmatched files fall through to the courier.
-  Folder drops route to a `folder` plugin when one exists; otherwise the courier
-  handles them (copies/moves the directory as-is). Non-.md file drops route to a
-  matching plugin when one exists; .md drops always go to courier. Zero-cost when
+  A single dropped folder routes to a `folder` plugin when one exists; a single
+  non-.md file routes to a matching plugin when one exists; .md drops and
+  everything unmatched go to the courier (which copies/moves directories
+  as-is). **Plugin dispatch is single-item only**: a multi-item drop rides the
+  courier wholesale, even when a plugin would match the first item. Plugin
+  runs and the courier contend for the same one-at-a-time surfaces —
+  `presentPalette` dismisses whatever palette and notice are up, so a plugin
+  picker or a `save` plugin's vault palette beside the courier's destination
+  palette clobbers one or the other. Either way, every dropped item lands
+  somewhere; nothing is silently discarded. The routing is pure (`DropRouter`,
+  in the check target); `PetWindow` only feeds it and executes the result. Zero-cost when
   no plugins installed — courier and all existing features work identically.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing

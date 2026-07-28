@@ -25,6 +25,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Vault picked in the capture panel survives dismiss/reopen too
     /// (session-only; a successful capture persists it via the config).
     private var captureTargetPath: String?
+    /// Temp input parked behind the plugin picker. If the picker closes
+    /// without a plugin taking the input (Esc, or another palette replacing
+    /// it), the file is garbage and the next palette close deletes it;
+    /// `runPlugin` claims it for the input it runs, and its own cleanup takes
+    /// over from there.
+    private var pendingPluginTempPath: String?
 
     /// Stateless; built per use so hand-edited config applies next launch.
     private var capture: Capture {
@@ -39,6 +45,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugLog.configure(enabled: config.debug)
         DebugLog.log("config loaded from \(Config.fileURL.path)")
         DebugLog.log("state loaded from \(AppState.fileURL.path)")
+        if let other = otherRunningInstance() {
+            DebugLog.log("another instance is running (pid \(other.processIdentifier)); quitting")
+            presentAlert(
+                "Chestnut is already running",
+                "Another copy is running from \(other.bundleURL?.path ?? "an unknown location"). "
+                    + "Two copies would fight over the same journals and settings, so this one is quitting."
+            )
+            NSApp.terminate(nil)
+            return
+        }
+        // Everything under $TMPDIR/chestnut-plugins/ is a previous session's
+        // parked input — a cancelled plugin picker or a capture draft that
+        // was never submitted. Nothing this session has run yet, so the whole
+        // directory is stale. (Runs after the single-instance guard so a
+        // bounced second launch can't sweep the live instance's files.)
+        try? FileManager.default.removeItem(
+            atPath: NSTemporaryDirectory() + "chestnut-plugins")
         // Gives new users a documented file to edit; never touches an existing one.
         config.createIfMissing()
         UserDefaults.standard.set(300, forKey: "NSInitialToolTipDelay")
@@ -75,6 +98,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         hotkeys.onMenu = { [weak self] in
             self?.petWindow?.showMenuFromHotkey()
+        }
+        hotkeys.onMenuHotkeyFailure = { [weak self] binding, reason in
+            let pretty = HotkeySpec.display(binding) ?? "\u{201C}\(binding)\u{201D}"
+            self?.showNotice(
+                "Menu hotkey \(pretty) didn't register",
+                "\(reason). Right-click still opens the menu; rebind \u{201C}menu\u{201D} in config.json."
+            )
         }
         hotkeys.start(config: config.hotkeys)
 
@@ -262,6 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onClose = { [weak self] in
             self?.palette = nil
             self?.petWindow?.petScene.setOpenWide(false)
+            self?.discardPendingPluginTemp()
         }
         palette = panel
         petWindow.petScene.setOpenWide(true)
@@ -603,6 +634,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 manifest: matches[0].0, dir: matches[0].1, input: input
             )
         default:
+            discardPendingPluginTemp()
+            if let tempPath = input.filePath,
+               tempPath.hasPrefix(NSTemporaryDirectory() + "chestnut-plugins/") {
+                pendingPluginTempPath = tempPath
+            }
             presentPalette(
                 PluginPalettePanel(plugins: matches) { [weak self] manifest, dir in
                     self?.runPlugin(
@@ -613,10 +649,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func discardPendingPluginTemp() {
+        guard let path = pendingPluginTempPath else { return }
+        pendingPluginTempPath = nil
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
     private func runPlugin(
         manifest: PluginManifest, dir: URL, input: PluginRunner.Input
     ) {
         DebugLog.log("plugin run: \(manifest.name) at \(dir.path)")
+        // Claim the parked input before the dismiss below fires the palette's
+        // onClose, which would delete it as abandoned.
+        if pendingPluginTempPath == input.filePath { pendingPluginTempPath = nil }
         palette?.dismiss()
         petWindow?.petScene.setChewing(true)
         let tempPath = input.filePath
@@ -807,6 +852,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePluginError(_ error: PluginError) {
         showNotice("Plugin error", error.localizedDescription)
+    }
+
+    /// A second instance rewrites the same journals and settings files
+    /// wholesale — last writer wins, so the other's undo records vanish.
+    /// LaunchServices only dedupes launches of the *same* bundle path; a DMG
+    /// copy beside /Applications (or `make run` beside an installed copy)
+    /// slips through, so check ourselves before touching anything. A bare
+    /// `swift build` binary has no bundle identifier and skips the guard.
+    private func otherRunningInstance() -> NSRunningApplication? {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return nil }
+        let pid = NSRunningApplication.current.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .first { $0.processIdentifier != pid }
     }
 
     private func presentAlert(_ title: String, _ message: String) {

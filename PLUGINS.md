@@ -66,7 +66,7 @@ output.
 | `accepts` | yes | Array of input types this plugin handles. |
 | `output` | yes | How Chestnut interprets stdout (see Output modes). |
 | `script` | yes | Filename of the executable, relative to the plugin directory. |
-| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`. |
+| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`, clamped to 1–300. |
 
 ### Input types
 
@@ -82,6 +82,15 @@ output.
 
 Unknown type names in `accepts` are silently ignored (forward-compat). At least
 one recognized type is required.
+
+A *pasted* image (as opposed to a dropped file) is written to a temp file first,
+and `CHESTNUT_FILE_PATH` points at that. A screenshot pasteboard carries both
+PNG and TIFF; Chestnut writes the PNG, since Obsidian renders no TIFF. The
+extension always describes the actual bytes, so trust the path's suffix.
+
+Plugins receive single-item drops only: dropping several files (or folders) at
+once is a courier delivery, all of it. Drop an item on its own to route it to
+a plugin.
 
 ### Output modes
 
@@ -99,7 +108,8 @@ one recognized type is required.
   For `structured` mode, truncation breaks the JSON; the error message will
   note that stdout was truncated.
 - **Timeout** defaults to 10 seconds (configurable via `timeout` in the
-  manifest). On timeout the plugin and any child processes are terminated
+  manifest, clamped to 1–300; a value outside that range is logged and
+  adjusted). On timeout the plugin and any child processes are terminated
   (SIGTERM, then SIGKILL after 1 s).
 
 ## Environment variables
@@ -186,8 +196,10 @@ Set `"debug": true` in `~/Library/Application Support/Chestnut/config.json`
 to enable a session log at `~/Library/Logs/Chestnut/chestnut.log`. The log
 records plugin dispatch decisions, input classification, and run results.
 
-**Privacy note:** with debug enabled, clipboard text and dropped-file paths
-are written to the log. Disable it when you're done troubleshooting.
+**Privacy note:** with debug enabled, file paths (dropped files, notes,
+vaults) and your plugins' stderr output are written to the log. Clipboard
+*content* is never logged, only its type and length. Disable debug when
+you're done troubleshooting.
 
 ## Multiple plugins
 

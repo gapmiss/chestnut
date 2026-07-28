@@ -56,10 +56,11 @@ struct PluginPaletteView: View {
 
             Divider()
 
+            // Fills the list's space on purpose — see VaultPaletteView.
             if model.filtered.isEmpty {
                 Text("No matching plugin")
                     .foregroundStyle(.secondary)
-                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -92,13 +93,13 @@ struct PluginPaletteView: View {
                         }
                     }
                 }
-
-                Text("\u{23CE} run    esc cancel")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-                    .padding(.bottom, 6)
             }
+
+            Text("\u{23CE} run    esc cancel")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .padding(.bottom, 6)
         }
         .frame(width: 300)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -149,7 +150,6 @@ private struct PluginRow: View {
 @MainActor
 final class PluginPalettePanel: PetPanel {
     private let model: PluginPaletteModel
-    private var keyMonitor: Any?
 
     init(
         plugins: [(PluginManifest, URL)],
@@ -166,44 +166,15 @@ final class PluginPalettePanel: PetPanel {
             },
             onDismiss: { [weak self] in self?.dismiss() }
         )
-        let hosting = NSHostingView(rootView: view)
-        hosting.frame.size = hosting.fittingSize
-        contentView = hosting
-        setContentSize(hosting.fittingSize)
+        host(view)
 
-        keyMonitor = NSEvent.addLocalMonitorForEvents(
-            matching: .keyDown
-        ) { [weak self] event in
-            guard let self, event.window === self else { return event }
-            let consumed = MainActor.assumeIsolated { () -> Bool in
-                switch event.keyCode {
-                case 125:  // down
-                    self.model.moveSelection(by: 1)
-                    return true
-                case 126:  // up
-                    self.model.moveSelection(by: -1)
-                    return true
-                case 36, 76:  // return / keypad enter
-                    guard let choice = self.model.selected else {
-                        return true
-                    }
-                    if self.firstResponder is NSTextView {
-                        return false
-                    }
-                    onSelect(choice.manifest, choice.dir)
-                    self.dismiss()
-                    return true
-                default:
-                    return false
-                }
+        installPaletteKeyMonitor(
+            moveSelection: { [model] in model.moveSelection(by: $0) },
+            hasSelection: { [model] in model.selected != nil },
+            primaryAction: { [model] in
+                guard let choice = model.selected else { return }
+                onSelect(choice.manifest, choice.dir)
             }
-            return consumed ? nil : event
-        }
-    }
-
-    override func close() {
-        if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
-        keyMonitor = nil
-        super.close()
+        )
     }
 }

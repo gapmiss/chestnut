@@ -14,9 +14,10 @@ enum Sprites {
         for row in rows {
             precondition(row.count == width, "ragged sprite frame: \(row)")
             for ch in row {
-                guard let c = palette[ch] else {
+                guard let raw = palette[ch] else {
                     preconditionFailure("unknown palette character: \(ch)")
                 }
+                let c = SpriteTheme.premultiply(raw)
                 bytes.append(contentsOf: [c.r, c.g, c.b, c.a])
             }
         }

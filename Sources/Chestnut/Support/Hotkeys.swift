@@ -68,6 +68,43 @@ struct HotkeySpec {
         "escape": "⎋", "esc": "⎋", "delete": "⌫", "backspace": "⌫",
     ]
 
+    /// The NSMenuItem representation of the binding. Display-only — the real
+    /// hotkey is Carbon-registered — but derived from the *same parse*, so
+    /// the menu can never show a key equivalent that no registered hotkey
+    /// backs, or hide one that works. (PetWindow used to tokenize the string
+    /// itself with its own tables; the grammars drifted — its parser took
+    /// "shift+a", which Carbon registration refuses, and rejected "f1",
+    /// which it accepts.)
+    var menuKeyEquivalent: (key: String, modifiers: NSEvent.ModifierFlags)? {
+        guard let key = Self.keyEquivalents[keyCode] else { return nil }
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers & UInt32(controlKey) != 0 { flags.insert(.control) }
+        if modifiers & UInt32(optionKey) != 0 { flags.insert(.option) }
+        if modifiers & UInt32(cmdKey) != 0 { flags.insert(.command) }
+        if modifiers & UInt32(shiftKey) != 0 { flags.insert(.shift) }
+        return (key, flags)
+    }
+
+    /// keyCode → NSMenuItem `keyEquivalent` string: the reverse of `keyMap`,
+    /// built from it so a key can't exist in one direction only.
+    private static let keyEquivalents: [UInt32: String] = {
+        var m: [UInt32: String] = [:]
+        // Letters and digits are their own equivalents.
+        for (name, code) in keyMap where name.count == 1 { m[code] = name }
+        m[UInt32(kVK_Space)] = " "
+        m[UInt32(kVK_Tab)] = "\t"
+        m[UInt32(kVK_Return)] = "\r"
+        m[UInt32(kVK_Escape)] = "\u{1B}"
+        m[UInt32(kVK_Delete)] = "\u{08}"
+        // NSMenuItem draws function keys via the Unicode function-key scalars.
+        let fkeys = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6,
+                     kVK_F7, kVK_F8, kVK_F9, kVK_F10, kVK_F11, kVK_F12]
+        for (index, code) in fkeys.enumerated() {
+            m[UInt32(code)] = String(UnicodeScalar(NSF1FunctionKey + index)!)
+        }
+        return m
+    }()
+
     private static let modifierMap: [String: UInt32] = [
         "control": UInt32(controlKey),
         "ctrl": UInt32(controlKey),
@@ -124,11 +161,20 @@ final class HotkeyCenter {
     var onNotice: (() -> Void)?
     var onPaste: (() -> Void)?
     var onMenu: (() -> Void)?
+    /// The menu binding is the only keyboard route to Settings, Undo, and
+    /// Quit — `canBecomeKey` is false so no key equivalent ever fires, and an
+    /// LSUIElement app is absent from Force Quit — so its failure can't stay
+    /// in a log the way the others' can. Fired at most once per launch, with
+    /// the binding string and a human-readable reason. An empty / "none" /
+    /// "disabled" binding is a deliberate opt-out and stays silent.
+    var onMenuHotkeyFailure: ((_ binding: String, _ reason: String) -> Void)?
 
     private var registeredKeys: [UInt32: EventHotKeyRef] = [:]
     private var handler: EventHandlerRef?
     private var noticeSpec: HotkeySpec?
     private var menuSpec: HotkeySpec?
+    private var menuBinding = ""
+    private var menuFailureReported = false
 
     private static let signature = OSType(0x4348_4E54)  // "CHNT"
     private static let captureID: UInt32 = 1
@@ -167,18 +213,33 @@ final class HotkeyCenter {
         register(config.hopper, id: Self.hopperID, label: "hopper")
         register(config.paste, id: Self.pasteID, label: "paste")
 
+        menuBinding = config.menu
         menuSpec = HotkeySpec(config.menu)
         register(config.menu, id: Self.menuID, label: "menu")
+        if menuSpec == nil, !Self.isOptedOut(config.menu) {
+            reportMenuFailure("It isn't a valid hotkey")
+        }
 
         // The notice hotkey is registered on demand — only while an
         // actionable bubble is visible — so Chestnut doesn't consume the
         // combo system-wide around the clock. Parse (and complain) once here.
         noticeSpec = HotkeySpec(config.notice)
-        if noticeSpec == nil, !config.notice.isEmpty,
-           config.notice.lowercased() != "none",
-           config.notice.lowercased() != "disabled" {
+        if noticeSpec == nil, !Self.isOptedOut(config.notice) {
             NSLog("HotkeyCenter: invalid notice hotkey \"%@\"", config.notice)
         }
+    }
+
+    /// True for the strings that mean "no hotkey, on purpose" — the same set
+    /// `HotkeySpec.init` maps to nil deliberately rather than by rejection.
+    private static func isOptedOut(_ binding: String) -> Bool {
+        let raw = binding.trimmingCharacters(in: .whitespaces).lowercased()
+        return raw.isEmpty || raw == "none" || raw == "disabled"
+    }
+
+    private func reportMenuFailure(_ reason: String) {
+        guard !menuFailureReported else { return }
+        menuFailureReported = true
+        onMenuHotkeyFailure?(menuBinding, reason)
     }
 
     /// Register/unregister the notice hotkey as the actionable bubble
@@ -219,8 +280,7 @@ final class HotkeyCenter {
 
     private func register(_ binding: String, id: UInt32, label: String) {
         guard let spec = HotkeySpec(binding) else {
-            if !binding.isEmpty, binding.lowercased() != "none",
-               binding.lowercased() != "disabled" {
+            if !Self.isOptedOut(binding) {
                 NSLog("HotkeyCenter: invalid %@ hotkey \"%@\"", label, binding)
             }
             return
@@ -238,6 +298,9 @@ final class HotkeyCenter {
         if status != noErr {
             NSLog("HotkeyCenter: could not register %@ hotkey (OSStatus %d)", label, status)
             DebugLog.log("hotkey: register \(label) FAILED (OSStatus \(status))")
+            if id == Self.menuID {
+                reportMenuFailure("Another app may already be using it")
+            }
         } else if let ref {
             registeredKeys[id] = ref
             DebugLog.log("hotkey: registered \(label) (keyCode=\(spec.keyCode), mods=\(spec.modifiers))")

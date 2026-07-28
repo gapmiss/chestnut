@@ -107,7 +107,7 @@ Sources/Chestnut/
   Vaults/     # VaultRegistry, VaultWatcher
   Actions/    # ObsidianBridge, Courier, Capture
   Panels/     # SwiftUI palettes/panels (NSPanel-hosted)
-  Plugins/    # PluginManifest, PluginRegistry, PluginRunner, PluginDispatch, PluginPalette
+  Plugins/    # PluginManifest, PluginRegistry, PluginRunner, PluginDispatch, DropRouter, PluginPalette
   Support/    # Config, Hotkeys, Journal
 ```
 

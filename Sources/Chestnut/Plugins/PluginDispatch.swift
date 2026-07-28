@@ -37,6 +37,22 @@ enum PluginDispatch {
         return .file
     }
 
+    /// The image bytes to hand a plugin, and the extension that names them.
+    /// An ordinary ⌘⇧⌃4 screenshot puts *both* PNG and TIFF on the pasteboard,
+    /// so this is a preference, not a fallback chain: PNG wins because it is a
+    /// third the size and Obsidian renders no TIFF at all, so a TIFF
+    /// attachment embeds as a blank. The extension is derived from the data
+    /// actually chosen — picking the bytes and the name from separate
+    /// pasteboard queries once wrote TIFF into a `.png` file, which embeds
+    /// broken *and* hides the reason.
+    nonisolated static func imagePayload(
+        png: Data?, tiff: Data?
+    ) -> (data: Data, ext: String)? {
+        if let png { return (png, "png") }
+        if let tiff { return (tiff, "tiff") }
+        return nil
+    }
+
     @MainActor static func classify(
         _ pasteboard: NSPasteboard
     ) -> (PluginInputType, PluginRunner.Input)? {
@@ -74,7 +90,9 @@ enum PluginDispatch {
             ?? pasteboard.string(forType: .string),
             let url = URL(string: urlString),
             url.scheme == "http" || url.scheme == "https" {
-            DebugLog.log("plugin dispatch: classified as url (\(urlString.prefix(80)))")
+            // Length only, never content: clipboards carry passwords, and the
+            // debug log is a file on disk.
+            DebugLog.log("plugin dispatch: classified as url (\(urlString.count) chars)")
             return (.url, PluginRunner.Input(
                 type: .url,
                 text: urlString,
@@ -83,17 +101,18 @@ enum PluginDispatch {
             ))
         }
 
-        // Image data (TIFF/PNG) → write to temp file.
-        if let imageData = pasteboard.data(forType: .tiff)
-            ?? pasteboard.data(forType: .png) {
+        // Image data (PNG preferred, TIFF accepted) → write to temp file.
+        if let payload = imagePayload(
+            png: pasteboard.data(forType: .png),
+            tiff: pasteboard.data(forType: .tiff)
+        ) {
             let tempDir = NSTemporaryDirectory() + "chestnut-plugins"
             try? FileManager.default.createDirectory(
                 atPath: tempDir, withIntermediateDirectories: true
             )
-            let ext = pasteboard.data(forType: .png) != nil ? "png" : "tiff"
-            let tempFile = tempDir + "/paste-\(UUID().uuidString).\(ext)"
+            let tempFile = tempDir + "/paste-\(UUID().uuidString).\(payload.ext)"
             if FileManager.default.createFile(
-                atPath: tempFile, contents: imageData
+                atPath: tempFile, contents: payload.data
             ) {
                 DebugLog.log("plugin dispatch: classified as image, temp=\(tempFile)")
                 return (.image, PluginRunner.Input(
@@ -108,7 +127,7 @@ enum PluginDispatch {
         // Plain string.
         if let text = pasteboard.string(forType: .string),
             !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            DebugLog.log("plugin dispatch: classified as text (\(text.prefix(80)))")
+            DebugLog.log("plugin dispatch: classified as text (\(text.count) chars)")
             return (.text, PluginRunner.Input(
                 type: .text,
                 text: text,

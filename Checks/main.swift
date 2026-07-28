@@ -161,6 +161,7 @@ struct Check {
         pluginRunnerChecks()
         await pluginRunnerEndToEndChecks()
         pluginDispatchChecks()
+        dropRouterChecks()
         obsidianLinkChecks()
         docsContractChecks()
 
@@ -757,6 +758,24 @@ struct Check {
         check(HotkeySpec.display("none") == nil, "display of disabled binding is nil")
         check(HotkeySpec.display("control+bogus+a") == nil, "display of malformed binding is nil")
 
+        // The menu key equivalent comes from the same parse that backs the
+        // Carbon registration — one grammar, so an equivalent the menu draws
+        // is always a hotkey that fires, and vice versa.
+        func equivalent(_ s: String) -> (String, NSEvent.ModifierFlags)? {
+            HotkeySpec(s)?.menuKeyEquivalent
+        }
+        check(equivalent("control+option+v").map { $0 == ("v", [.control, .option]) } == true,
+              "menu equivalent maps a letter binding")
+        check(equivalent("cmd+shift+k").map { $0 == ("k", [.command, .shift]) } == true,
+              "menu equivalent maps command+shift")
+        check(equivalent("control+option+space").map { $0 == (" ", [.control, .option]) } == true,
+              "menu equivalent maps space to \" \"")
+        check(equivalent("ctrl+f1").map { $0 == (String(UnicodeScalar(NSF1FunctionKey)!), .control) } == true,
+              "menu equivalent maps F-keys to function-key scalars")
+        check(equivalent("shift+a") == nil,
+              "menu equivalent refuses what Carbon registration refuses")
+        check(equivalent("none") == nil, "menu equivalent of a disabled binding is nil")
+
         func decode(_ json: String) -> Config? {
             try? JSONDecoder().decode(Config.self, from: Data(json.utf8))
         }
@@ -825,6 +844,20 @@ struct Check {
         check(SpriteTheme.resolvedPalette(themeID: "obsidian-night", overrides: nil).count
                 == SpriteTheme.obsidianNight.palette.count,
               "nil overrides resolve to the plain theme")
+
+        // --- premultiplication (the sprite bitmap is .premultipliedLast) ---
+        func premul(_ c: SpriteTheme.RGBA) -> (UInt8, UInt8, UInt8, UInt8) {
+            let p = SpriteTheme.premultiply(c)
+            return (p.r, p.g, p.b, p.a)
+        }
+        check(premul((r: 155, g: 93, b: 229, a: 255)) == (155, 93, 229, 255),
+              "premultiply leaves opaque pixels unchanged")
+        check(premul((r: 155, g: 93, b: 229, a: 0)) == (0, 0, 0, 0),
+              "premultiply zeroes fully transparent pixels")
+        check(premul((r: 255, g: 128, b: 0, a: 128)) == (128, 64, 0, 128),
+              "premultiply halves components at 50% alpha, rounded")
+        check(premul((r: 1, g: 255, b: 254, a: 1)) == (0, 1, 1, 1),
+              "premultiply never leaves a component above alpha")
     }
 
     // MARK: - Pet frames
@@ -956,6 +989,33 @@ struct Check {
         } else {
             check(false, "no-timeout manifest should load")
         }
+
+        // Timeout clamping: 0 would SIGTERM the script at launch; a huge
+        // value would let a hung plugin chew forever.
+        let zeroTimeoutDir = writePlugin("zero-timeout", manifest: """
+        {"api":1,"name":"zero-timeout","accepts":["text"],"output":"notify","script":"run.sh","timeout":0}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: zeroTimeoutDir) {
+            check(m.timeout == PluginManifest.timeoutRange.lowerBound,
+                  "timeout 0 clamped to floor")
+        } else {
+            check(false, "zero-timeout manifest should load")
+        }
+        let hugeTimeoutDir = writePlugin("huge-timeout", manifest: """
+        {"api":1,"name":"huge-timeout","accepts":["text"],"output":"notify","script":"run.sh","timeout":1e9}
+        """, script: "#!/bin/bash\necho hi")
+        if case .ok(let m) = PluginManifest.load(from: hugeTimeoutDir) {
+            check(m.timeout == PluginManifest.timeoutRange.upperBound,
+                  "timeout 1e9 clamped to ceiling")
+        } else {
+            check(false, "huge-timeout manifest should load")
+        }
+        check(PluginManifest.clampedTimeout(nil) == PluginManifest.defaultTimeout,
+              "clampedTimeout(nil) is the default")
+        check(PluginManifest.clampedTimeout(-5) == PluginManifest.timeoutRange.lowerBound,
+              "negative timeout clamped to floor")
+        check(PluginManifest.clampedTimeout(30) == 30,
+              "in-range timeout untouched")
 
         // Envelope parsing with missing optional fields.
         let envelopeJSON = #"{"action":"save","content":"hello"}"#
@@ -1290,6 +1350,35 @@ struct Check {
         } catch {
             check(false, "runner: large stdout should not throw (\(error))")
         }
+
+        // A script that backgrounds a child (inheriting the stdout pipe) and
+        // exits must still resolve promptly: EOF never arrives while the
+        // child lives, so the grace path returns with what's buffered.
+        let bg = writeScript("bg", "echo 'front'\nsleep 5 &\nexit 0")
+        do {
+            let started = Date()
+            let raw = try await PluginRunner.run(manifest: bg, pluginDir: base.appendingPathComponent("bg"), input: input)
+            let elapsed = Date().timeIntervalSince(started)
+            check(raw.exitCode == 0, "runner: backgrounded child exits 0")
+            check(raw.stdout.contains("front"), "runner: backgrounded child stdout captured")
+            check(elapsed < 2.5, "runner: backgrounded child resolves promptly (\(elapsed)s)")
+        } catch {
+            check(false, "runner: backgrounded child should not throw (\(error))")
+        }
+
+        // A plugin that never reads stdin, fed more than the ~64 KB pipe
+        // buffer: the write fails with EPIPE, which must not crash or hang.
+        let deaf = writeScript("deaf", "exit 0")
+        let bigInput = PluginRunner.Input(
+            type: .text, text: String(repeating: "x", count: 200_000),
+            filePath: nil, sourceApp: nil
+        )
+        do {
+            let raw = try await PluginRunner.run(manifest: deaf, pluginDir: base.appendingPathComponent("deaf"), input: bigInput)
+            check(raw.exitCode == 0, "runner: unread 200 KB stdin survives (exit 0)")
+        } catch {
+            check(false, "runner: unread stdin should not throw (\(error))")
+        }
     }
 
     // MARK: - Plugin dispatch
@@ -1313,6 +1402,23 @@ struct Check {
 
         check(PluginInputType(rawValue: "folder") == .folder, "folder raw value round-trips")
 
+        // A screenshot pasteboard carries PNG *and* TIFF, so the choice of
+        // bytes and the choice of name must come from one decision: naming
+        // TIFF bytes `.png` embeds as a blank image in Obsidian.
+        let pngBytes = Data([0x89, 0x50, 0x4E, 0x47])
+        let tiffBytes = Data([0x4D, 0x4D, 0x00, 0x2A])
+        var payload = PluginDispatch.imagePayload(png: pngBytes, tiff: tiffBytes)
+        check(payload?.ext == "png", "pasteboard image: PNG preferred over TIFF")
+        check(payload?.data == pngBytes, "pasteboard image: bytes match .png name")
+        payload = PluginDispatch.imagePayload(png: nil, tiff: tiffBytes)
+        check(payload?.ext == "tiff", "pasteboard image: TIFF-only names itself .tiff")
+        check(payload?.data == tiffBytes, "pasteboard image: bytes match .tiff name")
+        payload = PluginDispatch.imagePayload(png: pngBytes, tiff: nil)
+        check(payload?.ext == "png", "pasteboard image: PNG-only stays .png")
+        check(payload?.data == pngBytes, "pasteboard image: PNG-only bytes carried")
+        check(PluginDispatch.imagePayload(png: nil, tiff: nil) == nil,
+              "pasteboard image: no image data → nil")
+
         let fm = FileManager.default
         let tmpDir = URL(fileURLWithPath:
             NSTemporaryDirectory() + "chestnut-check-folder-\(ProcessInfo.processInfo.processIdentifier)")
@@ -1326,6 +1432,63 @@ struct Check {
 
         let missing = URL(fileURLWithPath: NSTemporaryDirectory() + "nonexistent-\(UUID())")
         check(!missing.isExistingDirectory, "nonexistent path not detected as directory")
+    }
+
+    // MARK: - Drop routing
+
+    /// Every dropped URL must land in exactly one route — the failure worth
+    /// testing is an item silently going nowhere, which is what the old
+    /// in-window routing did to everything after the first plugin match.
+    /// Plugin dispatch is single-item only: a plugin run and the courier
+    /// contend for the same palette/notice surfaces (`presentPalette`
+    /// dismisses both), so a multi-item drop is a delivery, wholesale.
+    static func dropRouterChecks() {
+        let a = URL(fileURLWithPath: "/drop/a.png")
+        let b = URL(fileURLWithPath: "/drop/b.png")
+        let z = URL(fileURLWithPath: "/drop/archive.zip")
+        let note = URL(fileURLWithPath: "/drop/note.md")
+        let dir1 = URL(fileURLWithPath: "/drop/dirA")
+        let dir2 = URL(fileURLWithPath: "/drop/dirB")
+        let isDir: (URL) -> Bool = { $0 == dir1 || $0 == dir2 }
+        let imageOnly: (PluginInputType, String) -> Bool = { type, _ in type == .image }
+        let none: (PluginInputType, String) -> Bool = { _, _ in false }
+
+        // A single matching item is the plugin path, same as ever.
+        var route = DropRouter.route([a], isDirectory: isDir,
+                                     hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == .init(type: .image, url: a) && route.courier.isEmpty,
+              "router: single matching file goes to the plugin")
+        route = DropRouter.route([dir1], isDirectory: isDir,
+                                 hasFolderPlugin: true, hasPluginFor: none)
+        check(route.plugin == .init(type: .folder, url: dir1) && route.courier.isEmpty,
+              "router: single directory goes to the folder plugin")
+
+        // A multi-item drop is a delivery, wholesale — even when a plugin
+        // would match the first item. Nothing vanishes, one surface opens.
+        route = DropRouter.route([a, b, note], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == nil && route.courier == [a, b, note],
+              "router: multi-item drop rides the courier wholesale")
+        route = DropRouter.route([dir1, dir2, note], isDirectory: isDir,
+                                 hasFolderPlugin: true, hasPluginFor: none)
+        check(route.plugin == nil && route.courier == [dir1, dir2, note],
+              "router: multi-directory drop rides the courier wholesale")
+
+        // A single item nothing claims falls through to the courier.
+        route = DropRouter.route([z], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: imageOnly)
+        check(route.plugin == nil && route.courier == [z],
+              "router: single unmatched file rides the courier")
+        route = DropRouter.route([dir1], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: none)
+        check(route.plugin == nil && route.courier == [dir1],
+              "router: single directory without a folder plugin rides the courier")
+
+        // .md files never dispatch to a plugin.
+        route = DropRouter.route([note], isDirectory: isDir,
+                                 hasFolderPlugin: false, hasPluginFor: { _, _ in true })
+        check(route.plugin == nil && route.courier == [note],
+              "router: .md drops always go to the courier")
     }
 
     // MARK: - Courier / Journal
@@ -1578,6 +1741,39 @@ struct Check {
                   "copy undo trashes the copy, keeps the pre-existing attachment")
         } catch {
             check(false, "copy delivery threw: \(error)")
+        }
+
+        // --- Self-delivery through a symlinked vault spelling ---
+        // obsidian.json can list one directory twice (once through a symlink;
+        // the registry dedupes by exact string), and `destinationIsSource`
+        // compares standardized paths, which don't resolve symlinks. The
+        // delivery then reaches `place` with source and destination naming
+        // the same file — where the dedup branch would read the "existing
+        // copy" as redundant and delete the only copy.
+        write("s/real/solo.md", "ONLY COPY")
+        let sReal = base.appendingPathComponent("s/real")
+        let sLink = base.appendingPathComponent("s/link")
+        try! fm.createSymbolicLink(at: sLink, withDestinationURL: sReal)
+        check(Courier.isSameFile(sReal.appendingPathComponent("solo.md"),
+                                 sLink.appendingPathComponent("solo.md")),
+              "isSameFile: one file under two spellings → true")
+        check(!Courier.isSameFile(cSrc.appendingPathComponent("att.png"),
+                                  cDst.appendingPathComponent("att.png")),
+              "isSameFile: identical bytes in two distinct files → false")
+        check(!Courier.isSameFile(sReal.appendingPathComponent("ghost.md"),
+                                  sReal.appendingPathComponent("ghost.md")),
+              "isSameFile: missing file → false")
+        do {
+            let op = try courier.deliver(
+                files: [sReal.appendingPathComponent("solo.md")],
+                toVault: sLink, sourceVault: sReal, copy: false
+            )
+            check(read("s/real/solo.md") == "ONLY COPY",
+                  "delivering a note onto itself leaves the only copy in place")
+            check(op.transfers.isEmpty,
+                  "self-delivery records nothing for undo to reverse")
+        } catch {
+            check(false, "self-delivery threw: \(error)")
         }
 
         // --- Content-driven traversal is refused (embeds can't escape the vault) ---
