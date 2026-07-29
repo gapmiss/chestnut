@@ -173,8 +173,8 @@ Checks/
   match, so a value persisted between stops shows none.
   `showMenuFromHotkey` is the keyboard entry point: it must call
   `NSApp.activate` or menu tracking reads keys from whatever is frontmost, and
-  it positions via `menuOrigin`, which flips the menu above the sprite when it
-  won't fit below. **The `menu` hotkey is unregistered for as long as the menu
+  it positions via `menuOrigin` (in `PetGeometry`, not `PetWindow` — see
+  below), which flips the menu above the sprite when it won't fit below. **The `menu` hotkey is unregistered for as long as the menu
   tracks** (`setMenuHotkeyEnabled`, driven by `onMenuTrackingChange`): Carbon
   captures the keystroke but its nested loop won't dispatch during tracking, so
   a registered key queues every press and replays them the moment Esc
@@ -230,7 +230,12 @@ Checks/
   check target, and an unreachable pet is the failure most worth testing, so
   the maths lives where `make check` can reach it (same move as the size and
   opacity presets in `AppState`). `PetWindow` holds thin wrappers that supply
-  the current displays. `validatedOrigin` distrusts a saved position that no
+  the current displays. **`menuOrigin` lives here for the same reason** — a
+  menu positioned off-screen takes Settings, Undo, Reset Position and Quit with
+  it, and it is reached by the keyboard route that exists precisely *because*
+  the pet may be unreachable. Unlike the others it injects nothing, so
+  `PetWindow` calls it directly rather than through a wrapper.
+  `validatedOrigin` distrusts a saved position that no
   screen intersects and falls back to the default corner; a position that is
   merely partly off, or tucked under the Dock, is **clamped rather than reset**
   — intersection is tested against `frame` but clamping against `visibleFrame`,
@@ -287,7 +292,15 @@ Checks/
   Scripts are
   exec'd directly (shebang), configurable timeout (default 10s, clamped to
   1–300). Hot-reloaded via
-  FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
+  FSEvents — and **`PluginRegistry.start` creates the plugins directory before
+  watching it**, which reads as redundant beside `rescan()`'s tolerance of a
+  missing directory and the on-demand creation behind "Open Plugins Folder",
+  but is not: `start()` hands that path to `FSEventStreamCreate`, and a stream
+  created on a path that does not exist never begins delivering — not when the
+  directory appears later, and not for any install after that. Deleting the
+  line costs hot-reload for the whole session (measured: 0 plugins seen across
+  two installs over 8s, against 1 then 2 with it). Pinned by checks.
+  Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
@@ -307,11 +320,27 @@ Checks/
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
   `/`), rejecting `.obsidian` path components. Callers are all paths the user
-  did not type by hand: plugin `save` output (`AppDelegate.swift:780`), plugin
-  capture attachments (`:538`), and `obsidian://` drop resolution
-  (`PetWindow.swift:831`, a read path). It
+  did not type by hand: plugin `save` output (`AppDelegate.swift:792`, with
+  `:790` covering the directories it creates), plugin capture attachments
+  (`:550`), `obsidian://` drop resolution (`PetWindow.swift:808`, a read path),
+  and capture's four — the destination fork's two branches
+  (`Capture.swift:236`, `:240`), the CLI path (`:359`), and `appendDirectly`'s
+  `precondition` (`:197`). Capture's four were hand-inlined copies of the
+  predicate until they were folded in; **the one copy that remains is
+  `attachmentFolder(of:)`** (`Courier.swift:487`), left that way deliberately —
+  it applies the *file* spelling to a directory and falls back to the vault
+  root whenever the check fails, so swapping in `isContainedDirectory` would
+  quietly change where an `attachmentFolderPath` like `.obsidian/../att`
+  resolves. It
   collapses `../`, which is the case it exists to catch — a buggy plugin
-  emitting `"folder": "../.."`. It does **not** resolve symlinks: a directory
+  emitting `"folder": "../.."`. **It judges the *standardized* path, which is
+  not the same rule as scanning raw components for `.obsidian`:** the copies it
+  replaced rejected `.obsidian/../notes/x.md`, which resolves nowhere near
+  `.obsidian/` and is a legal target. The two spellings agreed only because
+  both producers of capture's relative path (`dailyNoteRelativePath`,
+  `chestnutDailyRelativePath`) refuse a `..` component first — `make check`
+  pins that guard on both sides of the fork, so removing it makes them
+  disagree. It does **not** resolve symlinks: a directory
   you symlink out of the vault is followed. That is deliberate, not an
   oversight; see Hard invariants.
   **`isContainedDirectory` is the variant for paths that get *created*, and
@@ -346,7 +375,20 @@ Checks/
   every operation is journaled for undo. Journals are capped
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
-  `NoteRewrite.original`, so both limits are load-bearing. **`last()` and
+  `NoteRewrite.original`, so both limits are load-bearing. **A record that
+  blows the byte cap on its own is shed, not dropped** — `trimmed` keeps a lone
+  record at any size, so the ceiling is enforced in `append` via
+  `JournalShedding`, before the line is ever written. The two record types
+  answer that protocol *differently*, and the asymmetry is the whole design:
+  the courier's `rewrites[].original` is a **copy**, kept only so undo can put
+  the link rewrites back, so a shed record still reverses every move and copy —
+  `Courier.undo` returns an `UndoOutcome` naming the notes whose text it could
+  not restore, so the user is told rather than discovering it from a broken
+  embed. A capture's `appended` is the **undo instruction itself** — the exact
+  bytes `Capture.undo` strips back off the end of the note — so `CaptureRecord`
+  sheds nothing at any size and an oversized capture is journaled whole. A
+  record that is large for some other reason (thousands of transfers) has
+  nothing useful to give up and is kept intact rather than mangled. **`last()` and
   `removeLast()` both resolve the top record through `Journal.topIndex`**,
   which walks back past any line that won't decode. Atomic appends mean this
   build can't tear a line, but every journal written by a pre-0.5 build could

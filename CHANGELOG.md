@@ -23,6 +23,40 @@ Notable, user-facing changes to Chestnut. The format follows
   a note you have not opened lately may not be downloaded yet. Chestnut now
   says it could not read the note and cancels the delivery.
 
+- **Undo no longer silently leaves a large note's links rewritten.** Chestnut's
+  undo log is capped so it cannot grow without bound, but a single record
+  larger than the entire cap slipped past the limit — delivering a big note
+  whose image links were rewritten wrote that note's whole previous text into
+  Application Support and left it there. Chestnut now keeps the record and
+  drops the text copy: undo still brings every file home, and it now names the
+  notes whose original links it could not put back, instead of handing them
+  over quietly. Quick Capture records are never shortened this way, because
+  there the saved text is exactly what undo needs to know what to remove.
+
+- **Chestnut no longer claims keyboard shortcuts it cannot answer.** If the
+  system handler that dispatches hotkeys failed to install, Chestnut registered
+  all five shortcuts regardless. Every one was then reserved system-wide and
+  dead everywhere at once: ⌃⌥M did nothing in Chestnut, and nothing in any
+  other app either. Chestnut now registers no shortcuts in that case and tells
+  you the menu shortcut is unavailable, since the right-click menu is the only
+  way to reach Settings, Undo and Quit.
+
+- **A plugin can no longer create a folder outside your vault.** The folder a
+  plugin save creates was only checked indirectly, by way of the note path, so
+  a plugin pairing a `folder` that pointed outside the vault with a `filename`
+  that walked back into it had the outside folder created anyway, while the
+  note landed correctly and the save reported success. Only empty folders could
+  be made this way and no note text ever left the vault, but the rule is meant
+  to cover every path a save creates, and now does.
+
+- **A long reply from the `obsidian` command-line tool no longer stalls.**
+  Chestnut waited for the tool to exit before reading what it had printed, so a
+  reply bigger than the pipe buffer left the tool stuck mid-write and the call
+  timed out. These calls are optional refinements with a direct fallback, so
+  the visible effect was only that a follow-up such as revealing the note in
+  Obsidian never happened, but it burned the full timeout each time. Both
+  output streams are now read while the tool runs.
+
 ### Changed
 
 - **Plugins: filenames in structured output follow the same rules as plain
