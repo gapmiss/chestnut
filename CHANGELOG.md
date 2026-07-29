@@ -23,6 +23,15 @@ Notable, user-facing changes to Chestnut. The format follows
   a note you have not opened lately may not be downloaded yet. Chestnut now
   says it could not read the note and cancels the delivery.
 
+- **VoiceOver now announces the vault you have arrowed to.** In the Vault
+  Hopper and the delivery destination picker, ↑ and ↓ moved the highlight
+  without saying anything, because the typing focus stays in the filter field
+  and the highlight belongs to no control. VoiceOver announced only "text
+  field", however far down the list you got, so pressing ⏎ opened a vault you
+  were never told was selected. Each move is now spoken with the vault's name
+  and path, along with whether it is open in Obsidian and whether it is
+  pinned, which the list otherwise shows only as a coloured dot and an icon.
+
 - **Undo no longer silently leaves a large note's links rewritten.** Chestnut's
   undo log is capped so it cannot grow without bound, but a single record
   larger than the entire cap slipped past the limit — delivering a big note
@@ -56,6 +65,15 @@ Notable, user-facing changes to Chestnut. The format follows
   the visible effect was only that a follow-up such as revealing the note in
   Obsidian never happened, but it burned the full timeout each time. Both
   output streams are now read while the tool runs.
+
+### Added
+
+- **A note on using Chestnut with VoiceOver.** Control-Option is VoiceOver's
+  own modifier key, so while VoiceOver is running it takes ⌃⌥V, ⌃⌥M and the
+  rest before Chestnut ever sees them, leaving no working shortcut, ⌃⌥M
+  included. The README now says so and gives a `control+shift` set to paste
+  into `config.json`. Right-clicking Chestnut still opens the menu meanwhile,
+  and the menu, the capture panel and the palettes all read correctly.
 
 ### Changed
 

@@ -204,6 +204,18 @@ Checks/
   from the same `HotkeySpec` parse that backs Carbon registration
   (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
   hotkey backs.
+  **VoiceOver claims all five, and that includes the load-bearing one.**
+  Control-Option *is* VoiceOver's modifier: ⌃⌥V is speech verbosity, ⌃⌥M is
+  the menu bar, and VoiceOver wins the keystroke — so with it running there is
+  no hotkey route into Chestnut at all, including the ⌃⌥M route this list
+  calls the only keyboard way to Settings, Undo and Quit. The pet's own
+  right-click still works, and reads correctly once open. Established by a
+  ⌘F5 pass, not by reasoning. **The answer is rebinding, not new defaults:**
+  README documents a `control+shift+…` set, and `make check` parses those five
+  strings *out of the README* so the example can't drift into one that fails
+  at launch — where only the menu binding's failure raises a notice. Changing
+  the shipped defaults would move every existing user's shortcuts to solve a
+  case rebinding already solves.
 - **Palettes are sized once, when they open** (`PetPanel.host`, used by both
   filtering palettes). An `NSHostingView` left to drive its window writes the
   *current* content's measurement into the window's content min/max size, and
@@ -220,6 +232,25 @@ Checks/
   reason the key-hint footer stays outside the empty/non-empty branch. The
   website mirrors this by pinning `min-height` on open (`docs/chestnut.js`,
   `openPalette`).
+- **Palette selection is announced explicitly, and row traits alone would not
+  do it.** VoiceOver speaks the *focused* element. The palettes keep focus in
+  the filter field on purpose (command-palette style) and move a `@Published
+  var selection` from an AppKit key monitor, so ↑/↓ moved a highlight no
+  control owned and VoiceOver said nothing — a ⌘F5 pass heard "text field"
+  however far down the list it got, and ⏎ then opened a vault the user was
+  never told was selected. `VaultPaletteModel.announceSelection` posts
+  `.announcementRequested` to `NSApplication.shared` on each move that changes
+  the row, at high priority so it interrupts the field editor's echo; a press
+  at either end of the list stays silent, because nothing moved. Rows *also*
+  carry `.isSelected` and a label, but those apply only once the VO cursor
+  visits a row, which means leaving the field — **the 2026-07-28 audit's L7
+  sketch was traits-only and would have shipped a still-silent hopper.** Both
+  spellings share `VaultPaletteModel.accessibilityLabel(for:isPinned:)`, which
+  also turns the glowing gem and the pin icon into the words "open" and
+  "pinned", since on screen they are colour and shape only. `Panels/` is
+  outside the check target (it imports SwiftUI), so that shared helper is the
+  drift guard rather than an assertion. **Changes here can only be verified
+  with VoiceOver actually running** — nothing in `make check` can hear.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.

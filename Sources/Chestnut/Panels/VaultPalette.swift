@@ -36,8 +36,57 @@ final class VaultPaletteModel: ObservableObject {
     }
 
     func moveSelection(by delta: Int) {
+        let filtered = filtered
         guard !filtered.isEmpty else { return }
-        selection = min(max(selection + delta, 0), filtered.count - 1)
+        let moved = min(max(selection + delta, 0), filtered.count - 1)
+        // Already at the end: no move, and so nothing to say. Announcing an
+        // unchanged row would report progress that didn't happen.
+        guard moved != selection else { return }
+        selection = moved
+        announceSelection()
+    }
+
+    /// Speak the row ↑/↓ just landed on.
+    ///
+    /// VoiceOver announces the *focused* element, and focus never leaves the
+    /// filter field — the highlight is this `@Published var`, moved by an
+    /// AppKit key monitor and owned by no control — so arrowing through the
+    /// hopper was silent, and a VoiceOver pass heard only "text field" no
+    /// matter how far down the list it got. ⏎ then opened a vault the user was
+    /// never told was selected.
+    ///
+    /// **Row traits alone do not fix this**, which is what the audit's L7
+    /// sketch proposed: `.isSelected` and a label apply once the VO cursor
+    /// visits a row, and reaching a row means leaving the field the palette
+    /// deliberately keeps focus in. They are worth having for VO-cursor
+    /// exploration and are set below, but the announcement is what makes ↑/↓
+    /// speak. Only a real ⌘F5 pass can tell the two apart — this one was
+    /// driven by hand, before and after.
+    private func announceSelection() {
+        guard let vault = selected else { return }
+        NSAccessibility.post(
+            element: NSApplication.shared,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: Self.accessibilityLabel(
+                    for: vault, isPinned: vault.path == pinnedPath
+                ),
+                // Selection tracks the user's own keypress, so it outranks
+                // whatever the field editor is echoing and should interrupt it.
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
+    }
+
+    /// One spelling of what a row says, shared by the announcement above and
+    /// the row's own label so the two can't drift. Open and pinned are a
+    /// glowing gem and a pin icon on screen — colour and shape only — so they
+    /// have to become words here or they reach a screen reader not at all.
+    static func accessibilityLabel(for vault: Vault, isPinned: Bool) -> String {
+        var parts = [vault.name, vault.displayPath]
+        if vault.isOpen { parts.append("open") }
+        if isPinned { parts.append("pinned") }
+        return parts.joined(separator: ", ")
     }
 }
 
@@ -203,6 +252,16 @@ private struct VaultRow: View {
             }
             Button("Reveal in Finder") { onReveal(vault) }
         }
+        // For the VO cursor, which can reach the rows even though ↑/↓ never
+        // move focus to them; `announceSelection` covers the keyboard path.
+        // `.combine` folds the hover-only pin button into the row rather than
+        // leaving a bare "pin" button beside it — the pin is still reachable
+        // by ⌘P and the row's context menu, both of which VoiceOver reads.
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            VaultPaletteModel.accessibilityLabel(for: vault, isPinned: isPinned)
+        )
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 

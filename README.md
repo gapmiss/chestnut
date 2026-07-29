@@ -161,6 +161,33 @@ Two files in `~/Library/Application Support/Chestnut/`:
   duration, pinned vault, disabled plugins. Everything in it has a control in
   the right-click menu.
 
+### Using Chestnut with VoiceOver
+
+**VoiceOver claims Chestnut's default shortcuts.** Control-Option is
+VoiceOver's own modifier (the "VO key"), so with VoiceOver running ⌃⌥V is
+speech verbosity, ⌃⌥M is the menu bar, and none of Chestnut's five hotkeys
+reach Chestnut. That includes ⌃⌥M, which is otherwise the keyboard route to
+the right-click menu.
+
+Rebind them in `config.json` to a prefix VoiceOver doesn't use, and relaunch:
+
+```json
+{
+  "hotkeys": {
+    "capture": "control+shift+space",
+    "hopper":  "control+shift+v",
+    "paste":   "control+shift+c",
+    "notice":  "control+shift+o",
+    "menu":    "control+shift+m"
+  }
+}
+```
+
+Until then, the menu is still reachable by right-clicking Chestnut itself (the
+click has to land on the sprite, not the clear space around it). Once open, the
+menu, the Quick Capture panel and the vault palettes all read correctly, and
+arrowing through a palette announces each vault with its path.
+
 Keeping them apart means editing `config.json` while Chestnut is running is
 safe. Upgrading is just a new `.app`: neither file is touched, so nothing
 resets. If a release ever moves a setting from one file to the other, that one

@@ -813,6 +813,34 @@ struct Check {
         check(HotkeySpec("shift+a") == nil, "shift alone is not enough of a modifier")
         check(HotkeySpec("control+shift+k") != nil, "shift alongside control still parses")
         check(HotkeySpec("option+shift+space") != nil, "shift alongside option still parses")
+
+        // --- README's VoiceOver rebinding example ---
+        // Control-Option is VoiceOver's own modifier: with VoiceOver running,
+        // ⌃⌥V is speech verbosity and ⌃⌥M is the menu bar, so every default
+        // binding is swallowed and Chestnut has no hotkey route at all. The
+        // README answers that with a replacement set, and an example that
+        // doesn't parse is worse than none — it fails at launch, and only the
+        // menu binding's failure raises a notice.
+        let readmeText = (try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("README.md"),
+            encoding: .utf8
+        )) ?? ""
+        check(!readmeText.isEmpty, "README.md is readable from #filePath")
+        let rebindings: [String] = readmeText.components(separatedBy: "\n").compactMap { line in
+            guard let start = line.range(of: "\"control+") else { return nil }
+            let rest = line[start.lowerBound...].dropFirst()
+            guard let end = rest.firstIndex(of: "\"") else { return nil }
+            return String(rest[rest.startIndex..<end])
+        }
+        check(rebindings.count == 5,
+              "README documents a VoiceOver rebinding for all five hotkeys (got \(rebindings.count))")
+        for binding in rebindings {
+            check(HotkeySpec(binding) != nil, "README rebinding \"\(binding)\" parses")
+            check(!(binding.contains("control") && binding.contains("option")),
+                  "README rebinding \"\(binding)\" avoids VoiceOver's own modifier")
+        }
         check(HotkeySpec.display("space") == nil, "display of a modifier-less binding is nil")
 
         check(HotkeySpec.display("control+option+o") == "⌃⌥O", "display renders ⌃⌥O")
