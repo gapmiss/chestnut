@@ -504,3 +504,23 @@ Key site details:
 Users clear Gatekeeper via right-click -> Open (pre-macOS 15) or System Settings ->
 "Open Anyway" (macOS 15+), or `xattr -dr com.apple.quarantine`. Notarization is
 undecided.
+
+**A `brew upgrade` does not re-block the app, and the quarantine attribute
+being present is not evidence that it will.** Homebrew quarantines every cask
+download, so `com.apple.quarantine` is re-stamped on the bundle at each
+upgrade with a fresh timestamp — on 0.6.1 it was written five seconds before
+the bundle landed. That does **not** revoke the approval the user already
+gave: the flags carry the approved bit, and no new prompt appears. Do not
+infer one from `xattr` output.
+
+`spctl -a -vv` reports `rejected` for this app and always will — it is
+ad-hoc signed, not notarized, which is the whole point of this section. That
+verdict describes the signature, not what happens when the user
+double-clicks, so it is not a Gatekeeper prediction either. Neither signal
+justifies telling the maintainer to run `xattr -dr` after an upgrade; they
+have corrected this more than once.
+
+Note the README, `docs/guide.html` and the Homebrew cask's `caveats` all say
+a later upgrade "may ask again, depending on macOS version". That hedge is
+aimed at users on machines nobody here can observe, and is deliberately left
+alone — it is not a licence to repeat the claim about *this* one.
