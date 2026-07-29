@@ -4,6 +4,87 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] — 2026-07-28
+
+### Fixed
+
+- **Chestnut no longer freezes while carrying files.** A delivery did all of
+  its work on the same thread that draws the pet and opens the menu, so a
+  large copy, or a note with several stale image links in a big vault, could
+  leave the pet motionless and every hotkey dead until it finished. macOS
+  could even mark the app as not responding. Deliveries now run in the
+  background, and Chestnut chews while it works.
+
+- **A note Chestnut cannot read is no longer delivered without its images.**
+  If the text of a note could not be read, Chestnut treated the note as empty,
+  which meant it found no images to bring along. The note moved anyway and the
+  delivery reported success, leaving the images behind in the old vault and
+  the links broken in both. The likely cause is a vault in iCloud Drive, where
+  a note you have not opened lately may not be downloaded yet. Chestnut now
+  says it could not read the note and cancels the delivery.
+
+- **VoiceOver now announces the vault you have arrowed to.** In the Vault
+  Hopper and the delivery destination picker, ↑ and ↓ moved the highlight
+  without saying anything, because the typing focus stays in the filter field
+  and the highlight belongs to no control. VoiceOver announced only "text
+  field", however far down the list you got, so pressing ⏎ opened a vault you
+  were never told was selected. Each move is now spoken with the vault's name
+  and path, along with whether it is open in Obsidian and whether it is
+  pinned, which the list otherwise shows only as a coloured dot and an icon.
+
+- **Undo no longer silently leaves a large note's links rewritten.** Chestnut's
+  undo log is capped so it cannot grow without bound, but a single record
+  larger than the entire cap slipped past the limit — delivering a big note
+  whose image links were rewritten wrote that note's whole previous text into
+  Application Support and left it there. Chestnut now keeps the record and
+  drops the text copy: undo still brings every file home, and it now names the
+  notes whose original links it could not put back, instead of handing them
+  over quietly. Quick Capture records are never shortened this way, because
+  there the saved text is exactly what undo needs to know what to remove.
+
+- **Chestnut no longer claims keyboard shortcuts it cannot answer.** If the
+  system handler that dispatches hotkeys failed to install, Chestnut registered
+  all five shortcuts regardless. Every one was then reserved system-wide and
+  dead everywhere at once: ⌃⌥M did nothing in Chestnut, and nothing in any
+  other app either. Chestnut now registers no shortcuts in that case and tells
+  you the menu shortcut is unavailable, since the right-click menu is the only
+  way to reach Settings, Undo and Quit.
+
+- **A plugin can no longer create a folder outside your vault.** The folder a
+  plugin save creates was only checked indirectly, by way of the note path, so
+  a plugin pairing a `folder` that pointed outside the vault with a `filename`
+  that walked back into it had the outside folder created anyway, while the
+  note landed correctly and the save reported success. Only empty folders could
+  be made this way and no note text ever left the vault, but the rule is meant
+  to cover every path a save creates, and now does.
+
+- **A long reply from the `obsidian` command-line tool no longer stalls.**
+  Chestnut waited for the tool to exit before reading what it had printed, so a
+  reply bigger than the pipe buffer left the tool stuck mid-write and the call
+  timed out. These calls are optional refinements with a direct fallback, so
+  the visible effect was only that a follow-up such as revealing the note in
+  Obsidian never happened, but it burned the full timeout each time. Both
+  output streams are now read while the tool runs.
+
+### Added
+
+- **A note on using Chestnut with VoiceOver.** Control-Option is VoiceOver's
+  own modifier key, so while VoiceOver is running it takes ⌃⌥V, ⌃⌥M and the
+  rest before Chestnut ever sees them, leaving no working shortcut, ⌃⌥M
+  included. The README now says so and gives a `control+shift` set to paste
+  into `config.json`. Right-clicking Chestnut still opens the menu meanwhile,
+  and the menu, the capture panel and the palettes all read correctly.
+
+### Changed
+
+- **Plugins: filenames in structured output follow the same rules as plain
+  save mode.** Path separators become `-`, names are capped at 200 characters,
+  and `.md` is added when missing. Previously the structured envelope applied
+  none of this, so `"notes/today.md"` failed with a confusing "file doesn't
+  exist" and `"today"` silently wrote a file Obsidian would not display. Use
+  the `folder` field for subfolders. Attachment filenames are sanitized the
+  same way, without forcing `.md`.
+
 ## [0.6.0] — 2026-07-27
 
 ### Changed
@@ -402,6 +483,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.6.1]: https://github.com/gapmiss/chestnut/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gapmiss/chestnut/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gapmiss/chestnut/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gapmiss/chestnut/compare/v0.3.0...v0.4.0

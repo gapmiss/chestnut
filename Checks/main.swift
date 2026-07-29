@@ -160,6 +160,7 @@ struct Check {
         await pluginRegistryChecks()
         pluginRunnerChecks()
         await pluginRunnerEndToEndChecks()
+        obsidianCLIChecks()
         pluginDispatchChecks()
         dropRouterChecks()
         obsidianLinkChecks()
@@ -419,6 +420,69 @@ struct Check {
         check(bothConfigured.destination(inVault: v7, date: date).path
                 == v7.appendingPathComponent("daily/2026-07-14.md").path,
               "Obsidian daily notes take priority over captureFormat")
+
+        // --- D1: capture uses the one named containment predicate ---
+        // Three hand-inlined copies of `Courier.isContained` lived here. They
+        // are not the same function in the abstract — the copies scanned the
+        // *raw* path components for ".obsidian" while `isContained` judges the
+        // standardized path, so they disagree about `.obsidian/../notes/x.md`
+        // (copy: reject, isContained: accept, and isContained is right, since
+        // that path resolves nowhere near `.obsidian/`).
+        //
+        // They agree on every input that can actually arrive, and these
+        // assertions are why: both producers of the relative path already
+        // refuse a `..` component outright (`dailyNoteRelativePath`,
+        // `chestnutDailyRelativePath`), so a path that needs standardizing to
+        // judge never reaches the predicate. That upstream guard is what makes
+        // swapping the predicates a no-op rather than a behavior change — if it
+        // ever goes, these two implementations start disagreeing.
+        let v8 = vault("v8")
+        write("v8/.obsidian/core-plugins.json", #"{"daily-notes":false}"#)
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: ".obsidian/../notes")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "captureFolder with a .. component is refused upstream, before containment is asked")
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: ".obsidian/plugins")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "a captureFolder inside .obsidian/ falls back to the inbox")
+
+        check(Capture(captureFormat: "YYYY-MM-DD", captureFolder: "../../escaped")
+                .destination(inVault: v8, date: date).path
+                == v8.appendingPathComponent("Inbox.md").path,
+              "a captureFolder escaping the vault falls back to the inbox")
+
+        // Same guard on Obsidian's side of the fork, where the folder comes
+        // from the vault's own daily-notes.json rather than Chestnut's config.
+        check(Capture.dailyNoteRelativePath(
+                vault: URL(fileURLWithPath: "/tmp/nonexistent-vault"), date: date) != nil,
+              "daily notes default on for a vault with no core-plugins.json")
+        let v9 = vault("v9")
+        write("v9/.obsidian/daily-notes.json", #"{"format":"YYYY-MM-DD","folder":"../escaped"}"#)
+        check(Capture.dailyNoteRelativePath(vault: v9, date: date) == nil,
+              "daily-notes.json folder with a .. component is refused upstream")
+        check(engine.destination(inVault: v9, date: date).path
+                == v9.appendingPathComponent("Inbox.md").path,
+              "that vault's capture falls back to the inbox")
+
+        let v10 = vault("v10")
+        write("v10/.obsidian/daily-notes.json", #"{"format":"YYYY-MM-DD","folder":".obsidian/daily"}"#)
+        check(engine.destination(inVault: v10, date: date).path
+                == v10.appendingPathComponent("Inbox.md").path,
+              "a daily-notes folder inside .obsidian/ falls back to the inbox")
+
+        // `appendDirectly`'s precondition asserts the same predicate
+        // `destination` selected on, so an ordinary capture must sail through
+        // it rather than abort the app.
+        let plainRecord = try? Capture(captureFormat: "YYYY-MM-DD", captureFolder: "notes")
+            .appendDirectly("captured", toVault: v8, date: date)
+        check(plainRecord.map {
+                URL(fileURLWithPath: $0.notePath).path
+                    == v8.appendingPathComponent("notes/2026-07-14.md").path
+              } == true,
+              "an ordinary capture passes the containment precondition and writes")
 
         // --- existingDestination: read-only open (never creates) ---
         check(engine.existingDestination(inVault: v2, date: date) == nil,
@@ -749,6 +813,34 @@ struct Check {
         check(HotkeySpec("shift+a") == nil, "shift alone is not enough of a modifier")
         check(HotkeySpec("control+shift+k") != nil, "shift alongside control still parses")
         check(HotkeySpec("option+shift+space") != nil, "shift alongside option still parses")
+
+        // --- README's VoiceOver rebinding example ---
+        // Control-Option is VoiceOver's own modifier: with VoiceOver running,
+        // ⌃⌥V is speech verbosity and ⌃⌥M is the menu bar, so every default
+        // binding is swallowed and Chestnut has no hotkey route at all. The
+        // README answers that with a replacement set, and an example that
+        // doesn't parse is worse than none — it fails at launch, and only the
+        // menu binding's failure raises a notice.
+        let readmeText = (try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("README.md"),
+            encoding: .utf8
+        )) ?? ""
+        check(!readmeText.isEmpty, "README.md is readable from #filePath")
+        let rebindings: [String] = readmeText.components(separatedBy: "\n").compactMap { line in
+            guard let start = line.range(of: "\"control+") else { return nil }
+            let rest = line[start.lowerBound...].dropFirst()
+            guard let end = rest.firstIndex(of: "\"") else { return nil }
+            return String(rest[rest.startIndex..<end])
+        }
+        check(rebindings.count == 5,
+              "README documents a VoiceOver rebinding for all five hotkeys (got \(rebindings.count))")
+        for binding in rebindings {
+            check(HotkeySpec(binding) != nil, "README rebinding \"\(binding)\" parses")
+            check(!(binding.contains("control") && binding.contains("option")),
+                  "README rebinding \"\(binding)\" avoids VoiceOver's own modifier")
+        }
         check(HotkeySpec.display("space") == nil, "display of a modifier-less binding is nil")
 
         check(HotkeySpec.display("control+option+o") == "⌃⌥O", "display renders ⌃⌥O")
@@ -1110,6 +1202,46 @@ struct Check {
         registry.rescan()
         check(registry.plugins.count == 1 && registry.plugins.first?.name == "alpha",
               "rescan reflects removed plugin")
+
+        // --- D2: start() must create the plugins directory ---
+        // It looks like dead weight: rescan() handles a missing directory, and
+        // "Open Plugins Folder" creates one on demand, so an audit proposed
+        // dropping it as the one thing keeping a plugin-free user's disk clean.
+        // It is load-bearing. `start()` hands the path straight to
+        // FSEventStreamCreate, and a stream created on a path that does not
+        // exist never begins delivering events — not when the directory is
+        // later created, and not for any install after that either. Measured:
+        // without this line the registry saw 0 plugins through two installs
+        // over 8s; with it, 1 then 2. Removing it costs hot-reload for the
+        // whole session, and the user has no reason to suspect a relaunch.
+        let coldBase = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-registry-cold-\(ProcessInfo.processInfo.processIdentifier)")
+        try? fm.removeItem(at: coldBase)
+        defer { try? fm.removeItem(at: coldBase) }
+        let coldDir = coldBase.appendingPathComponent("never/made/plugins")
+        let cold = PluginRegistry(directory: coldDir)
+        cold.start()
+        check(fm.fileExists(atPath: coldDir.path),
+              "start() creates the plugins directory, so FSEvents watches a live path")
+
+        // The reason, driven for real: install a plugin after start() and the
+        // registry must notice without a relaunch.
+        let latecomer = coldDir.appendingPathComponent("gamma")
+        try! fm.createDirectory(at: latecomer, withIntermediateDirectories: true)
+        try! #"{"api":1,"name":"gamma","accepts":["text"],"output":"notify","script":"run.sh"}"#
+            .write(to: latecomer.appendingPathComponent("manifest.json"), atomically: true, encoding: .utf8)
+        let lateScript = latecomer.appendingPathComponent("run.sh")
+        try! "#!/bin/bash\necho g".write(to: lateScript, atomically: true, encoding: .utf8)
+        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lateScript.path)
+
+        // Self-limiting: a regression fails this check rather than hanging it.
+        let deadline = Date().addingTimeInterval(5)
+        while cold.plugins.isEmpty, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        check(cold.plugins.map(\.name) == ["gamma"],
+              "a plugin installed after start() hot-reloads (got \(cold.plugins.map(\.name)))")
+        cold.stop()
     }
 
     // MARK: - Plugin runner
@@ -1227,6 +1359,60 @@ struct Check {
             check(interp.vaultHint == "ask", "structured envelope vault hint parses")
         } else {
             check(false, "structured interpret should succeed")
+        }
+
+        // --- Plain `save` and the structured envelope share one filename
+        // grammar --- The structured path used to apply none of plain save's
+        // sanitizing, so "notes/today.md" addressed a directory the save never
+        // creates (bare ENOENT) and "today" wrote an extension-less file
+        // Obsidian won't display, reporting success. Separators become "-"
+        // rather than an error because subfolders have their own field
+        // (`folder`), which is created with intermediates and containment-
+        // checked, so nothing is expressible only through a separator here.
+        // Table-driven on purpose: the rule is "these two agree", not any
+        // particular output, so a future change to the grammar only has to
+        // stay consistent.
+        let saveManifestT5 = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        func filenameViaPlain(_ raw: String) -> String? {
+            try? PluginRunner.interpret(
+                result: PluginRunner.RawResult(exitCode: 0, stdout: raw + "\nbody", stderr: ""),
+                manifest: saveManifestT5
+            ).filename
+        }
+        func filenameViaStructured(_ raw: String) -> String? {
+            guard let json = try? JSONSerialization.data(withJSONObject: [
+                "action": "save", "content": "body", "filename": raw,
+            ]), let stdout = String(data: json, encoding: .utf8) else { return nil }
+            return try? PluginRunner.interpret(
+                result: PluginRunner.RawResult(exitCode: 0, stdout: stdout, stderr: ""),
+                manifest: structuredManifest
+            ).filename
+        }
+        for raw in ["a/b", "x:y", "back\\slash", "no-extension", "  padded  ",
+                    "already.md", "/", String(repeating: "z", count: 300)] {
+            let shown = raw.count > 20 ? "\(raw.prefix(8))…(\(raw.count) chars)" : raw
+            check(filenameViaPlain(raw) == filenameViaStructured(raw),
+                  "filename grammar agrees across save paths: \"\(shown)\"")
+        }
+        check(filenameViaStructured("notes/today.md") == "notes-today.md",
+              "structured filename: separator collapsed, not left addressing a directory")
+        check(filenameViaStructured("today") == "today.md",
+              "structured filename: .md enforced as in plain save")
+        check(filenameViaStructured(String(repeating: "z", count: 300))?.count == 203,
+              "structured filename: capped at 200 plus \".md\"")
+
+        // Attachment names run through the same sanitizer, but are never
+        // forced to .md — an attachment is whatever it is.
+        let attJSON = #"{"action":"save","content":"b","filename":"n.md","attachments":[{"source":"/tmp/a.png","filename":"sub/pic.png"},{"source":"/tmp/b.png","filename":"   "}]}"#
+        if let interp = try? PluginRunner.interpret(
+            result: PluginRunner.RawResult(exitCode: 0, stdout: attJSON, stderr: ""),
+            manifest: structuredManifest
+        ) {
+            let names = (interp.attachments ?? []).map(\.filename)
+            check(names == ["sub-pic.png", "attachment"],
+                  "attachment filenames are sanitized without forcing .md")
+        } else {
+            check(false, "attachment-bearing envelope should interpret")
         }
 
         // Interpret: bad structured output.
@@ -1381,6 +1567,78 @@ struct Check {
         }
     }
 
+    // MARK: - Obsidian CLI
+
+    /// Drives `ObsidianCLI.run` against real subprocesses via its injected-
+    /// executable overload. The cases that matter are the pipe ones: read only
+    /// after the child exits and a reply past the ~64 KB pipe buffer blocks the
+    /// child in `write()` forever, so both the large-stdout and large-stderr
+    /// cases used to burn the whole timeout and answer nil. Each fixture stays
+    /// self-limiting (`sleep 5`, not `sleep 30`) so a regression fails these
+    /// checks instead of hanging `make check`.
+    static func obsidianCLIChecks() {
+        let fm = FileManager.default
+        let base = fm.temporaryDirectory
+            .appendingPathComponent("chestnut-cli-checks-\(UUID().uuidString)")
+        try! fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        func script(_ name: String, _ body: String) -> URL {
+            let url = base.appendingPathComponent("\(name).sh")
+            try! "#!/bin/sh\n\(body)\n".write(to: url, atomically: true, encoding: .utf8)
+            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+            return url
+        }
+        // Timed so a deadlock shows up as a slow pass turning into a failure
+        // rather than as a nil nobody can attribute.
+        func timed(_ url: URL, timeout: TimeInterval = 2) -> (String?, TimeInterval) {
+            let started = Date()
+            let out = ObsidianCLI.run(url, arguments: [], timeout: timeout)
+            return (out, Date().timeIntervalSince(started))
+        }
+
+        let small = timed(script("small", "echo /Users/gm/Vaults/Master"))
+        check(small.0?.trimmingCharacters(in: .whitespacesAndNewlines)
+                == "/Users/gm/Vaults/Master",
+              "cli: short reply returned verbatim")
+
+        // ~128 KB, twice the pipe buffer.
+        let bigOut = timed(script("bigout", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'A'"))
+        check((bigOut.0?.utf8.count ?? 0) >= 128 * 1024,
+              "cli: stdout past the pipe buffer is fully drained (\(bigOut.0?.utf8.count ?? 0) bytes)")
+        check(bigOut.1 < 1.5, "cli: large stdout does not burn the timeout (\(bigOut.1)s)")
+
+        // stderr was set and never read at all, so a long trace wedged a call
+        // whose actual reply was one line.
+        let bigErr = timed(script("bigerr", "dd if=/dev/zero bs=1024 count=128 2>/dev/null | tr '\\0' 'A' 1>&2\necho ok"))
+        check(bigErr.0?.trimmingCharacters(in: .whitespacesAndNewlines) == "ok",
+              "cli: large stderr does not block the reply")
+        check(bigErr.1 < 1.5, "cli: large stderr does not burn the timeout (\(bigErr.1)s)")
+
+        // EOF never arrives while the backgrounded child holds the write end;
+        // the grace period answers with what was buffered.
+        let bg = timed(script("bg", "echo front\nsleep 5 &\nexit 0"))
+        check(bg.0?.trimmingCharacters(in: .whitespacesAndNewlines) == "front",
+              "cli: backgrounded child's stdout still captured")
+        check(bg.1 < 2.5, "cli: backgrounded child resolves on the grace path (\(bg.1)s)")
+
+        // Past the cap the reply is not a reply; the caller falls back.
+        let huge = timed(script("huge", "dd if=/dev/zero bs=1024 count=1200 2>/dev/null | tr '\\0' 'A'"))
+        check(huge.0 == nil, "cli: output past maxOutputBytes is refused, not truncated silently")
+        check(ObsidianCLI.maxOutputBytes == 1_048_576, "cli: output cap is 1 MB")
+
+        check(ObsidianCLI.run(script("fail", "echo partial\nexit 3"), arguments: [], timeout: 2) == nil,
+              "cli: non-zero exit returns nil")
+        check(ObsidianCLI.run(script("err", "echo 'Error: no vault'"), arguments: [], timeout: 2) == nil,
+              "cli: an Error reply returns nil")
+        check(ObsidianCLI.run(base.appendingPathComponent("absent.sh"), arguments: [], timeout: 2) == nil,
+              "cli: a missing executable returns nil rather than throwing")
+
+        let hang = timed(script("hang", "sleep 5"), timeout: 1)
+        check(hang.0 == nil, "cli: a hung child returns nil")
+        check(hang.1 < 2, "cli: a hung child is bounded by the timeout (\(hang.1)s)")
+    }
+
     // MARK: - Plugin dispatch
 
     static func pluginDispatchChecks() {
@@ -1526,6 +1784,35 @@ struct Check {
         check(!Courier.isContained(base.appendingPathComponent("src"), inVault: vaultPath),
               "isContained: vault root itself → false")
 
+        // isContainedDirectory differs from isContained on exactly one case,
+        // and that difference is load-bearing: a plugin save with no `folder`
+        // targets the vault root, as does attachmentFolder(of:) when
+        // attachmentFolderPath is unset. Collapsing the two functions — the
+        // obvious "simplification" — refuses every ordinary plugin save. It
+        // exists because checking only the note path let an escaping `folder`
+        // pair with a filename that walked back in: the note landed inside the
+        // vault while createDirectory made the escaped folder anyway.
+        check(Courier.isContainedDirectory(base.appendingPathComponent("src"), inVault: vaultPath),
+              "isContainedDirectory: vault root itself → true (unlike isContained)")
+        check(Courier.isContainedDirectory(base.appendingPathComponent("src/Notes/Daily"), inVault: vaultPath),
+              "isContainedDirectory: nested child → true")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/../out"), inVault: vaultPath),
+              "isContainedDirectory: ../ escape → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/Notes/../../etc"), inVault: vaultPath),
+              "isContainedDirectory: traversal out via a nested folder → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("src/.obsidian"), inVault: vaultPath),
+              "isContainedDirectory: .obsidian component → false")
+        check(!Courier.isContainedDirectory(base.appendingPathComponent("srcEvil"), inVault: vaultPath),
+              "isContainedDirectory: sibling sharing a prefix → false")
+        // The L1 pair, spelled out: each half looks innocent to the check the
+        // other half is subject to.
+        let escFolder = base.appendingPathComponent("src").appendingPathComponent("../../tmp/cn-escape")
+        let escNote = escFolder.appendingPathComponent("../../\(base.lastPathComponent)/src/note.md")
+        check(Courier.isContained(escNote, inVault: vaultPath),
+              "L1 pair: the note path alone still passes containment")
+        check(!Courier.isContainedDirectory(escFolder, inVault: vaultPath),
+              "L1 pair: the escaping folder is refused, closing the gap")
+
         // --- T2: availableURL is the never-overwrite invariant ---
         // Two callers now: deliverNote picks a free destination, and undo picks
         // a free *source* to come home to (pinned separately below). Every
@@ -1661,6 +1948,124 @@ struct Check {
                   "byte ceiling trims below the record cap (\(heavySize) bytes)")
             check(heavy.last()?.notePath == "/v/big5.md",
                   "byte-trimmed journal still returns the newest record")
+
+            // --- T4 / L5: the byte cap against a *single* oversized record ---
+            // `trimmed` stops at one record rather than leave an empty journal,
+            // so it can never trim a record that blows the cap on its own. The
+            // courier's `original` is exactly that case: a whole note body.
+            // `append` sheds the payload instead of storing it or dropping the
+            // record, and the reversal — the part users want — must survive.
+            let oversized = base.appendingPathComponent("oversized.jsonl")
+            let shedJournal = Journal<CourierOperation>(fileURL: oversized)
+            let hugeBody = String(repeating: "x", count: JournalLimits.maxBytes * 2)
+            try shedJournal.append(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(from: "/a/big.md", to: "/b/big.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/big.md", original: hugeBody)],
+                deliveredNames: ["big.md"]))
+            let shedSize = (try? FileManager.default.attributesOfItem(
+                atPath: oversized.path)[.size] as? Int) ?? 0
+            check(shedSize < JournalLimits.maxBytes,
+                  "a single oversized record is shed below the byte cap (\(shedSize) bytes)")
+            let shedBack = shedJournal.last()
+            check(shedBack != nil,
+                  "a shed record still decodes — an empty journal would read as nothing to undo")
+            check(shedBack?.transfers.count == 1,
+                  "shedding keeps the transfers, which are what undo reverses")
+            check(shedBack?.rewrites.isEmpty == true,
+                  "shedding drops the note body it could not afford to keep")
+            check(shedBack?.textNotRestored == ["big.md"],
+                  "a shed record names the note whose text undo can no longer restore")
+            check(shedBack?.deliveredNames == ["big.md"],
+                  "shedding keeps the Undo row's subtitle")
+
+            // Shedding is a last resort, not the normal path: an ordinary
+            // record keeps its text so undo restores it exactly.
+            let ordinary = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("ordinary.jsonl"))
+            try ordinary.append(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(from: "/a/s.md", to: "/b/s.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/s.md", original: "the original text")],
+                deliveredNames: ["s.md"]))
+            check(ordinary.last()?.rewrites.first?.original == "the original text",
+                  "a record under the cap keeps its rewrite payload")
+            check(ordinary.last()?.textNotRestored == nil,
+                  "an unshed record warns about nothing")
+
+            // A copy is undone by trashing the copy; the source was never
+            // rewritten, so there is no text to warn about losing.
+            let copies = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("copies.jsonl"))
+            try copies.append(CourierOperation(
+                date: Date(), isCopy: true,
+                transfers: [.init(from: "/a/c.md", to: "/b/c.md", dedup: false)],
+                rewrites: [.init(notePath: "/b/c.md", original: hugeBody)],
+                deliveredNames: ["c.md"]))
+            check(copies.last()?.rewrites.isEmpty == true,
+                  "an oversized copy record sheds too")
+            check(copies.last()?.textNotRestored == nil,
+                  "a shed copy record warns about nothing — undo trashes the copy")
+
+            // Nothing to give up: large for another reason, so keep it whole
+            // rather than mangle a record shedding cannot shrink.
+            let wide = Journal<CourierOperation>(
+                fileURL: base.appendingPathComponent("wide.jsonl"))
+            let manyTransfers = (0..<30_000).map {
+                CourierOperation.FileTransfer(from: "/a/\($0)", to: "/b/\($0)", dedup: false)
+            }
+            try wide.append(CourierOperation(
+                date: Date(), isCopy: false, transfers: manyTransfers,
+                rewrites: [], deliveredNames: ["many"]))
+            check(wide.last()?.transfers.count == 30_000,
+                  "an oversized record with nothing to shed is kept whole")
+
+            // A capture's `appended` is the undo instruction, not a copy of
+            // anything — shedding it would delete the wrong bytes. Oversized
+            // captures are kept whole, and that limit is deliberate.
+            let bigCapture = Journal<CaptureRecord>(
+                fileURL: base.appendingPathComponent("bigcapture.jsonl"))
+            try bigCapture.append(CaptureRecord(
+                date: Date(), vaultPath: "/v", notePath: "/v/n.md",
+                appended: hugeBody, createdFile: false))
+            check(bigCapture.last()?.appended.count == hugeBody.count,
+                  "a capture record keeps `appended` whole — it is what undo strips off")
+
+            // Undo of a shed record against real files: everything comes home,
+            // and the outcome says the text did not.
+            let shedSrc = base.appendingPathComponent("shed-src")
+            let shedDst = base.appendingPathComponent("shed-dst")
+            try FileManager.default.createDirectory(at: shedSrc, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: shedDst, withIntermediateDirectories: true)
+            let shedDelivered = shedDst.appendingPathComponent("big.md")
+            try "links as the delivery rewrote them".write(
+                to: shedDelivered, atomically: true, encoding: .utf8)
+            let shedOutcome = try Courier().undo(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(
+                    from: shedSrc.appendingPathComponent("big.md").path,
+                    to: shedDelivered.path, dedup: false)],
+                rewrites: [], deliveredNames: ["big.md"],
+                textNotRestored: ["big.md"]))
+            check(FileManager.default.fileExists(
+                    atPath: shedSrc.appendingPathComponent("big.md").path),
+                  "undo of a shed record still brings the file home")
+            check(!FileManager.default.fileExists(atPath: shedDelivered.path),
+                  "undo of a shed record clears the destination")
+            check(shedOutcome.textNotRestored == ["big.md"],
+                  "undo reports the note it could not restore the text of")
+
+            // The ordinary undo says nothing, so the notice can't cry wolf.
+            let quietDst = shedDst.appendingPathComponent("quiet.md")
+            try "x".write(to: quietDst, atomically: true, encoding: .utf8)
+            let quietOutcome = try Courier().undo(CourierOperation(
+                date: Date(), isCopy: false,
+                transfers: [.init(
+                    from: shedSrc.appendingPathComponent("quiet.md").path,
+                    to: quietDst.path, dedup: false)],
+                rewrites: [], deliveredNames: ["quiet.md"]))
+            check(quietOutcome.textNotRestored.isEmpty,
+                  "an ordinary undo reports nothing left unrestored")
 
             // --- T6 / L10: a malformed trailing line does not jam undo ---
             // Appends are whole-file atomic writes since M6, so this build
@@ -1819,6 +2224,59 @@ struct Check {
                   "rollback clears the partial delivery from the destination")
         }
 
+        // --- An undecodable note is refused, not half-delivered ---
+        // deliverNote used to coerce the read failure to "", which resolves no
+        // references: the note moved alone, its attachments stayed behind, no
+        // rewrite was journaled, and the operation reported success. Reachable
+        // without any exotic encoding — a dataless iCloud placeholder fails the
+        // read the same way. The contract is refusal, so the rollback path
+        // leaves the source vault as it was.
+        let badVault = base.appendingPathComponent("u/src")
+        try! fm.createDirectory(at: badVault, withIntermediateDirectories: true)
+        try! fm.createDirectory(at: base.appendingPathComponent("u/dst"),
+                                withIntermediateDirectories: true)
+        var undecodable = Data("![[pic.png]]\n".utf8)
+        undecodable.append(contentsOf: [0xFF, 0xFE, 0x21])
+        try! undecodable.write(to: badVault.appendingPathComponent("broken.md"))
+        write("u/src/pic.png", "PNGDATA")
+        do {
+            _ = try courier.deliver(
+                files: [badVault.appendingPathComponent("broken.md")],
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: badVault, copy: false
+            )
+            check(false, "an undecodable note should not deliver")
+        } catch let error as CourierError {
+            if case .unreadableNote = error {
+                check(true, "undecodable note throws .unreadableNote")
+            } else {
+                check(false, "expected .unreadableNote, got \(error)")
+            }
+            check(exists("u/src/broken.md"), "refused note stays at its source")
+            check(exists("u/src/pic.png"), "refused note's attachment stays at its source")
+            let left = (try? fm.contentsOfDirectory(
+                atPath: base.appendingPathComponent("u/dst").path)) ?? ["?"]
+            check(left.isEmpty, "refused delivery leaves the destination untouched")
+        } catch {
+            check(false, "undecodable note threw the wrong error type: \(error)")
+        }
+
+        // Control against over-refusal: a readable note whose embed does not
+        // exist still delivers. The refusal above must key off the *note* being
+        // unreadable, not off any reference failing to resolve.
+        write("u/src/fine.md", "![[nope.png]]\n")
+        do {
+            let op = try courier.deliver(
+                files: [badVault.appendingPathComponent("fine.md")],
+                toVault: base.appendingPathComponent("u/dst"),
+                sourceVault: badVault, copy: false
+            )
+            check(op.transfers.count == 1 && exists("u/dst/fine.md"),
+                  "readable note with a missing embed still delivers")
+        } catch {
+            check(false, "readable note with a missing embed was refused: \(error)")
+        }
+
         // --- T3/U3: one unreversible transfer must not strand the rest ---
         // The realistic trigger is a delivered file the user has since deleted
         // or renamed in Obsidian. Three notes, with the *middle* one deleted
@@ -1974,6 +2432,56 @@ struct Check {
             NSPoint(x: 960, y: 400), for: .small, onVisible: main.visibleFrame)
         let twice = PetGeometry.clampedOrigin(once, for: .small, onVisible: main.visibleFrame)
         check(once == twice, "clamping is idempotent (got \(once) then \(twice))")
+
+        // --- T1: menuOrigin, the keyboard route's half of the same problem ---
+        // The hotkey menu exists because the pet may be unreachable, so a menu
+        // placed off-screen takes Settings, Undo, Reset Position and Quit with
+        // it. `popUp` grows *down* from the point and scrolls rather than
+        // flipping, which is why this can't just anchor at the sprite's top.
+        let screen = NSRect(x: 0, y: 50, width: 1000, height: 720)   // maxY 770
+        func origin(_ menu: NSSize, _ sprite: NSRect, _ visible: NSRect? = nil) -> NSPoint {
+            PetGeometry.menuOrigin(for: menu, at: sprite, in: visible ?? screen)
+        }
+
+        // Room below: hang the menu off the sprite's top edge, centred on it.
+        let roomy = NSRect(x: 400, y: 500, width: 96, height: 72)    // maxY 572, midX 448
+        check(origin(NSSize(width: 200, height: 300), roomy) == NSPoint(x: 448, y: 572),
+              "a menu with room below hangs off the sprite's top edge, centred")
+
+        // The default corner: sprite low on screen, menu taller than the gap.
+        // It must flip above rather than scroll.
+        let low = NSRect(x: 400, y: 90, width: 96, height: 72)       // maxY 162
+        let flipped = origin(NSSize(width: 200, height: 400), low)
+        check(flipped.y == 450, "a menu too tall for the gap sits on the screen's bottom edge (got \(flipped.y))")
+        check(flipped.y - 400 >= screen.minY, "the flipped menu's bottom stays on screen")
+        check(flipped.y <= screen.maxY, "the flipped menu's top stays on screen")
+
+        // A menu taller than the whole screen can't fit either way; it must
+        // still be pinned to the screen rather than run off the top.
+        check(origin(NSSize(width: 200, height: 2000), low).y == screen.maxY,
+              "a menu taller than the display is pinned to the top, not sent past it")
+
+        // Right edge: the pet's default home. x is clamped so the menu's full
+        // width stays on screen.
+        let atRight = NSRect(x: 940, y: 500, width: 96, height: 72)  // midX 988
+        check(origin(NSSize(width: 200, height: 300), atRight) == NSPoint(x: 800, y: 572),
+              "a sprite at the right edge pulls the menu back by its own width")
+
+        // Left edge, and a menu wider than the display: clamping must not push
+        // x past the left edge trying to fit the right.
+        let atLeft = NSRect(x: -80, y: 500, width: 96, height: 72)   // midX -32
+        check(origin(NSSize(width: 200, height: 300), atLeft).x == screen.minX,
+              "a sprite off the left edge clamps to the screen's left, not past it")
+        check(origin(NSSize(width: 5000, height: 300), atRight).x == screen.minX,
+              "a menu wider than the display starts at the left edge rather than off it")
+
+        // No screen to consult (display list empty mid-reconfiguration) and the
+        // zero-height early-out both return the unclamped anchor.
+        check(PetGeometry.menuOrigin(for: NSSize(width: 200, height: 300), at: low, in: nil)
+                == NSPoint(x: 448, y: 162),
+              "with no screen to consult, the anchor is returned unclamped")
+        check(origin(NSSize(width: 200, height: 0), low) == NSPoint(x: 448, y: 162),
+              "a zero-height menu takes the documented early-out")
     }
 
     // MARK: - Undo menu rows

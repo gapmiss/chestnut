@@ -51,7 +51,7 @@ enum PluginRunner {
         env["CHESTNUT_INPUT_TYPE"] = input.type.rawValue
         env["CHESTNUT_SOURCE_APP"] = input.sourceApp ?? ""
         env["CHESTNUT_FILE_PATH"] = input.filePath ?? ""
-        env["CHESTNUT_TIMESTAMP"] = iso8601.string(from: Date())
+        env["CHESTNUT_TIMESTAMP"] = iso8601Timestamp()
         env["CHESTNUT_PLUGIN_DIR"] = pluginDir.path
         let basePath = ProcessInfo.processInfo.environment["PATH"]
             ?? "/usr/bin:/bin"
@@ -245,11 +245,22 @@ enum PluginRunner {
             return InterpretedResult(
                 action: action,
                 content: envelope.content ?? "",
-                filename: envelope.filename,
+                filename: envelope.filename.flatMap {
+                    sanitizedFilename($0, requireMarkdown: true)
+                },
                 vaultHint: envelope.vault,
                 folder: envelope.folder,
                 notifyText: envelope.notify,
-                attachments: envelope.attachments
+                attachments: envelope.attachments.map { list in
+                    list.map {
+                        PluginAttachment(
+                            source: $0.source,
+                            // No .md forced: an attachment is whatever it is.
+                            filename: sanitizedFilename($0.filename, requireMarkdown: false)
+                                ?? "attachment"
+                        )
+                    }
+                }
             )
         }
 
@@ -261,16 +272,7 @@ enum PluginRunner {
                 separator: "\n", maxSplits: 1, omittingEmptySubsequences: false
             )
             if let first = lines.first {
-                var name = String(first)
-                for c: Character in ["/", "\\", ":"] {
-                    name = name.replacingOccurrences(of: String(c), with: "-")
-                }
-                name = String(name.prefix(200))
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !name.isEmpty {
-                    if !name.hasSuffix(".md") { name += ".md" }
-                    filename = name
-                }
+                filename = sanitizedFilename(String(first), requireMarkdown: true)
                 content = lines.count > 1 ? String(lines[1]) : ""
             }
         }
@@ -284,6 +286,32 @@ enum PluginRunner {
             notifyText: nil,
             attachments: nil
         )
+    }
+
+    /// One grammar for every filename a plugin supplies, so plain `save` mode
+    /// and the structured envelope can't disagree — the way `HotkeySpec` is
+    /// one grammar for hotkeys. The structured path used to apply none of
+    /// this, which produced two failures that named nothing useful:
+    /// `"notes/today.md"` addressed a directory the save never creates, so the
+    /// write failed with a bare "doesn't exist", and `"today"` wrote an
+    /// extension-less file Obsidian won't display while reporting success.
+    ///
+    /// Separators become `-` rather than an error because subfolders already
+    /// have a field: the envelope's `folder`, which *is* created (with
+    /// intermediates) and containment-checked. Nothing is expressible only
+    /// through a separator here. Returns nil when nothing usable is left.
+    static func sanitizedFilename(_ raw: String, requireMarkdown: Bool) -> String? {
+        var name = raw
+        for c: Character in ["/", "\\", ":"] {
+            name = name.replacingOccurrences(of: String(c), with: "-")
+        }
+        // Cap before trimming, matching the order plain `save` has always
+        // used: a 200-character prefix can end mid-whitespace.
+        name = String(name.prefix(200))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        if requireMarkdown, !name.hasSuffix(".md") { name += ".md" }
+        return name
     }
 }
 

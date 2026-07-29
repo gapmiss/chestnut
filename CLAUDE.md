@@ -4,7 +4,7 @@ Native macOS desktop companion for Obsidian users (one vault or many). An always
 pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity
 and acts as a control surface across vaults. Free app funded by GitHub Sponsors,
 no license mechanism, no paywall, no network calls. Current release is `VERSION`
-in the Makefile (0.6.0), shipped as a DMG and a Homebrew cask
+in the Makefile (0.6.1), shipped as a DMG and a Homebrew cask
 (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Build & run
@@ -173,8 +173,8 @@ Checks/
   match, so a value persisted between stops shows none.
   `showMenuFromHotkey` is the keyboard entry point: it must call
   `NSApp.activate` or menu tracking reads keys from whatever is frontmost, and
-  it positions via `menuOrigin`, which flips the menu above the sprite when it
-  won't fit below. **The `menu` hotkey is unregistered for as long as the menu
+  it positions via `menuOrigin` (in `PetGeometry`, not `PetWindow` — see
+  below), which flips the menu above the sprite when it won't fit below. **The `menu` hotkey is unregistered for as long as the menu
   tracks** (`setMenuHotkeyEnabled`, driven by `onMenuTrackingChange`): Carbon
   captures the keystroke but its nested loop won't dispatch during tracking, so
   a registered key queues every press and replays them the moment Esc
@@ -194,11 +194,28 @@ Checks/
   load-bearing, a menu binding that fails — registration conflict or a string
   that doesn't parse — raises a one-time notice naming the binding and
   pointing at config.json (`HotkeyCenter.onMenuHotkeyFailure`); the other
-  hotkeys just log. An empty/"none"/"disabled" menu binding is a deliberate
+  hotkeys just log. The same notice fires when `InstallEventHandler` fails,
+  and `start` then registers **nothing**: `RegisterEventHotKey` returns
+  `noErr` whether or not the handler installed, so continuing would claim all
+  five keys system-wide with none able to dispatch — ⌃⌥M dead in Chestnut
+  *and* in every other app. `menuBinding` is therefore set before that guard,
+  or the notice names an empty string. An empty/"none"/"disabled" menu binding is a deliberate
   opt-out and stays silent. Menu key equivalents in the right-click menu come
   from the same `HotkeySpec` parse that backs Carbon registration
   (`menuKeyEquivalent`) — one grammar, so the menu can't show a key no
   hotkey backs.
+  **VoiceOver claims all five, and that includes the load-bearing one.**
+  Control-Option *is* VoiceOver's modifier: ⌃⌥V is speech verbosity, ⌃⌥M is
+  the menu bar, and VoiceOver wins the keystroke — so with it running there is
+  no hotkey route into Chestnut at all, including the ⌃⌥M route this list
+  calls the only keyboard way to Settings, Undo and Quit. The pet's own
+  right-click still works, and reads correctly once open. Established by a
+  ⌘F5 pass, not by reasoning. **The answer is rebinding, not new defaults:**
+  README documents a `control+shift+…` set, and `make check` parses those five
+  strings *out of the README* so the example can't drift into one that fails
+  at launch — where only the menu binding's failure raises a notice. Changing
+  the shipped defaults would move every existing user's shortcuts to solve a
+  case rebinding already solves.
 - **Palettes are sized once, when they open** (`PetPanel.host`, used by both
   filtering palettes). An `NSHostingView` left to drive its window writes the
   *current* content's measurement into the window's content min/max size, and
@@ -215,6 +232,25 @@ Checks/
   reason the key-hint footer stays outside the empty/non-empty branch. The
   website mirrors this by pinning `min-height` on open (`docs/chestnut.js`,
   `openPalette`).
+- **Palette selection is announced explicitly, and row traits alone would not
+  do it.** VoiceOver speaks the *focused* element. The palettes keep focus in
+  the filter field on purpose (command-palette style) and move a `@Published
+  var selection` from an AppKit key monitor, so ↑/↓ moved a highlight no
+  control owned and VoiceOver said nothing — a ⌘F5 pass heard "text field"
+  however far down the list it got, and ⏎ then opened a vault the user was
+  never told was selected. `VaultPaletteModel.announceSelection` posts
+  `.announcementRequested` to `NSApplication.shared` on each move that changes
+  the row, at high priority so it interrupts the field editor's echo; a press
+  at either end of the list stays silent, because nothing moved. Rows *also*
+  carry `.isSelected` and a label, but those apply only once the VO cursor
+  visits a row, which means leaving the field — **the 2026-07-28 audit's L7
+  sketch was traits-only and would have shipped a still-silent hopper.** Both
+  spellings share `VaultPaletteModel.accessibilityLabel(for:isPinned:)`, which
+  also turns the glowing gem and the pin icon into the words "open" and
+  "pinned", since on screen they are colour and shape only. `Panels/` is
+  outside the check target (it imports SwiftUI), so that shared helper is the
+  drift guard rather than an assertion. **Changes here can only be verified
+  with VoiceOver actually running** — nothing in `make check` can hear.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
@@ -225,7 +261,12 @@ Checks/
   check target, and an unreachable pet is the failure most worth testing, so
   the maths lives where `make check` can reach it (same move as the size and
   opacity presets in `AppState`). `PetWindow` holds thin wrappers that supply
-  the current displays. `validatedOrigin` distrusts a saved position that no
+  the current displays. **`menuOrigin` lives here for the same reason** — a
+  menu positioned off-screen takes Settings, Undo, Reset Position and Quit with
+  it, and it is reached by the keyboard route that exists precisely *because*
+  the pet may be unreachable. Unlike the others it injects nothing, so
+  `PetWindow` calls it directly rather than through a wrapper.
+  `validatedOrigin` distrusts a saved position that no
   screen intersects and falls back to the default corner; a position that is
   merely partly off, or tucked under the Dock, is **clamped rather than reset**
   — intersection is tested against `frame` but clamping against `visibleFrame`,
@@ -237,6 +278,14 @@ Checks/
   means the pet returns there once the display is back. `PetScene.baselineY` is
   `PetGeometry.Margin.bottom` — one constant, since the scene's baseline and
   the window's bottom margin are the same number.
+- **The courier runs off the main actor** (`Task.detached` in
+  `completeDelivery`), like captures and for a stronger reason: a cross-volume
+  `place()` is a full byte copy, `resolve()` walks the whole source vault once
+  per unresolved reference, and `contentsEqual` byte-compares every deduped
+  file. Run on the main actor, any of the three freezes the pet, the menu and
+  every hotkey until it finishes. `Courier`'s `fm` is *computed, not stored*,
+  so the struct holds no state and stays `Sendable` — the same move `Capture`
+  made. The chewing pose is held for the duration so the wait reads as work.
 - **`obsidian` CLI** is an optional enhancement — every CLI call has a direct-FS
   fallback. Trusted path lookup only (never `$PATH`). Known trade: the
   direct-FS capture append is a read-modify-write that can race Obsidian's
@@ -262,10 +311,27 @@ Checks/
   renders no TIFF at all, so a TIFF attachment embeds as a blank. The extension
   comes from the same decision as the bytes — reading them from two separate
   pasteboard queries once wrote TIFF into a `.png`, which embeds broken *and*
-  hides why. Scripts are
+  hides why. **Filenames are one grammar**
+  (`PluginRunner.sanitizedFilename`): separators collapse to `-`, the name is
+  capped at 200 characters and trimmed, and `.md` is appended for a note but
+  never for an attachment. Plain `save` mode and the structured envelope both
+  go through it — the envelope used to bypass it, so `"notes/today.md"`
+  addressed a directory the save never creates (bare ENOENT) and `"today"`
+  wrote a file Obsidian won't display while reporting success. Separators
+  collapse rather than error because subfolders have their own field,
+  `folder`, which *is* created with intermediates and containment-checked.
+  Scripts are
   exec'd directly (shebang), configurable timeout (default 10s, clamped to
   1–300). Hot-reloaded via
-  FSEvents. Installed plugins listed in right-click menu → Plugins submenu (with
+  FSEvents — and **`PluginRegistry.start` creates the plugins directory before
+  watching it**, which reads as redundant beside `rescan()`'s tolerance of a
+  missing directory and the on-demand creation behind "Open Plugins Folder",
+  but is not: `start()` hands that path to `FSEventStreamCreate`, and a stream
+  created on a path that does not exist never begins delivering — not when the
+  directory appears later, and not for any install after that. Deleting the
+  line costs hot-reload for the whole session (measured: 0 plugins seen across
+  two installs over 8s, against 1 then 2 with it). Pinned by checks.
+  Installed plugins listed in right-click menu → Plugins submenu (with
   "Open Plugins Folder"); individual plugins can be enabled/disabled from the
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
@@ -284,14 +350,44 @@ Checks/
   no plugins installed — courier and all existing features work identically.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
-  `/`), rejecting `.obsidian` path components. Three callers, all of them
-  paths the user did not type by hand: plugin `save` output
-  (`AppDelegate.swift:660`), plugin capture attachments (`:421`), and
-  `obsidian://` drop resolution (`PetWindow.swift:739`, a read path). It
+  `/`), rejecting `.obsidian` path components. Callers are all paths the user
+  did not type by hand: plugin `save` output (`AppDelegate.swift:792`, with
+  `:790` covering the directories it creates), plugin capture attachments
+  (`:550`), `obsidian://` drop resolution (`PetWindow.swift:808`, a read path),
+  and capture's four — the destination fork's two branches
+  (`Capture.swift:236`, `:240`), the CLI path (`:359`), and `appendDirectly`'s
+  `precondition` (`:197`). Capture's four were hand-inlined copies of the
+  predicate until they were folded in; **the one copy that remains is
+  `attachmentFolder(of:)`** (`Courier.swift:487`), left that way deliberately —
+  it applies the *file* spelling to a directory and falls back to the vault
+  root whenever the check fails, so swapping in `isContainedDirectory` would
+  quietly change where an `attachmentFolderPath` like `.obsidian/../att`
+  resolves. It
   collapses `../`, which is the case it exists to catch — a buggy plugin
-  emitting `"folder": "../.."`. It does **not** resolve symlinks: a directory
+  emitting `"folder": "../.."`. **It judges the *standardized* path, which is
+  not the same rule as scanning raw components for `.obsidian`:** the copies it
+  replaced rejected `.obsidian/../notes/x.md`, which resolves nowhere near
+  `.obsidian/` and is a legal target. The two spellings agreed only because
+  both producers of capture's relative path (`dailyNoteRelativePath`,
+  `chestnutDailyRelativePath`) refuse a `..` component first — `make check`
+  pins that guard on both sides of the fork, so removing it makes them
+  disagree. It does **not** resolve symlinks: a directory
   you symlink out of the vault is followed. That is deliberate, not an
   oversight; see Hard invariants.
+  **`isContainedDirectory` is the variant for paths that get *created*, and
+  the vault root is the difference.** `isContained` tests
+  `hasPrefix(vaultPath + "/")`, so the root itself fails it — correct for a
+  file, since nothing is ever written *at* the root path. A directory
+  argument is different: the root is where a plugin `save` with no `folder`
+  lands, and where `attachmentFolder(of:)` falls back when
+  `attachmentFolderPath` is unset. Collapsing the two functions is the
+  obvious simplification and refuses every ordinary plugin save; `make check`
+  pins the distinction. `savePluginOutput` checks *both* the directories it
+  creates and the files it writes, because checking only the note let an
+  escaping `folder` pair with a `filename` that walked back in — the note
+  landed inside the vault while `createDirectory` made the escaped folder
+  anyway. Nothing yet asserts that routing: `AppDelegate.swift` is AppKit and
+  outside the check target, so the guard is only as good as the call site.
   The courier does not call it and does not need to — `deliverNote` builds
   destinations as `dir.appendingPathComponent(source.lastPathComponent)`
   (`Courier.swift:195`), and a `lastPathComponent` cannot contain a `/`, so it
@@ -310,7 +406,20 @@ Checks/
   every operation is journaled for undo. Journals are capped
   (`JournalLimits`: 20 records, 1 MB) and rewritten atomically on every
   append — a courier record can carry a whole note body in
-  `NoteRewrite.original`, so both limits are load-bearing. **`last()` and
+  `NoteRewrite.original`, so both limits are load-bearing. **A record that
+  blows the byte cap on its own is shed, not dropped** — `trimmed` keeps a lone
+  record at any size, so the ceiling is enforced in `append` via
+  `JournalShedding`, before the line is ever written. The two record types
+  answer that protocol *differently*, and the asymmetry is the whole design:
+  the courier's `rewrites[].original` is a **copy**, kept only so undo can put
+  the link rewrites back, so a shed record still reverses every move and copy —
+  `Courier.undo` returns an `UndoOutcome` naming the notes whose text it could
+  not restore, so the user is told rather than discovering it from a broken
+  embed. A capture's `appended` is the **undo instruction itself** — the exact
+  bytes `Capture.undo` strips back off the end of the note — so `CaptureRecord`
+  sheds nothing at any size and an oversized capture is journaled whole. A
+  record that is large for some other reason (thousands of transfers) has
+  nothing useful to give up and is kept intact rather than mangled. **`last()` and
   `removeLast()` both resolve the top record through `Journal.topIndex`**,
   which walks back past any line that won't decode. Atomic appends mean this
   build can't tear a line, but every journal written by a pre-0.5 build could
@@ -353,6 +462,17 @@ Checks/
   already running as the user with full filesystem access, and the only way a
   symlink enters a vault is if the user put it there. Resolving would break a
   symlinked attachment folder to buy a guarantee that `cp` bypasses anyway.
+  The promise covers every path a write *creates*, not just the files it
+  writes — see `isContainedDirectory` above.
+- **The courier refuses what it cannot read.** `deliverNote` needs the note's
+  text to know which attachments to carry, so a failed read is thrown
+  (`CourierError.unreadableNote`), not coerced to `""`. The coercion resolved
+  no references, so the note moved alone and its attachments stayed behind
+  with the operation reporting success — reachable from a dataless iCloud
+  placeholder, not just an exotic encoding. Refusal is free here because
+  `deliver`'s catch already rolls back and rethrows. The message does not
+  promise "nothing was moved": rollback is best-effort (`try?`) and a
+  multi-file drop may have placed earlier files already.
 - **No reuse of Obsidian's gem logo;** "for Obsidian" nominative phrasing only.
 - **Cross-Vault Search is permanently out of scope** — decided early, won't build it.
 

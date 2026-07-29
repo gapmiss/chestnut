@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.6.0
+VERSION := 0.6.1
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
@@ -40,6 +40,11 @@ check: site-gen
 		|| { echo "docs/sprites.js is stale — run 'make site'"; exit 1; }
 	@diff -u docs/favicon.svg $(BUILD)/favicon.svg \
 		|| { echo "docs/favicon.svg is stale — run 'make site'"; exit 1; }
+	@test "$$(plutil -extract CFBundleShortVersionString raw \
+		Resources/Info.plist)" = "$(VERSION)" \
+		|| { echo "Resources/Info.plist stamps $$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist), not $(VERSION) — its own comment promises they stay in step"; exit 1; }
+	@grep -q "in the Makefile ($(VERSION))" CLAUDE.md \
+		|| { echo "CLAUDE.md's intro names a release other than $(VERSION) — it restates VERSION by hand, so it drifts on every bump unless this catches it"; exit 1; }
 
 build:
 	swift build -c $(CONFIG)

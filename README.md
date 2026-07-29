@@ -72,6 +72,43 @@ does, the same fix applies.
 
 To start automatically, right-click the pet and toggle Settings → Launch at Login.
 
+## Uninstall
+
+If you turned on Settings → Launch at Login, switch it off before you quit.
+That deregisters the login item, which deleting the app does not. Then quit
+Chestnut (right-click → Quit, ⌃⌥M → Quit, or `pkill -x Chestnut`) and remove
+the app:
+
+```bash
+brew uninstall --cask chestnut      # installed with Homebrew
+rm -rf /Applications/Chestnut.app   # installed manually
+```
+
+Chestnut writes to four places outside its own bundle, and nowhere else:
+
+| Path | Contents |
+| --- | --- |
+| `~/Library/Application Support/Chestnut/` | `config.json`, `state.json`, the undo journals `journal.jsonl` and `captures.jsonl`, and any backups beside them (`.bak`, `.bak.1`, … from a settings file that failed to parse, or a `.pre-0.3` left by an old build) |
+| `~/.config/chestnut/plugins/` | Installed plugins. Created at every launch, so it exists even if you never wrote one |
+| `~/Library/Logs/Chestnut/` | `chestnut.log` and `chestnut.log.1`, written only while `debug` is on in `config.json` |
+| `$TMPDIR/chestnut-plugins/` | Scratch copies of pasted images on their way to a plugin. Swept at every launch, and macOS clears it anyway |
+
+```bash
+rm -rf ~/Library/Application\ Support/Chestnut \
+       ~/.config/chestnut \
+       ~/Library/Logs/Chestnut
+```
+
+None of those paths holds a vault or a note, so removing them leaves your
+writing where it is.
+
+Worth knowing whether or not you are uninstalling: **the undo journals hold
+your note text.** `captures.jsonl` keeps the exact text of each capture, and
+`journal.jsonl` keeps a note's pre-delivery text whenever a delivery rewrote
+its links, because that is what Undo puts back. Both are capped at 20 records
+or 1 MB, so older text rolls off as you keep working, and neither is ever sent
+anywhere.
+
 ## Requirements
 
 - macOS 14+
@@ -123,6 +160,33 @@ Two files in `~/Library/Application Support/Chestnut/`:
 - **`state.json`** is Chestnut's: window position, size, opacity, theme, notice
   duration, pinned vault, disabled plugins. Everything in it has a control in
   the right-click menu.
+
+### Using Chestnut with VoiceOver
+
+**VoiceOver claims Chestnut's default shortcuts.** Control-Option is
+VoiceOver's own modifier (the "VO key"), so with VoiceOver running ⌃⌥V is
+speech verbosity, ⌃⌥M is the menu bar, and none of Chestnut's five hotkeys
+reach Chestnut. That includes ⌃⌥M, which is otherwise the keyboard route to
+the right-click menu.
+
+Rebind them in `config.json` to a prefix VoiceOver doesn't use, and relaunch:
+
+```json
+{
+  "hotkeys": {
+    "capture": "control+shift+space",
+    "hopper":  "control+shift+v",
+    "paste":   "control+shift+c",
+    "notice":  "control+shift+o",
+    "menu":    "control+shift+m"
+  }
+}
+```
+
+Until then, the menu is still reachable by right-clicking Chestnut itself (the
+click has to land on the sprite, not the clear space around it). Once open, the
+menu, the Quick Capture panel and the vault palettes all read correctly, and
+arrowing through a palette announces each vault with its path.
 
 Keeping them apart means editing `config.json` while Chestnut is running is
 safe. Upgrading is just a new `.app`: neither file is touched, so nothing

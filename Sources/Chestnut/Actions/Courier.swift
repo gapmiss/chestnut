@@ -28,6 +28,38 @@ struct CourierOperation: Codable, Equatable {
     /// before their note and several notes interleave. Nil in records
     /// journaled before the menu named anything.
     var deliveredNames: [String]?
+    /// Notes this record can no longer restore the text of, by file name,
+    /// because the record was too large to journal with their pre-rewrite
+    /// bodies and shed them (see `sheddingPayload`). Undo still brings the
+    /// files home; it just leaves the delivery's link rewrites in place.
+    /// Nil in every ordinary record.
+    var textNotRestored: [String]?
+}
+
+extension CourierOperation: JournalShedding {
+    /// The unbounded field is `rewrites[].original`, and it is a *copy* of the
+    /// note's pre-delivery text rather than an instruction — undo needs it only
+    /// to put the link rewrites back, so a record without it still reverses
+    /// every move and copy, which is the part users reach for undo to get.
+    /// Dropping it trades exact text restoration for a bounded journal, and
+    /// names the notes that lost it so undo can say so rather than quietly
+    /// hand back a note with the delivery's links still in it.
+    ///
+    /// Nil when there is nothing to give up: a record this large with no
+    /// rewrites is large for some other reason, and shedding would only strip
+    /// a field that was already empty.
+    func sheddingPayload() -> CourierOperation? {
+        guard !rewrites.isEmpty else { return nil }
+        return CourierOperation(
+            date: date, isCopy: isCopy, transfers: transfers, rewrites: [],
+            deliveredNames: deliveredNames,
+            // Copies don't restore text on undo (they're trashed, and the
+            // source was never rewritten), so there is nothing to warn about.
+            textNotRestored: isCopy
+                ? nil
+                : rewrites.map { ($0.notePath as NSString).lastPathComponent }
+        )
+    }
 }
 
 extension CourierOperation {
@@ -43,9 +75,27 @@ extension CourierOperation {
     }
 }
 
+/// What an undo finished without, even though every file came home.
+///
+/// Distinct from `CourierError.partiallyUndone`, which means files stayed put:
+/// here the reversal is complete and only the note's *text* is short of where
+/// it started, so it is a return value rather than a throw — the record is
+/// spent and should be dropped exactly as a clean undo would drop it.
+struct UndoOutcome: Equatable {
+    /// Notes moved back to their source path still carrying the link rewrites
+    /// the delivery applied, because the record was journaled without their
+    /// original text. Empty in every ordinary undo.
+    let textNotRestored: [String]
+}
+
 enum CourierError: LocalizedError {
     case nothingToDeliver
     case destinationIsSource
+    /// A note whose text can't be decoded. Refused rather than delivered:
+    /// without the text there is no way to know which attachments the note
+    /// embeds, and moving it alone strands them in the source vault with the
+    /// operation still reporting success. See `deliverNote`.
+    case unreadableNote(name: String, reason: String)
     /// Undo reversed what it could and could not reverse the rest. Carries
     /// enough to tell the user which files stayed put — the state is known,
     /// not a mystery, so the message says so rather than "undo failed".
@@ -55,6 +105,12 @@ enum CourierError: LocalizedError {
         switch self {
         case .nothingToDeliver: return "No files to deliver."
         case .destinationIsSource: return "The note is already in that vault."
+        case let .unreadableNote(name, reason):
+            // No promise that nothing moved: rollback is best-effort, and a
+            // multi-file drop may have placed earlier files already.
+            return "Couldn't read \(name) as text, so Chestnut can't tell which "
+                + "attachments it needs. The delivery was cancelled rather than "
+                + "move the note and leave them behind. (\(reason))"
         case let .partiallyUndone(restored, unreachable):
             let shown = unreachable.prefix(3).joined(separator: ", ")
             let rest = unreachable.count > 3 ? " and \(unreachable.count - 3) more" : ""
@@ -75,7 +131,9 @@ enum CourierError: LocalizedError {
 /// The only files modified are the delivered notes themselves, when their
 /// references must change to keep resolving; originals are journaled.
 struct Courier {
-    private let fm = FileManager.default
+    // Computed (not stored) so the struct stays Sendable — deliveries run off
+    // the main actor to keep byte copies and vault walks from freezing the UI.
+    private var fm: FileManager { .default }
 
     // MARK: - Delivery
 
@@ -133,7 +191,8 @@ struct Courier {
     /// `partiallyUndone` names the rest. The record is spent either way — a
     /// second undo can only re-fail on the transfers already reversed — so
     /// this throws rather than returning quietly.
-    func undo(_ op: CourierOperation) throws {
+    @discardableResult
+    func undo(_ op: CourierOperation) throws -> UndoOutcome {
         var unreachable: [String] = []
 
         if op.isCopy {
@@ -149,7 +208,7 @@ struct Courier {
                 }
             }
             try reportIfIncomplete(unreachable, of: op)
-            return
+            return UndoOutcome(textNotRestored: [])
         }
 
         let originalByPath = Dictionary(
@@ -180,6 +239,7 @@ struct Courier {
             }
         }
         try reportIfIncomplete(unreachable, of: op)
+        return UndoOutcome(textNotRestored: op.textNotRestored ?? [])
     }
 
     private func reportIfIncomplete(
@@ -200,7 +260,22 @@ struct Courier {
         rewrites: inout [CourierOperation.NoteRewrite],
         placed: inout [String: URL]
     ) throws {
-        let content = (try? String(contentsOf: note, encoding: .utf8)) ?? ""
+        // Bind the error rather than coercing it to "". An empty note resolves
+        // no references, so the coercion delivered the note alone, journaled
+        // no rewrite, and reported success — the attachments stayed in the
+        // source vault and nothing said so. The read fails for a dataless
+        // iCloud placeholder as readily as for a non-UTF-8 file, so this is
+        // reachable without any exotic encoding. Refusing costs nothing extra:
+        // deliver's catch already rolls back and rethrows.
+        let content: String
+        do {
+            content = try String(contentsOf: note, encoding: .utf8)
+        } catch {
+            throw CourierError.unreadableNote(
+                name: note.lastPathComponent,
+                reason: error.localizedDescription
+            )
+        }
         let searchRoot = sourceVault ?? note.deletingLastPathComponent()
 
         // Resolve and place attachments first, so the note can be rewritten
@@ -471,5 +546,20 @@ struct Courier {
         let fileStd = url.standardizedFileURL
         return fileStd.path.hasPrefix(vaultStd.path + "/")
             && !fileStd.pathComponents.contains(".obsidian")
+    }
+
+    /// Directory variant of `isContained`, which the vault root itself fails:
+    /// the prefix test needs a trailing `/`, and no *file* is ever written at
+    /// the root path itself, so rejecting it there is correct. A *directory*
+    /// argument is different — the root is where a plugin save with no
+    /// `folder` lands, and where `attachmentFolder(of:)` falls back when
+    /// `attachmentFolderPath` is unset. Both are ordinary, so a caller
+    /// checking directories must accept the root or refuse every normal save.
+    static func isContainedDirectory(_ url: URL, inVault vaultPath: String) -> Bool {
+        let vaultStd = URL(fileURLWithPath: vaultPath).standardizedFileURL
+        let dirStd = url.standardizedFileURL
+        guard !dirStd.pathComponents.contains(".obsidian") else { return false }
+        return dirStd.path == vaultStd.path
+            || dirStd.path.hasPrefix(vaultStd.path + "/")
     }
 }

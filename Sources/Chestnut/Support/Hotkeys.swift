@@ -188,7 +188,7 @@ final class HotkeyCenter {
             eventClass: OSType(kEventClassKeyboard),
             eventKind: UInt32(kEventHotKeyPressed)
         )
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetEventDispatcherTarget(),
             { _, event, userData in
                 guard let event, let userData else { return noErr }
@@ -209,12 +209,36 @@ final class HotkeyCenter {
             &handler
         )
 
+        // Set before the guard below: reportMenuFailure reads menuBinding to
+        // name the binding in the notice, so an early failure must still know
+        // what it was.
+        menuBinding = config.menu
+        menuSpec = HotkeySpec(config.menu)
+
+        // RegisterEventHotKey does not depend on the handler having installed
+        // — it returns noErr either way — so without this check a failed
+        // install left all five hotkeys claimed system-wide and none of them
+        // dispatching: ⌃⌥M dead in Chestnut *and* in every other app, with
+        // nothing said anywhere. Registering nothing is strictly better than
+        // registering keys that can't fire, hence the early return: at least
+        // the keystrokes stay available to whatever else wants them.
+        guard status == noErr else {
+            NSLog(
+                "HotkeyCenter: event handler install failed (OSStatus %d); no hotkey can fire",
+                status
+            )
+            if !Self.isOptedOut(config.menu) {
+                reportMenuFailure(
+                    "Chestnut couldn't install its keyboard event handler, so no hotkey will respond"
+                )
+            }
+            return
+        }
+
         register(config.capture, id: Self.captureID, label: "capture")
         register(config.hopper, id: Self.hopperID, label: "hopper")
         register(config.paste, id: Self.pasteID, label: "paste")
 
-        menuBinding = config.menu
-        menuSpec = HotkeySpec(config.menu)
         register(config.menu, id: Self.menuID, label: "menu")
         if menuSpec == nil, !Self.isOptedOut(config.menu) {
             reportMenuFailure("It isn't a valid hotkey")

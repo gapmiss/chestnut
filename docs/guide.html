@@ -424,6 +424,15 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       ignored, and the reason is written to the log.
       Set a binding to <code>""</code> or <code>"none"</code> to disable it.
     </p>
+    <p>
+      <strong>Using VoiceOver?</strong> Control-Option is VoiceOver's own
+      modifier, so it takes every default binding above before Chestnut sees
+      it, <code>menu</code> included. Swap <code>option</code> for
+      <code>shift</code> in all five and relaunch:
+      <code>"control+shift+space"</code>, <code>"control+shift+v"</code>,
+      <code>"control+shift+c"</code>, <code>"control+shift+o"</code>,
+      <code>"control+shift+m"</code>.
+    </p>
 
     <h3>Custom themes</h3>
     <p>
@@ -613,6 +622,16 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       listed but greyed out, remove it and re-add it (toggle the switch
       off then on). A restart of the app may be needed after granting
       the permission.
+    </p>
+    <p>
+      If VoiceOver is running, that is the more likely cause. Control-Option is
+      VoiceOver's own modifier, the "VO key", so VoiceOver claims all five of
+      Chestnut's default shortcuts before Chestnut ever sees them:
+      Control-Option-V is speech verbosity, Control-Option-M is the menu bar.
+      Rebind them to a Control-Shift set in <code>config.json</code> (see
+      <a href="#hotkey-config">Hotkeys</a>) and relaunch. Right-clicking
+      Chestnut still opens the menu meanwhile, and the menu, the capture panel
+      and the vault palettes all read correctly with VoiceOver.
     </p>
 
     <h3>An undo says it failed</h3>

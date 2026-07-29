@@ -19,9 +19,12 @@
 	<!-- Both are placeholders: `make bundle` stamps the real values from
 	     Makefile:VERSION and the commit count, and `make release-check`
 	     asserts the stamp. Kept in step with VERSION so the file can't be
-	     misread as a source of truth. -->
+	     misread as a source of truth, and `make check` asserts that too —
+	     it drifted two releases before anything enforced it. Edit this
+	     value by hand: `plutil -replace` rewrites the file and drops this
+	     comment. -->
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.0</string>
+	<string>0.6.1</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>

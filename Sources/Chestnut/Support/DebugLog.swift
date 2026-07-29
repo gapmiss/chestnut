@@ -1,9 +1,18 @@
 import Foundation
 
-nonisolated(unsafe) let iso8601: ISO8601DateFormatter = {
-    let f = ISO8601DateFormatter()
-    return f
-}()
+/// Timestamp for the debug log and for `CHESTNUT_TIMESTAMP`. A value-type
+/// format style rather than a shared `ISO8601DateFormatter`: the two callers
+/// sit on different executors (`DebugLog.log` is `@MainActor`,
+/// `PluginRunner.environment` is `nonisolated`), so a shared instance needed
+/// `nonisolated(unsafe)` — a promise of thread-safety that Foundation
+/// documents for `NSDateFormatter` but *not* for `ISO8601DateFormatter`.
+/// `Date.ISO8601FormatStyle` is `Sendable` with no shared state, so the
+/// promise isn't needed. Output is byte-identical to the formatter's default
+/// (`.withInternetDateTime`), which matters: `CHESTNUT_TIMESTAMP` is
+/// documented plugin API.
+func iso8601Timestamp(_ date: Date = Date()) -> String {
+    date.formatted(.iso8601)
+}
 
 @MainActor
 enum DebugLog {
@@ -41,7 +50,7 @@ enum DebugLog {
 
     static func log(_ message: String) {
         guard enabled, let handle else { return }
-        let ts = iso8601.string(from: Date())
+        let ts = iso8601Timestamp()
         let line = "\(ts) \(message)\n"
         handle.write(Data(line.utf8))
     }

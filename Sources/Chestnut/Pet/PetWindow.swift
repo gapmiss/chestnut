@@ -280,32 +280,9 @@ final class PetWindow: NSPanel {
         let screen = NSScreen.screens.first { $0.frame.intersects(sprite) } ?? NSScreen.main
         menu.popUp(
             positioning: nil,
-            at: Self.menuOrigin(for: menu.size, at: sprite, in: screen?.visibleFrame),
+            at: PetGeometry.menuOrigin(for: menu.size, at: sprite, in: screen?.visibleFrame),
             in: nil
         )
-    }
-
-    /// Where to put a hotkey-invoked menu so the whole thing is on screen.
-    ///
-    /// `popUp(positioning:at:in:)` hangs the menu's top-left corner off the
-    /// given point and grows *down*, and when that doesn't fit it scrolls
-    /// rather than flipping the way a real context menu does. The pet defaults
-    /// to the bottom-right corner, so anchoring at the sprite's top hides most
-    /// of the menu behind a scroll arrow. Open downward when there's room and
-    /// flip above the sprite when there isn't, then clamp both axes.
-    /// Pure geometry, so it can be reasoned about without a screen: `visible`
-    /// is the target screen's visible frame, nil when there is none to consult.
-    static func menuOrigin(for menuSize: NSSize, at sprite: NSRect, in visible: NSRect?) -> NSPoint {
-        let below = NSPoint(x: sprite.midX, y: sprite.maxY)
-        guard let visible, menuSize.height > 0 else { return below }
-
-        // Open downward from the sprite's top when the menu fits; otherwise sit
-        // it on the bottom edge of the screen, which puts it above the sprite.
-        let y = below.y - menuSize.height < visible.minY
-            ? min(visible.maxY, visible.minY + menuSize.height)
-            : below.y
-        let rightmost = max(visible.minX, visible.maxX - menuSize.width)
-        return NSPoint(x: min(max(below.x, visible.minX), rightmost), y: y)
     }
 
     private func buildMenu() -> NSMenu {

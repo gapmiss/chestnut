@@ -24,6 +24,15 @@ final class PluginRegistry {
 
     func start() {
         let dir = directory
+        // Load-bearing, despite looking redundant beside rescan()'s tolerance
+        // of a missing directory and the on-demand creation behind "Open
+        // Plugins Folder". `watchDirectory` hands this path to
+        // FSEventStreamCreate, and a stream created on a path that does not
+        // exist never starts delivering — not when the directory appears
+        // later, and not for any install after that. Dropping this line costs
+        // hot-reload for the entire session (measured: 0 plugins seen across
+        // two installs over 8s, against 1 then 2 with it). `make check` pins
+        // both halves.
         try? FileManager.default.createDirectory(
             at: dir, withIntermediateDirectories: true
         )
