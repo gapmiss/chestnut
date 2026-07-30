@@ -145,9 +145,11 @@
           move and copy (the default is set in the menu).</li>
     </ul>
     <p>
-      A single non-markdown file or folder routes to a matching
-      <a href="#plugins">plugin</a> first. If no plugin matches, the courier
-      handles it as a plain file copy. Drop two or more items at once and the
+      A single non-markdown file or folder can go to a
+      <a href="#plugins">plugin</a> instead, but never without asking: when a
+      plugin matches, Chestnut opens a picker listing it alongside
+      <strong>Deliver to a vault</strong>. With no matching plugin, the item
+      goes straight to the courier. Drop two or more items at once and the
       whole drop is a delivery, plugins included.
     </p>
     <p>
