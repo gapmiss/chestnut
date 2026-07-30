@@ -348,6 +348,51 @@ Checks/
   somewhere; nothing is silently discarded. The routing is pure (`DropRouter`,
   in the check target); `PetWindow` only feeds it and executes the result. Zero-cost when
   no plugins installed — courier and all existing features work identically.
+- **A drag out of Obsidian's file explorer carries no file URL at all.** Every
+  sample logged (2026-07-29/30) is Chromium-initiated with no
+  `public.file-url` and no `NSFilenamesPboardType`: a note or an attachment
+  arrives as an `obsidian://open?vault=…&file=…` link on `public.url`, and a
+  **folder** arrives as its bare basename on the text pasteboard and nothing
+  else — no path, not even the vault (three folders measured at 8, 9 and 5
+  characters; the 5 was `SKILLS`, for `CLAUDE/SKILLS`). A bare name has no
+  reliable resolution, because one vault really does repeat folder names, so
+  searching for it ends in either a guess that can *move the wrong folder* or a
+  prompt on most drags asking what the user already knew. `PetWindow` therefore
+  diverts it (`DropRouter.isPathlessObsidianDrag`) to a notice naming the
+  limitation, **before** `PluginDispatch.classifyDrag` — reached in drop order,
+  that name classifies as prose and opens the text plugin picker, which cannot
+  deliver a folder and never says so. Keying the divert on the source bundle is
+  what makes it safe: text cannot be dragged out of Obsidian's editor at all
+  (the gesture extends the selection instead), so a text-only drag from that
+  bundle is an explorer item, never prose.
+  **A multi-select arrives as one run-on string with no delimiter between the
+  links**, which is why `ObsidianOpenLink.links(in:)` splits on the
+  `obsidian://` scheme instead of parsing the payload once. That reads as
+  defensive over-engineering and is not: the whole payload *does* parse, the
+  first `file=` swallowing everything after it, so two dragged notes resolved
+  to one unfindable name (`CLAUDE/SKILLS/aobsidian://open?vault=Master`) and
+  fell through to the plugin picker with neither note moved and nothing saying
+  why — 0.6.1 shipped exactly that. `make check` pins the split *and* the
+  broken whole-payload reading, so deleting the split fails rather than
+  silently regressing.
+  **A resolved link goes straight to the courier, bypassing `DropRouter`**
+  (`PetWindow.swift:915`), so an attachment dragged out of Obsidian is
+  delivered even when a plugin would claim that same file from Finder.
+  Deliberate, not an oversight. The divergence is narrower than it looks:
+  `DropRouter` sends every `.md` file to the courier whatever the source, and a
+  multi-item drop rides the courier from either source, so it is exactly one
+  case — a single non-`.md` attachment with a matching plugin enabled. Routing
+  that through `DropRouter` would mean enabling one image plugin removes the
+  only convenient way to move an attachment between vaults, since reaching it
+  from Finder means knowing the vault's `attachmentFolderPath` and navigating
+  there by hand. The source of the drag carries intent: a file reached through
+  Obsidian's explorer is *already in a vault* and the courier is the only thing
+  that can move it to another, while a file reached through Finder is not, so
+  plugin-first is right there. The general wart this sidesteps —
+  **plugins shadow the courier for non-`.md` single files** — is real, and it
+  already lives on the Finder path (install a `folder` plugin, lose folder
+  delivery from Finder). Fixing it means making the courier reachable *when* a
+  plugin matches, not making Obsidian drags shadowable too.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
   `/`), rejecting `.obsidian` path components. Callers are all paths the user
