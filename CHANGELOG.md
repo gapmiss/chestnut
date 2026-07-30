@@ -4,6 +4,39 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] — 2026-07-30
+
+### Changed
+
+- **Installing a plugin no longer takes away a courier gesture.** A plugin that
+  matched a dropped file used to claim it outright, so enabling a `folder`
+  plugin meant folders could no longer be delivered to another vault, and
+  enabling an image plugin meant the same for every image. There was no way to
+  say "no, deliver this one". Now, when a plugin and the courier could both
+  handle a dropped item, Chestnut asks: the picker lists the matching plugins
+  and a **Deliver to a vault** row. The plugin starts selected, so ⏎ does what
+  Chestnut did before; ↓ then ⏎ delivers instead.
+
+  Unchanged: `.md` files always go to the courier, several items dropped
+  together are always a delivery, and an item no plugin matches still goes
+  straight to the courier with no picker. ⌃⌥C is unaffected, since a pasted
+  image is not a file the courier can deliver.
+
+- **Attachments dragged out of Obsidian now follow the same rules as files
+  from Finder.** They previously bypassed plugin routing entirely, as a
+  workaround for the problem above. With the courier always one row away, the
+  workaround is gone: a single attachment dragged from Obsidian with a matching
+  plugin enabled now opens the same picker. Notes, multi-selections, and the
+  folder explanation are unchanged.
+
+### Fixed
+
+- **The plugin picker now announces the selected row to VoiceOver.** Arrowing
+  through it was silent, because focus stays in the filter field by design.
+  With the courier now reachable only through this picker, choosing blind
+  between running a script and moving the file to another vault was not
+  acceptable.
+
 ## [0.6.2] — 2026-07-30
 
 ### Fixed
@@ -505,6 +538,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.7.0]: https://github.com/gapmiss/chestnut/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/gapmiss/chestnut/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gapmiss/chestnut/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gapmiss/chestnut/compare/v0.5.0...v0.6.0

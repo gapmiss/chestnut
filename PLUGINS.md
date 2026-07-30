@@ -89,7 +89,7 @@ PNG and TIFF; Chestnut writes the PNG, since Obsidian renders no TIFF. The
 extension always describes the actual bytes, so trust the path's suffix.
 
 Plugins receive single-item drops only: dropping several files (or folders) at
-once is a courier delivery, all of it. Drop an item on its own to route it to
+once is a courier delivery, all of it. Drop an item on its own to offer it to
 a plugin.
 
 ### Output modes
@@ -209,8 +209,10 @@ you're done troubleshooting.
 ## Multiple plugins
 
 When several plugins accept the same input type, Chestnut shows a picker
-palette (type to filter, arrows to navigate, enter to run). If only one
-matches, it runs immediately.
+palette (type to filter, arrows to navigate, enter to run). On a paste
+(⌃⌥C), a single match runs immediately. On a drop the picker appears even
+for a single match, because a dropped file is always something the courier
+could deliver instead; see below.
 
 ## Viewing installed plugins
 
@@ -225,14 +227,24 @@ or modifying a plugin directory is detected automatically. No restart needed.
 
 ## Drag-and-drop behavior
 
-The drag-and-drop flow with plugins installed:
+**A plugin never takes a dropped file away from the courier.** Everything
+dropped on Chestnut is a file on disk, so the courier can always deliver it.
+When a plugin matches as well, Chestnut asks rather than choosing:
 
-1. **Folders** are routed to a `folder` plugin if one exists; otherwise they
-   fall through to the courier (which copies/moves the directory as-is).
-2. **All `.md` files** go to the courier (existing behavior, unchanged).
-3. **Other content** (non-.md files, URLs, images, text) is classified and
-   matched against installed plugins.
-4. **No matching plugin** for non-.md file drops falls back to the courier.
+1. **All `.md` files** go to the courier, no picker.
+2. **Several items dropped together** are a courier delivery, all of it, even
+   when a plugin would match one of them.
+3. **A single item no plugin matches** goes straight to the courier, no picker.
+4. **A single item a plugin matches** opens the picker, listing the matching
+   plugins and a **Deliver to a vault** row. The plugin is preselected, so ⏎
+   runs it and ↓ ⏎ delivers instead. This covers folders too: installing a
+   `folder` plugin adds a choice, it does not remove folder delivery.
+
+Through 0.6.2 a matching plugin claimed the drop outright, and installing a
+plugin silently removed the courier gesture for that file type. That is gone.
+
+Paste (⌃⌥C) is unaffected: a pasted image is not a file the courier can
+deliver, so a single match still runs immediately.
 
 While a plugin runs, Chestnut shows a chewing animation. On success, it
 performs the gulp.

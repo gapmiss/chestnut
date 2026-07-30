@@ -1,6 +1,7 @@
 import Foundation
 
-/// Pure routing for a file drop: does it go to a plugin, or to the courier?
+/// Pure routing for a file drop: straight to the courier, or a choice between
+/// a plugin and the courier?
 /// Lives outside `PetWindow` (which AppKit keeps out of the check target)
 /// for the same reason as `PetGeometry` — the failure worth testing is an
 /// item silently going nowhere, and every dropped URL must land in exactly
@@ -13,15 +14,33 @@ import Foundation
 /// palette clobbers one or the other. Dropping several items is a delivery;
 /// the plugin path is reached by dropping the item on its own.
 enum DropRouter {
-    struct Route: Equatable {
+    /// What a drop resolves to.
+    ///
+    /// **There is deliberately no plugin-only case.** Until 0.7 a matching
+    /// plugin took the item outright and the courier never saw it, so
+    /// installing a `folder` plugin removed folder delivery and installing an
+    /// image plugin removed image delivery — silently, permanently, and with
+    /// no gesture to say "no, deliver this one". The courier is the app's
+    /// primary feature; a plugin quietly outranking it was the bug.
+    ///
+    /// Every URL this router sees is a file on disk, which means the courier
+    /// can always take it. So whenever a plugin *also* applies, both apply,
+    /// and the answer is to ask. Making the plugin-only outcome
+    /// unrepresentable is what keeps a later refactor from restoring the
+    /// shadowing: there is no case to fall back into.
+    ///
+    /// The paste path (⌃⌥C) is the one place a plugin runs unasked, and it
+    /// never comes through here — its input is a temp file that gets deleted,
+    /// so the courier is not a candidate at all. See `handlePluginInput`.
+    enum Route: Equatable {
         struct PluginDrop: Equatable {
             let type: PluginInputType
             let url: URL
         }
-        /// Set only for a single-item drop the plugin system claims.
-        let plugin: PluginDrop?
-        /// Everything else, in drop order.
-        let courier: [URL]
+        /// A single item both a plugin and the courier could handle: ask.
+        case ask(PluginDrop)
+        /// Straight to the courier, in drop order.
+        case courier([URL])
     }
 
     static func route(
@@ -33,18 +52,18 @@ enum DropRouter {
         if urls.count == 1, let only = urls.first {
             if isDirectory(only) {
                 if hasFolderPlugin {
-                    return Route(plugin: .init(type: .folder, url: only), courier: [])
+                    return .ask(.init(type: .folder, url: only))
                 }
             } else if only.pathExtension.lowercased() != "md" {
                 // .md drops always ride the courier.
                 let ext = only.pathExtension.lowercased()
                 let type = PluginDispatch.extensionToType(only.pathExtension)
                 if hasPluginFor(type, ext) {
-                    return Route(plugin: .init(type: type, url: only), courier: [])
+                    return .ask(.init(type: type, url: only))
                 }
             }
         }
-        return Route(plugin: nil, courier: urls)
+        return .courier(urls)
     }
 
     static let obsidianBundleID = "md.obsidian"
