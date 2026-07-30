@@ -4,6 +4,28 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [0.6.2] — 2026-07-30
+
+### Fixed
+
+- **Several notes dragged from Obsidian at once are now delivered.** Selecting
+  two or more notes in Obsidian's file explorer and dragging them onto Chestnut
+  did nothing useful: Obsidian describes them all in a single run-on link, and
+  Chestnut read that as one note with an unrecognizable name, found nothing at
+  that name, and offered the dropped text to plugins instead. Neither note
+  moved, and nothing said why. Every note in the drag now arrives at the
+  destination picker together.
+
+### Changed
+
+- **A folder dragged from Obsidian now explains itself.** Obsidian's file
+  explorer hands over a folder as its name alone, with no path and no vault, so
+  there is nothing for Chestnut to find. Previously it treated that name as
+  ordinary text and opened the plugin picker, which looked like it worked and
+  delivered nothing. Chestnut now says that Obsidian drags folders without
+  their path, and points at Finder, where the gesture works. Notes and
+  attachments dragged from Obsidian are unaffected.
+
 ## [0.6.1] — 2026-07-28
 
 ### Fixed
@@ -483,6 +505,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.6.2]: https://github.com/gapmiss/chestnut/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gapmiss/chestnut/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gapmiss/chestnut/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gapmiss/chestnut/compare/v0.4.0...v0.5.0

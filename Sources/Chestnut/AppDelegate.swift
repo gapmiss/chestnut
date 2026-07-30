@@ -156,6 +156,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onPluginDrop = { [weak self] type, input in
             self?.handlePluginInput(type: type, input: input)
         }
+        // Obsidian's drag omits the path for folders, so there is nothing to
+        // deliver and nothing worth guessing at; say which app dropped the
+        // information and where the gesture does work.
+        window.onPathlessObsidianDrop = { [weak self] in
+            self?.showNotice(
+                "Obsidian drags folders without their path",
+                "Drag the folder from Finder to deliver it"
+            )
+        }
         window.undoDeliveryRow = { [weak self] in
             self?.journal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
         }

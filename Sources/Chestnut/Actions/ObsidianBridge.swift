@@ -26,6 +26,33 @@ struct ObsidianOpenLink: Sendable {
         self.vaultName = vault
         self.filePath = file
     }
+
+    /// Every `obsidian://` link in a drag payload, in drop order.
+    ///
+    /// A multi-select drag out of Obsidian's file explorer puts *all* the links
+    /// in one `public.url` payload, glued end to end with no delimiter:
+    /// `obsidian://open?vault=V&file=aobsidian://open?vault=V&file=b`
+    /// (observed 2026-07-29, two notes from the Master vault). Parsed whole
+    /// that is a single URL whose query splits into `vault`, then
+    /// `file=aobsidian://open?vault=V`, then a second `file` — so `init?`,
+    /// which takes the *first* `file`, reads a path with the next link welded
+    /// onto its tail. It resolves nowhere, the drop falls through to plugin
+    /// dispatch as plain text, and neither note moves. Splitting on the scheme
+    /// is what makes the payload parseable at all; a lone link is simply the
+    /// one-element case, which is why there is no separate single-link path.
+    ///
+    /// Fragments are trimmed because a delimiter may appear between links in
+    /// some Obsidian version even though this one emits none — trailing
+    /// whitespace inside a real filename survives, since it reaches here still
+    /// percent-encoded.
+    static func links(in raw: String) -> [ObsidianOpenLink] {
+        let scheme = "obsidian://"
+        guard raw.contains(scheme) else { return [] }
+        return raw.components(separatedBy: scheme)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .compactMap { ObsidianOpenLink(scheme + $0) }
+    }
 }
 
 @MainActor
