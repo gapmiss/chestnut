@@ -4,7 +4,7 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] — 2026-07-30
 
 ### Changed
 
@@ -538,6 +538,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.7.0]: https://github.com/gapmiss/chestnut/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/gapmiss/chestnut/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/gapmiss/chestnut/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/gapmiss/chestnut/compare/v0.5.0...v0.6.0
