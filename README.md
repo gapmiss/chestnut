@@ -29,7 +29,10 @@ No Electron, no bundled browser, no network calls.
   vault. Notes land at the vault root with their embedded attachments
   (`![[…]]`, `![](…)`) resolved and carried along, references rewritten to
   match the destination layout. Other file types go to the attachment folder.
-  Conflict-safe naming, journaled for undo.
+  Conflict-safe naming, journaled for undo. Drag **folders** from Finder:
+  Obsidian's file explorer drags a folder as its name alone, without the path,
+  so Chestnut has nothing to deliver and says so instead. Notes and
+  attachments dragged from Obsidian are fine, including several at once.
 - **Quick Capture** is a floating panel for jotting markdown into any vault.
   Formatting toolbar, ⌘B/⌘I/⌘K shortcuts, ⌘1-⌘9 to pick the vault. Drafts
   survive dismiss/reopen.

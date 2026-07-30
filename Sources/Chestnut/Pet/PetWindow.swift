@@ -23,6 +23,10 @@ final class PetWindow: NSPanel {
     var onFilesDropped: (([URL], Bool) -> Void)?
     /// Non-.md content dropped on the pet, classified for plugin dispatch.
     var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
+    /// A drag out of Obsidian that carried no path — a folder, in practice.
+    /// The delegate explains; there is nothing to deliver. See
+    /// `DropRouter.isPathlessObsidianDrag`.
+    var onPathlessObsidianDrop: (() -> Void)?
     /// Resolve a vault name (from an obsidian:// URL) to a vault path.
     var resolveVaultByName: ((String) -> String?)?
     var hasPluginForFileExt: ((PluginInputType, String) -> Bool)?
@@ -933,6 +937,24 @@ final class PetView: SKView {
                 DebugLog.log("drop: \(route.courier.count) file(s) → courier: \(debugFileList(route.courier))")
                 petWindow?.filesDropped(route.courier)
             }
+            return true
+        }
+
+        // Before plugin dispatch: a folder dragged out of Obsidian arrives as
+        // its bare name on the text pasteboard, which would otherwise classify
+        // as prose and open the text plugin picker — a picker that cannot
+        // deliver the folder and never says so. See
+        // `DropRouter.isPathlessObsidianDrag`.
+        let text = sender.draggingPasteboard.string(forType: .string)
+        if DropRouter.isPathlessObsidianDrag(
+            sourceApp: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
+            hasFileURLs: !urls.isEmpty,
+            hasObsidianLinks: !obsidianLinks(from: sender).isEmpty,
+            hasText: text?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        ) {
+            DebugLog.log("drop: Obsidian drag carried no path — explaining instead of dispatching")
+            petScene?.setOpenWide(false)
+            petWindow?.onPathlessObsidianDrop?()
             return true
         }
 

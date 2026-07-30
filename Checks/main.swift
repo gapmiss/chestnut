@@ -1761,6 +1761,40 @@ struct Check {
               "log: courier file list is capped")
         check(debugFileList([]).isEmpty,
               "log: an empty courier list names nothing")
+
+        // --- Obsidian drags that arrive without a path ---
+        // A folder from Obsidian's file explorer is a bare name on the text
+        // pasteboard, which would classify as prose and open the text plugin
+        // picker. Nothing there can deliver a folder, so the drop is explained
+        // instead. Scoped to Obsidian's bundle id, not to text drags at large.
+        let obs = DropRouter.obsidianBundleID
+        check(DropRouter.isPathlessObsidianDrag(
+            sourceApp: obs, hasFileURLs: false,
+            hasObsidianLinks: false, hasText: true),
+              "pathless: text-only drag from Obsidian is explained")
+        check(!DropRouter.isPathlessObsidianDrag(
+            sourceApp: obs, hasFileURLs: false,
+            hasObsidianLinks: true, hasText: true),
+              "pathless: a note or attachment carries a link and is delivered")
+        check(!DropRouter.isPathlessObsidianDrag(
+            sourceApp: obs, hasFileURLs: true,
+            hasObsidianLinks: false, hasText: true),
+              "pathless: a real file URL from Obsidian is delivered")
+        check(!DropRouter.isPathlessObsidianDrag(
+            sourceApp: obs, hasFileURLs: false,
+            hasObsidianLinks: false, hasText: false),
+              "pathless: nothing draggable is not an explanation")
+        // Every other app keeps its text drags: VSCodium hands over a real
+        // file URL for a folder, and text from anywhere else is prose bound
+        // for a plugin.
+        check(!DropRouter.isPathlessObsidianDrag(
+            sourceApp: "com.vscodium", hasFileURLs: false,
+            hasObsidianLinks: false, hasText: true),
+              "pathless: text from another app still reaches plugins")
+        check(!DropRouter.isPathlessObsidianDrag(
+            sourceApp: nil, hasFileURLs: false,
+            hasObsidianLinks: false, hasText: true),
+              "pathless: an unknown source app still reaches plugins")
     }
 
     // MARK: - Courier / Journal
