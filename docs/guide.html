@@ -291,19 +291,35 @@
           or the dropped item.</li>
       <li>It finds all enabled plugins whose <code>accepts</code> and
           <code>extensions</code> match.</li>
-      <li>If one matches, it runs. If several match, a picker lets you choose.</li>
+      <li>For a <em>drop</em>, the courier could always take the item too, so a
+          picker opens listing every matching plugin plus
+          <strong>Deliver to a vault</strong>. The first plugin starts selected,
+          so <kbd>&#x23CE;</kbd> runs it; <kbd>&#x2193;</kbd> reaches the
+          courier.</li>
+      <li>For <span class="keys"><kbd>&#x2303;</kbd><kbd>&#x2325;</kbd><kbd>C</kbd></span>
+          there is no file to deliver, so a single match just runs and several
+          matches show a plugin-only picker.</li>
       <li>If none match, the item falls through to the courier (for drops) or
           nothing happens (for paste).</li>
     </ol>
 
     <h3>Drag-and-drop routing</h3>
+    <p>
+      A plugin never takes a dropped file away from the courier. When both
+      could handle it, Chestnut asks.
+    </p>
     <ul>
-      <li><code>.md</code> files always go to the courier.</li>
-      <li>A single non-<code>.md</code> file goes to a matching plugin, or falls through to the courier.</li>
-      <li>A single folder goes to a <code>folder</code> plugin if one exists, otherwise the courier copies/moves it as-is.</li>
+      <li><code>.md</code> files always go to the courier, with no picker, whatever
+          plugins are installed.</li>
+      <li>A single non-<code>.md</code> file with a matching plugin opens the
+          picker. With no matching plugin it goes straight to the courier.</li>
+      <li>A single folder opens the picker if a <code>folder</code> plugin is
+          enabled. Otherwise the courier copies or moves it as-is.</li>
       <li>Two or more items dropped together are a courier delivery, all of
           them, even when a plugin would match one. Drop an item on its own to
-          route it to a plugin.</li>
+          reach a plugin.</li>
+      <li>Notes and attachments dragged out of Obsidian follow the same rules
+          as files from Finder.</li>
       <li>A folder dragged from Obsidian's file explorer arrives as a bare
           name, with no path, so Chestnut explains the limitation instead of
           routing it anywhere. Drag folders from Finder.</li>

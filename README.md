@@ -29,7 +29,10 @@ No Electron, no bundled browser, no network calls.
   vault. Notes land at the vault root with their embedded attachments
   (`![[…]]`, `![](…)`) resolved and carried along, references rewritten to
   match the destination layout. Other file types go to the attachment folder.
-  Conflict-safe naming, journaled for undo. Drag **folders** from Finder:
+  Conflict-safe naming, journaled for undo. A plugin never takes a dropped
+  file away from the courier: when both could handle it, Chestnut asks, with
+  the plugin pre-selected and "Deliver to a vault" one arrow key away. Drag
+  **folders** from Finder:
   Obsidian's file explorer drags a folder as its name alone, without the path,
   so Chestnut has nothing to deliver and says so instead. Notes and
   attachments dragged from Obsidian are fine, including several at once.

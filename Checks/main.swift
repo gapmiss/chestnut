@@ -1700,6 +1700,13 @@ struct Check {
     /// Plugin dispatch is single-item only: a plugin run and the courier
     /// contend for the same palette/notice surfaces (`presentPalette`
     /// dismisses both), so a multi-item drop is a delivery, wholesale.
+    ///
+    /// The other failure pinned here is the one 0.7 fixed: a matching plugin
+    /// taking a dropped item *outright*, which removed folder or image
+    /// delivery for as long as the plugin stayed installed. There is no
+    /// plugin-only case in `Route` any more, so every assertion below is
+    /// either `.ask` or `.courier` and a refactor that restored shadowing
+    /// would have to add the case back rather than slip through.
     static func dropRouterChecks() {
         let a = URL(fileURLWithPath: "/drop/a.png")
         let b = URL(fileURLWithPath: "/drop/b.png")
@@ -1711,42 +1718,61 @@ struct Check {
         let imageOnly: (PluginInputType, String) -> Bool = { type, _ in type == .image }
         let none: (PluginInputType, String) -> Bool = { _, _ in false }
 
-        // A single matching item is the plugin path, same as ever.
+        // A single matching item is a choice, not a hand-off. Both the plugin
+        // and the courier can take it, so the user is asked.
         var route = DropRouter.route([a], isDirectory: isDir,
                                      hasFolderPlugin: false, hasPluginFor: imageOnly)
-        check(route.plugin == .init(type: .image, url: a) && route.courier.isEmpty,
-              "router: single matching file goes to the plugin")
+        check(route == .ask(.init(type: .image, url: a)),
+              "router: single matching file asks plugin-or-courier")
         route = DropRouter.route([dir1], isDirectory: isDir,
                                  hasFolderPlugin: true, hasPluginFor: none)
-        check(route.plugin == .init(type: .folder, url: dir1) && route.courier.isEmpty,
-              "router: single directory goes to the folder plugin")
+        check(route == .ask(.init(type: .folder, url: dir1)),
+              "router: single directory with a folder plugin asks")
 
         // A multi-item drop is a delivery, wholesale — even when a plugin
         // would match the first item. Nothing vanishes, one surface opens.
         route = DropRouter.route([a, b, note], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: imageOnly)
-        check(route.plugin == nil && route.courier == [a, b, note],
+        check(route == .courier([a, b, note]),
               "router: multi-item drop rides the courier wholesale")
         route = DropRouter.route([dir1, dir2, note], isDirectory: isDir,
                                  hasFolderPlugin: true, hasPluginFor: none)
-        check(route.plugin == nil && route.courier == [dir1, dir2, note],
+        check(route == .courier([dir1, dir2, note]),
               "router: multi-directory drop rides the courier wholesale")
 
-        // A single item nothing claims falls through to the courier.
+        // A single item nothing claims goes straight to the courier — no
+        // prompt, because there is nothing to choose between.
         route = DropRouter.route([z], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: imageOnly)
-        check(route.plugin == nil && route.courier == [z],
-              "router: single unmatched file rides the courier")
+        check(route == .courier([z]),
+              "router: single unmatched file rides the courier unasked")
         route = DropRouter.route([dir1], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: none)
-        check(route.plugin == nil && route.courier == [dir1],
+        check(route == .courier([dir1]),
               "router: single directory without a folder plugin rides the courier")
 
-        // .md files never dispatch to a plugin.
+        // .md files never dispatch to a plugin, and are not asked about
+        // either — the one routing guarantee that is absolute.
         route = DropRouter.route([note], isDirectory: isDir,
                                  hasFolderPlugin: false, hasPluginFor: { _, _ in true })
-        check(route.plugin == nil && route.courier == [note],
+        check(route == .courier([note]),
               "router: .md drops always go to the courier")
+
+        // The shadowing regression, stated directly: with every plugin type
+        // matching, no single-item drop may be handed to a plugin without the
+        // courier alongside it. `.ask` carries the same URL the courier would
+        // deliver, so the row is always reachable.
+        let all: (PluginInputType, String) -> Bool = { _, _ in true }
+        for url in [a, z, dir1] {
+            let asked = DropRouter.route([url], isDirectory: isDir,
+                                         hasFolderPlugin: true, hasPluginFor: all)
+            guard case .ask(let plugin) = asked else {
+                check(false, "router: \(url.lastPathComponent) must stay reachable by the courier")
+                continue
+            }
+            check(plugin.url == url,
+                  "router: the asked plugin drop is the courier's item too (\(url.lastPathComponent))")
+        }
 
         // The courier branch of the drop names what it was handed. A drop the
         // user cancels at the destination palette never reaches the

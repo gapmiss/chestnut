@@ -153,8 +153,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onFilesDropped = { [weak self] urls, copy in
             self?.beginDelivery(of: urls, copy: copy)
         }
-        window.onPluginDrop = { [weak self] type, input in
-            self?.handlePluginInput(type: type, input: input)
+        window.onPluginDrop = { [weak self] type, input, courier in
+            self?.handlePluginInput(type: type, input: input, courier: courier)
         }
         // Obsidian's drag omits the path for folders, so there is nothing to
         // deliver and nothing worth guessing at; say which app dropped the
@@ -648,11 +648,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handlePasteHotkey() {
         guard let classified = PluginDispatch.classify(.general) else { return }
-        handlePluginInput(type: classified.0, input: classified.1)
+        // No courier candidate: the clipboard image is written to a temp file
+        // that gets deleted after the run, so offering delivery would hand the
+        // courier a path that disappears underneath it and journal an undo
+        // record pointing at nothing.
+        handlePluginInput(type: classified.0, input: classified.1, courier: nil)
     }
 
+    /// Dispatch classified input to a plugin, to the courier, or to a choice
+    /// between them.
+    ///
+    /// `courier` delivers this same item and is supplied by the *drop site* —
+    /// never inferred from `type` or `input`, since the paste path classifies
+    /// identically and must not offer it. When it is non-nil, a single match
+    /// still opens the picker: that is the whole point of the change, because
+    /// a single match is the common case and it is where a plugin used to take
+    /// the item outright. See `DropRouter.Route`.
     private func handlePluginInput(
-        type: PluginInputType, input: PluginRunner.Input
+        type: PluginInputType, input: PluginRunner.Input,
+        courier: (() -> Void)?
     ) {
         let matches: [(PluginManifest, URL)]
         if let path = input.filePath {
@@ -661,9 +675,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             matches = pluginRegistry.pluginsAccepting(type)
         }
-        DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name))")
-        switch matches.count {
-        case 0:
+        DebugLog.log("plugin input: type=\(type.rawValue), \(matches.count) matching plugin(s): \(matches.map(\.0.name)), courier candidate: \(courier != nil)")
+
+        if matches.isEmpty {
+            // The router only routes here when a plugin matched, so this is
+            // reachable only if the last one was disabled or removed between
+            // the drop and now. Deliver rather than refuse: the item was
+            // dropped on the pet and something must happen to it.
+            if let courier {
+                DebugLog.log("plugin input: no plugin left — falling through to the courier")
+                deliverInstead(courier)
+                return
+            }
             if let tempPath = input.filePath,
                tempPath.hasPrefix(
                    NSTemporaryDirectory() + "chestnut-plugins/") {
@@ -671,24 +694,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             petWindow?.petScene.setOpenWide(false)
             showNotice("No plugin handles this", type.rawValue + " input")
-        case 1:
-            runPlugin(
-                manifest: matches[0].0, dir: matches[0].1, input: input
-            )
-        default:
-            discardPendingPluginTemp()
-            if let tempPath = input.filePath,
-               tempPath.hasPrefix(NSTemporaryDirectory() + "chestnut-plugins/") {
-                pendingPluginTempPath = tempPath
-            }
-            presentPalette(
-                PluginPalettePanel(plugins: matches) { [weak self] manifest, dir in
-                    self?.runPlugin(
-                        manifest: manifest, dir: dir, input: input
-                    )
-                }
-            )
+            return
         }
+
+        if matches.count == 1, courier == nil {
+            runPlugin(manifest: matches[0].0, dir: matches[0].1, input: input)
+            return
+        }
+
+        discardPendingPluginTemp()
+        if let tempPath = input.filePath,
+           tempPath.hasPrefix(NSTemporaryDirectory() + "chestnut-plugins/") {
+            pendingPluginTempPath = tempPath
+        }
+        presentPalette(
+            PluginPalettePanel(
+                plugins: matches, offerCourier: courier != nil
+            ) { [weak self] choice in
+                switch choice {
+                case .plugin(let manifest, let dir):
+                    self?.runPlugin(manifest: manifest, dir: dir, input: input)
+                case .courier:
+                    guard let courier else { return }
+                    self?.deliverInstead(courier)
+                }
+            }
+        )
+    }
+
+    /// The picker's courier row. Dismisses first, for the same reason
+    /// `runPlugin` does: `beginDelivery` opens the destination palette, and
+    /// this panel's `onClose` would otherwise clear `palette` out from under
+    /// the one that just opened.
+    ///
+    /// It deliberately does not run the temp-file cleanup — that path only
+    /// ever holds a paste-path temp, and the paste path has no courier row.
+    private func deliverInstead(_ deliver: () -> Void) {
+        palette?.dismiss()
+        deliver()
     }
 
     private func discardPendingPluginTemp() {

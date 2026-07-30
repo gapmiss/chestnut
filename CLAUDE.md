@@ -251,6 +251,13 @@ Checks/
   outside the check target (it imports SwiftUI), so that shared helper is the
   drift guard rather than an assertion. **Changes here can only be verified
   with VoiceOver actually running** — nothing in `make check` can hear.
+  `PluginPaletteModel` grew the same announcement in 0.7, and there it is not
+  a nicety: that picker is the only route to the courier for a plugin-matched
+  drop, and its two rows do materially different things to the user's file
+  (run a script over it, or move it into another vault). It shares the same
+  shape — `announceSelection` on each move that *changes* the row, silent at
+  either end, spelled once in `accessibilityLabel(for:)` and reused by the
+  row's own label.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.
@@ -336,18 +343,45 @@ Checks/
   submenu (persisted in `state.json` as `disabledPlugins`). Manifests support an
   optional `extensions` array (e.g. `["txt", "csv"]`) to narrow file-type matching
   within a broad `accepts` category — unmatched files fall through to the courier.
-  A single dropped folder routes to a `folder` plugin when one exists; a single
-  non-.md file routes to a matching plugin when one exists; .md drops and
-  everything unmatched go to the courier (which copies/moves directories
-  as-is). **Plugin dispatch is single-item only**: a multi-item drop rides the
-  courier wholesale, even when a plugin would match the first item. Plugin
+  **A plugin never takes a dropped file away from the courier.** Through 0.6.2
+  a matching plugin claimed the item outright, so installing a `folder` plugin
+  removed folder delivery and installing an image plugin removed image
+  delivery — silently, permanently, with no gesture to say "no, deliver this
+  one", and with the app's primary feature outranked by a shell script. Every
+  URL `DropRouter` sees is a file on disk, so the courier can *always* take it;
+  when a plugin also applies, `route` returns `.ask` and the picker gains a
+  **Deliver to a vault** row. **`Route` has no plugin-only case** — making it
+  unrepresentable is what stops a refactor from restoring the shadowing, and
+  `make check` pins `.ask` for every shape that used to shadow. The plugin row
+  is preselected, so ⏎ reproduces pre-0.7 behaviour and the prompt is an
+  interception rather than a reversal; installing a PDF plugin was a deliberate
+  statement about PDFs. No opt-out ships — a **modifier key** at drop time and
+  an **optional per-type manifest flag** were both considered and deferred;
+  prefer either to a global toggle, which hides the courier across every type
+  and recreates the problem as a setting.
+  **The courier candidacy is passed in from the drop site and must never be
+  re-derived inside `handlePluginInput`** (`AppDelegate.swift`), which is shared
+  with ⌃⌥C: a pasted image lives in a temp file `discardPendingPluginTemp`
+  deletes, so offering delivery there hands the courier a path that vanishes
+  underneath it and journals an undo record pointing at nothing. It is a
+  closure, not a URL, so the copy/move flag is the one read at *drop* time — ⌥
+  is long released by the time the picker is answered
+  (`PetWindow.filesDropped(_:copy:)`).
+  Unchanged by all of this: **.md always rides the courier**, unasked; a single
+  item no plugin matches goes straight to the courier, unasked; and **plugin
+  dispatch is single-item only**, so a multi-item drop rides the courier
+  wholesale even when a plugin would match the first item. Plugin
   runs and the courier contend for the same one-at-a-time surfaces —
   `presentPalette` dismisses whatever palette and notice are up, so a plugin
   picker or a `save` plugin's vault palette beside the courier's destination
-  palette clobbers one or the other. Either way, every dropped item lands
-  somewhere; nothing is silently discarded. The routing is pure (`DropRouter`,
-  in the check target); `PetWindow` only feeds it and executes the result. Zero-cost when
-  no plugins installed — courier and all existing features work identically.
+  palette clobbers one or the other. That is also why the picker's courier row
+  dismisses *before* calling `beginDelivery` (`deliverInstead`), like
+  `runPlugin` does: otherwise the dismissed panel's `onClose` clears `palette`
+  out from under the destination palette that just opened. Either way, every
+  dropped item lands somewhere; nothing is silently discarded. The routing is
+  pure (`DropRouter`, in the check target); `PetWindow` only feeds it and
+  executes the result. Zero-cost when no plugins installed — courier and all
+  existing features work identically.
 - **A drag out of Obsidian's file explorer carries no file URL at all.** Every
   sample logged (2026-07-29/30) is Chromium-initiated with no
   `public.file-url` and no `NSFilenamesPboardType`: a note or an attachment
@@ -375,24 +409,24 @@ Checks/
   why — 0.6.1 shipped exactly that. `make check` pins the split *and* the
   broken whole-payload reading, so deleting the split fails rather than
   silently regressing.
-  **A resolved link goes straight to the courier, bypassing `DropRouter`**
-  (`PetWindow.swift:915`), so an attachment dragged out of Obsidian is
-  delivered even when a plugin would claim that same file from Finder.
-  Deliberate, not an oversight. The divergence is narrower than it looks:
-  `DropRouter` sends every `.md` file to the courier whatever the source, and a
-  multi-item drop rides the courier from either source, so it is exactly one
-  case — a single non-`.md` attachment with a matching plugin enabled. Routing
-  that through `DropRouter` would mean enabling one image plugin removes the
-  only convenient way to move an attachment between vaults, since reaching it
-  from Finder means knowing the vault's `attachmentFolderPath` and navigating
-  there by hand. The source of the drag carries intent: a file reached through
-  Obsidian's explorer is *already in a vault* and the courier is the only thing
-  that can move it to another, while a file reached through Finder is not, so
-  plugin-first is right there. The general wart this sidesteps —
-  **plugins shadow the courier for non-`.md` single files** — is real, and it
-  already lives on the Finder path (install a `folder` plugin, lose folder
-  delivery from Finder). Fixing it means making the courier reachable *when* a
-  plugin matches, not making Obsidian drags shadowable too.
+  **A resolved link feeds the same `DropRouter.route` call as a Finder drop**
+  — there is no Obsidian branch in `performDragOperation` any more, only a
+  choice of which list of URLs to route. Through 0.6.2 a resolved link went
+  *straight* to the courier, and this file argued that as deliberate design:
+  the source of the drag carries intent, a file reached through Obsidian's
+  explorer is already in a vault, so plugin-first would be wrong there. That
+  reasoning does not survive 0.7. The bypass existed because plugins shadowed
+  the courier, and this file said so in the same breath — "fixing it means
+  making the courier reachable *when* a plugin matches". That fix landed, so
+  the bypass is a workaround with nothing left to work around, and defending
+  it as design was giving it too much credit. Known cost, stated plainly: a
+  single Obsidian attachment with a matching plugin enabled now gets a picker
+  where it used to go straight to the courier. Accepted, because it is the
+  same picker every other plugin-matched drop gets, and the courier row is
+  preselected-adjacent (one ↓). Notes, multi-selects and the pathless folder
+  divert are untouched — the divert still runs *before* `classifyDrag`, and
+  `.md` and multi-item drops still bypass plugins by rule rather than by
+  source.
 - **Vault containment** is a *lexical* prefix check,
   `Courier.isContained(_:inVault:)` — standardized-path prefix (with trailing
   `/`), rejecting `.obsidian` path components. Callers are all paths the user

@@ -22,7 +22,16 @@ final class PetWindow: NSPanel {
     /// (persisted default already XOR-ed with ⌥).
     var onFilesDropped: (([URL], Bool) -> Void)?
     /// Non-.md content dropped on the pet, classified for plugin dispatch.
-    var onPluginDrop: ((PluginInputType, PluginRunner.Input) -> Void)?
+    ///
+    /// The third argument delivers that same item to the courier instead, and
+    /// is what the picker's courier row calls. It is **nil when there is no
+    /// courier candidate** — the ⌃⌥C paste path, whose input is a temp file
+    /// deleted after the run. Candidacy is passed in from the drop site and
+    /// must not be re-derived from the input type.
+    ///
+    /// A closure rather than a URL so the copy/move flag is the one read at
+    /// *drop* time: ⌥ is long released by the time the picker is answered.
+    var onPluginDrop: ((PluginInputType, PluginRunner.Input, (() -> Void)?) -> Void)?
     /// A drag out of Obsidian that carried no path — a folder, in practice.
     /// The delegate explains; there is nothing to deliver. See
     /// `DropRouter.isPathlessObsidianDrag`.
@@ -259,8 +268,16 @@ final class PetWindow: NSPanel {
     }
 
     func filesDropped(_ urls: [URL]) {
+        filesDropped(urls, copy: courierDragOperation == .copy)
+    }
+
+    /// Deliver with a copy flag captured earlier. The plugin-or-courier picker
+    /// needs this: `courierDragOperation` reads the *live* modifier keys, and
+    /// by the time the user has answered the picker ⌥ is long released, so
+    /// re-reading it would silently ignore the ⌥ they held while dragging.
+    func filesDropped(_ urls: [URL], copy: Bool) {
         controller.noteInteraction()
-        onFilesDropped?(urls, courierDragOperation == .copy)
+        onFilesDropped?(urls, copy)
     }
 
     /// Actions first, ordered by how often they're used; settings collapse into
@@ -912,30 +929,40 @@ final class PetView: SKView {
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender)
 
+        // Obsidian's explorer hands over `obsidian://` links rather than file
+        // URLs, but once resolved they are ordinary files inside a vault and
+        // route exactly like a Finder drop. Through 0.6.2 they skipped the
+        // router outright, so that an image plugin could not steal attachment
+        // delivery from the one place an attachment is convenient to grab.
+        // That was a workaround for plugins shadowing the courier; the
+        // picker's courier row fixes it generally, and this branch is gone.
         let fromObsidian = obsidianFileURLs(from: sender)
-        if !fromObsidian.isEmpty {
-            DebugLog.log("drop: \(fromObsidian.count) obsidian:// link(s) → courier: \(debugFileList(fromObsidian))")
-            petWindow?.filesDropped(fromObsidian)
-            return true
-        }
+        let dropped = fromObsidian.isEmpty ? urls : fromObsidian
 
-        if !urls.isEmpty {
-            let route = DropRouter.route(
-                urls,
+        if !dropped.isEmpty {
+            if !fromObsidian.isEmpty {
+                DebugLog.log("drop: \(fromObsidian.count) obsidian:// link(s) resolved: \(debugFileList(fromObsidian))")
+            }
+            switch DropRouter.route(
+                dropped,
                 isDirectory: { $0.isExistingDirectory },
                 hasFolderPlugin: petWindow?.hasPluginForType?(.folder) == true,
                 hasPluginFor: { petWindow?.hasPluginForFileExt?($0, $1) == true }
-            )
-            if let plugin = route.plugin {
-                DebugLog.log("drop: \(plugin.type.rawValue) → plugin dispatch, path=\(plugin.url.path)")
+            ) {
+            case .ask(let plugin):
+                DebugLog.log("drop: \(plugin.type.rawValue) → plugin or courier, path=\(plugin.url.path)")
+                // Read now, not when the picker is answered: ⌥ is released
+                // long before then.
+                let copy = petWindow?.courierDragOperation == .copy
                 petWindow?.onPluginDrop?(plugin.type, PluginRunner.Input(
                     type: plugin.type, text: nil,
                     filePath: plugin.url.path, sourceApp: nil
-                ))
-            }
-            if !route.courier.isEmpty {
-                DebugLog.log("drop: \(route.courier.count) file(s) → courier: \(debugFileList(route.courier))")
-                petWindow?.filesDropped(route.courier)
+                ), { [weak self] in
+                    self?.petWindow?.filesDropped([plugin.url], copy: copy)
+                })
+            case .courier(let files):
+                DebugLog.log("drop: \(files.count) file(s) → courier: \(debugFileList(files))")
+                petWindow?.filesDropped(files)
             }
             return true
         }
@@ -959,8 +986,11 @@ final class PetView: SKView {
         }
 
         if let (type, input) = PluginDispatch.classifyDrag(sender) {
+            // No file was dropped — this is pasteboard content (text, a URL,
+            // raw image bytes), so there is nothing for the courier to
+            // deliver and no courier row to offer.
             DebugLog.log("drop: plugin dispatch, type=\(type.rawValue)")
-            petWindow?.onPluginDrop?(type, input)
+            petWindow?.onPluginDrop?(type, input, nil)
             return true
         }
 
