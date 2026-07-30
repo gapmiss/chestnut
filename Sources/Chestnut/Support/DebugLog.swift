@@ -14,6 +14,18 @@ func iso8601Timestamp(_ date: Date = Date()) -> String {
     date.formatted(.iso8601)
 }
 
+/// Names the files a log line is about, capped so one drop can't dominate the
+/// log. Names rather than full paths: `AppDelegate` already logs every
+/// `from → to` pair once a delivery completes, and the gap this fills is the
+/// drop the user *cancels* at the destination palette, where the only question
+/// is which items the courier was handed. Pure and in the check target, since
+/// `PetWindow.swift` is not.
+func debugFileList(_ urls: [URL], cap: Int = 10) -> String {
+    let names = urls.prefix(cap).map(\.lastPathComponent).joined(separator: ", ")
+    guard urls.count > cap else { return names }
+    return names + ", +\(urls.count - cap) more"
+}
+
 @MainActor
 enum DebugLog {
     private(set) static var enabled = false

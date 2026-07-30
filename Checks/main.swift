@@ -1747,6 +1747,20 @@ struct Check {
                                  hasFolderPlugin: false, hasPluginFor: { _, _ in true })
         check(route.plugin == nil && route.courier == [note],
               "router: .md drops always go to the courier")
+
+        // The courier branch of the drop names what it was handed. A drop the
+        // user cancels at the destination palette never reaches the
+        // `from → to` logging in `AppDelegate`, so this line is the only
+        // record of which items rode the courier — six drag tests logged as
+        // "1 file(s)" are six unfalsifiable claims.
+        check(debugFileList([note]) == "note.md",
+              "log: a single courier file is named")
+        check(debugFileList([a, note]) == "a.png, note.md",
+              "log: courier files are named in drop order")
+        check(debugFileList([a, b, z], cap: 2) == "a.png, b.png, +1 more",
+              "log: courier file list is capped")
+        check(debugFileList([]).isEmpty,
+              "log: an empty courier list names nothing")
     }
 
     // MARK: - Courier / Journal
@@ -2584,5 +2598,51 @@ struct Check {
 
         // Not a URL → nil.
         check(ObsidianOpenLink("not a url") == nil, "obsidian link: garbage → nil")
+
+        // --- Multi-select: links glued with no delimiter ---
+        // Obsidian's file explorer puts every selected note's link in one
+        // `public.url` payload, concatenated. This is the exact payload
+        // observed on 2026-07-29 (two notes, Master vault), which `init?`
+        // alone mis-parses into one link whose file path swallows the next.
+        let glued = "obsidian://open?vault=Master&file=CLAUDE/SKILLS/a"
+            + "obsidian://open?vault=Master&file=notes/b"
+        let pair = ObsidianOpenLink.links(in: glued)
+        check(pair.count == 2, "obsidian links: glued pair splits into two")
+        check(pair.first?.filePath == "CLAUDE/SKILLS/a",
+              "obsidian links: first file path is not polluted by the second link")
+        check(pair.last?.filePath == "notes/b",
+              "obsidian links: second file path parses")
+        check(pair.allSatisfy { $0.vaultName == "Master" },
+              "obsidian links: each link keeps its own vault")
+
+        // The regression this fixes: parsed whole, the first `file` query item
+        // absorbs the second link, so the path resolves nowhere.
+        check(ObsidianOpenLink(glued)?.filePath
+                == "CLAUDE/SKILLS/aobsidian://open?vault=Master",
+              "obsidian links: whole-payload parse is the broken reading")
+
+        // A lone link is the one-element case — no separate code path.
+        let single = ObsidianOpenLink.links(in: "obsidian://open?vault=V&file=notes/hello")
+        check(single.count == 1 && single[0].filePath == "notes/hello",
+              "obsidian links: a single link yields one link")
+
+        // Three notes, and a delimiter if some Obsidian version adds one.
+        check(ObsidianOpenLink.links(in:
+            "obsidian://open?vault=V&file=a\nobsidian://open?vault=V&file=b"
+            + "\nobsidian://open?vault=V&file=c").map(\.filePath) == ["a", "b", "c"],
+              "obsidian links: newline-delimited links split and trim")
+
+        // A link that doesn't parse is dropped, not fatal to its siblings.
+        check(ObsidianOpenLink.links(in:
+            "obsidian://open?vault=V&file=aobsidian://open?vault=V")
+                .map(\.filePath) == ["a"],
+              "obsidian links: an unparseable fragment is skipped")
+
+        // Nothing to split → empty, so the drop falls through to plugin
+        // dispatch exactly as before.
+        check(ObsidianOpenLink.links(in: "just some dragged text").isEmpty,
+              "obsidian links: text without the scheme yields none")
+        check(ObsidianOpenLink.links(in: "").isEmpty,
+              "obsidian links: empty payload yields none")
     }
 }
