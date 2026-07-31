@@ -258,6 +258,80 @@ Checks/
   shape — `announceSelection` on each move that *changes* the row, silent at
   either end, spelled once in `accessibilityLabel(for:)` and reused by the
   row's own label.
+- **The row a palette *opens* on is announced too, and it is a separate fix
+  from announcing a move.** Framing the 0.6.1 work as "announce the selection
+  *change*" left the opening state silent, which is the one position that
+  governs what a blind ⏎ does — a sighted user can see which row is armed, a
+  VoiceOver user was told the rows exist, in order, on request, and never which
+  one was loaded. It survived until 0.7.1 because nobody thought to check the
+  state before the first keypress. `PetPanel.announceOnOpen` is the one
+  implementation, called from each palette panel's `init` with a sentence the
+  model already built (`openingDescription`, fixed at init so it describes the
+  palette as it *opened*).
+  **It races VoiceOver and no delay wins outright.** `.priority: .high` grants
+  the right to interrupt but does not *order* anything. Tuned by ear
+  2026-07-30, and every value is a trade: posted immediately it cut the hopper
+  off after the word "Jump"; at the shipped **1800ms** the first open is right,
+  while later opens give VoiceOver time to reach the key-hint footer first, so
+  the hints are read before the list. Late-but-spoken beat early-and-truncating.
+  Tuning further has diminishing returns — the right ordering depends on the
+  user's speech rate and on what VoiceOver reads next, neither knowable here.
+  **Do not "fix" this by moving the sentence onto the filter field's
+  `.accessibilityLabel`.** That is the obvious escape from the race and it was
+  tried and reverted: VoiceOver read only the placeholder and the sentence was
+  never spoken at all, because focus lands on AppKit's field editor rather than
+  the SwiftUI element carrying the label. Silence is worse than late.
+  It takes a `String`, not a closure, so the sentence cannot drift during the
+  wait, and `skipIf` drops it entirely once the user has typed — the field
+  editor is echoing them by then. The task is cancelled in `close()` and
+  re-checks `isVisible`, so a palette dismissed inside the wait says nothing
+  about a panel that is gone. The copy is deliberately *fuller* than a move
+  announcement — count, armed row, then what that row does ("3 actions.
+  img-clip-daily selected. Save clipboard image to today's daily note.") —
+  because a move reports a change against context the user already has while
+  this has to establish it. Both models build it beside
+  `accessibilityLabel(for:)` and from the same words
+  (`VaultPaletteModel.words(for:isPinned:)` splits at the name so "selected"
+  can go between), so the two spellings cannot drift. `announceToVoiceOver`
+  (`PetPanel.swift`) is the single post site for all four announcements.
+  **Weigh further VoiceOver work here against what it buys.** The remaining
+  imperfection is ordering on repeat opens, and closing it means more ⌘F5
+  passes for a shrinking return — while the larger barrier is already known and
+  untouched: VoiceOver claims ⌃⌥, so *every* Chestnut hotkey is dead while it
+  runs (see the hotkeys bullet). Row-announcement polish is not what stands
+  between a VoiceOver user and this app.
+- **Hover does not highlight until the pointer moves** (`HoverArming`, shared
+  by both palette models via `highlight(_:)`). Both palettes select the row
+  under the pointer, and a panel that appears *underneath* a stationary cursor
+  gets a hover event immediately — the pointer never moved, the hover state
+  did, so SwiftUI fires and a row nobody picked ends up armed. Measured
+  2026-07-30 on ⌃⌥C, where the mouse is wherever it was last left: same build,
+  same clipboard, row 3 or row 1 depending only on pointer position. Harmless
+  next to a plain list; not harmless next to a *preselected* row and a blind
+  ⏎, which is the contract the plugin picker leans on. `NSMenu` already
+  ignores hover until the pointer moves. The discriminator is
+  `NSEvent.mouseLocation` captured when the palette opens and re-queried on
+  each hover callback — a **query, not an event delivery**, chosen over a
+  `.mouseMoved` monitor because these panels are non-activating, Chestnut is
+  usually not the frontmost app when one opens, and mouse-moved events go to
+  the active app. **The selection half must be driven from
+  `.onContinuousHover`, never `.onHover`:** `.onHover` fires on hover-state
+  *change*, so a row suppressed at open would not highlight again until the
+  pointer left it and came back, and moving *within* the row would do nothing —
+  worse than the bug. `VaultRow` therefore carries both, `.onHover` for the
+  hover-reveal pin (which wants state) and `.onContinuousHover` for the
+  selection (which wants movement). `Panels/` and `PluginPalette.swift` are
+  outside the check target, so nothing asserts any of this; it is verified with
+  a mouse.
+  **The pointer vanishing when a palette opens under it is AppKit, not this.**
+  A key event with a focused text field calls
+  `NSCursor.setHiddenUntilMouseMoves(true)`, so opening a palette by hotkey
+  with the pointer over where it will appear hides the cursor until the mouse
+  moves. That is the *same* trigger and the same release as the arming above,
+  which makes it read as a bug introduced here — it is not: checked against
+  the released 0.7.0, which contains none of this, and the cursor vanishes
+  identically. Do not "fix" it. If anything the two agree, since an invisible
+  pointer is honest signage that hover is not live yet.
 - **Pinned vault:** one vault sorts first everywhere (hopper, courier, capture).
   Toggled via pin icon or ⌘P.
 - **Launch at login:** `SMAppService.mainApp`, toggled in menu → Settings.

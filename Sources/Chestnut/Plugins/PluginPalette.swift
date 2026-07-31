@@ -48,10 +48,36 @@ final class PluginPaletteModel: ObservableObject {
     /// the ⌃⌥C paste path has no deliverable file (its temp copy is deleted
     /// after the run), so offering delivery there would journal an undo record
     /// pointing at a path that no longer exists.
+    /// What the picker says about itself when it opens: how many rows there
+    /// are, which one is armed, and what that row will do to the file. Spoken
+    /// by `PetPanel.announceOnOpen`; fixed at init for the reason given on
+    /// `VaultPaletteModel.openingDescription`.
+    ///
+    /// This picker is where it matters most: it is the only route to the
+    /// courier for a plugin-matched drop, and its rows do materially different
+    /// things to the user's file (run a script over it, or move it into
+    /// another vault). The row description is the whole difference, so it is
+    /// spoken rather than left to the row's own label, which VoiceOver reaches
+    /// only by leaving the field.
+    let openingDescription: String
+
     init(plugins: [(PluginManifest, URL)], offerCourier: Bool) {
         var choices = plugins.map { Choice.plugin($0.0, $0.1) }
         if offerCourier { choices.append(.courier) }
         self.choices = choices
+
+        if let armed = choices.first {
+            let count = choices.count
+            // "action", matching the field's placeholder and the empty state:
+            // one of these rows is the courier, not a plugin.
+            let opening = "\(count) \(count == 1 ? "action" : "actions"). "
+                + "\(armed.title) selected."
+            openingDescription = armed.subtitle.isEmpty
+                ? opening
+                : opening + " \(armed.subtitle)."
+        } else {
+            openingDescription = "No actions."
+        }
     }
 
     var filtered: [Choice] {
@@ -78,6 +104,17 @@ final class PluginPaletteModel: ObservableObject {
         announceSelection()
     }
 
+    private var hover = HoverArming()
+
+    /// The pointer is over row `index`. Ignored until the pointer has actually
+    /// moved since the palette opened, so a picker that pops up under a
+    /// stationary cursor does not arm whichever row it happens to land on —
+    /// see `HoverArming`, and drive this from `.onContinuousHover`.
+    func highlight(_ index: Int) {
+        guard hover.allowsHighlight() else { return }
+        selection = index
+    }
+
     /// Speak the row ↑/↓ just landed on — the same gap, and the same fix, as
     /// `VaultPaletteModel.announceSelection`: focus stays in the filter field
     /// by design, the highlight is a `@Published var` moved by an AppKit key
@@ -91,16 +128,7 @@ final class PluginPaletteModel: ObservableObject {
     /// Verified with VoiceOver running — nothing in `make check` can hear.
     private func announceSelection() {
         guard let choice = selected else { return }
-        NSAccessibility.post(
-            element: NSApplication.shared,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: Self.accessibilityLabel(for: choice),
-                // The move tracks the user's own keypress, so it outranks
-                // whatever the field editor is echoing.
-                .priority: NSAccessibilityPriorityLevel.high.rawValue,
-            ]
-        )
+        announceToVoiceOver(Self.accessibilityLabel(for: choice))
     }
 
     /// One spelling of what a row says, shared by the announcement above and
@@ -151,9 +179,7 @@ struct PluginPaletteView: View {
                                     choice: choice,
                                     isSelected: index == model.selection,
                                     onSelect: { onSelect(choice) },
-                                    onHighlight: {
-                                        model.selection = index
-                                    }
+                                    onHighlight: { model.highlight(index) }
                                 )
                                 .id(choice.id)
                             }
@@ -192,8 +218,6 @@ private struct PluginRow: View {
     let onSelect: () -> Void
     let onHighlight: () -> Void
 
-    @State private var hovered = false
-
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(choice.title).fontWeight(.medium).lineLimit(1)
@@ -213,9 +237,11 @@ private struct PluginRow: View {
                 .fill(isSelected ? Color.primary.opacity(0.08) : .clear)
         )
         .onTapGesture(perform: onSelect)
-        .onHover { hovering in
-            hovered = hovering
-            if hovering { onHighlight() }
+        // Continuous, not `.onHover`: the model suppresses the highlight until
+        // the pointer has moved, and `.onHover` would not fire again until the
+        // pointer left the row and came back. See `HoverArming`.
+        .onContinuousHover { phase in
+            if case .active = phase { onHighlight() }
         }
         // For the VO cursor, which can reach rows even though ↑/↓ never move
         // focus to them; `announceSelection` covers the keyboard path.
@@ -246,6 +272,10 @@ final class PluginPalettePanel: PetPanel {
             onDismiss: { [weak self] in self?.dismiss() }
         )
         host(view)
+        announceOnOpen(
+            model.openingDescription,
+            skipIf: { [model] in !model.filter.isEmpty }
+        )
 
         installPaletteKeyMonitor(
             moveSelection: { [model] in model.moveSelection(by: $0) },

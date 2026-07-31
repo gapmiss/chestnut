@@ -133,9 +133,65 @@ class PetPanel: NSPanel {
 
     private var paletteKeyMonitor: Any?
 
+    /// Speak the state the palette *opens* in, once VoiceOver has had its say.
+    ///
+    /// The preselected row governs what ⏎ does, and it was the one piece of
+    /// palette state never spoken: VoiceOver announces the *focused* element,
+    /// focus stays in the filter field by design, and `announceSelection`
+    /// fires only on a *move*. A sighted user can see which row is armed; a
+    /// VoiceOver user was told the rows exist, in order, on request, and never
+    /// which one ⏎ would run.
+    ///
+    /// **This races VoiceOver, and no delay wins outright.** `.priority: .high`
+    /// grants the right to interrupt but does not *order* anything. Measured by
+    /// ear, 2026-07-30: posted immediately, it cut the hopper off after the
+    /// word "Jump"; at 1800ms the first open is right, while later opens give
+    /// VoiceOver time to reach the key-hint footer first, so the hints are read
+    /// before the list. Late but spoken was chosen over early and truncating.
+    ///
+    /// **Do not "fix" this by moving the sentence onto the filter field's
+    /// `.accessibilityLabel`.** That is the obvious escape from the race and it
+    /// was tried: VoiceOver read only the placeholder and the sentence was
+    /// never spoken at all, because focus lands on AppKit's field editor rather
+    /// than the SwiftUI element carrying the label. Silence is worse than late.
+    ///
+    /// Takes the sentence already built, not a closure that builds it later,
+    /// so it describes the palette as it opened rather than as it is nearly two
+    /// seconds on. `skipIf` is the other half of that bargain: a user who has
+    /// started typing has left the state this sentence describes, so it is
+    /// dropped rather than spoken stale. They are not left in silence — the
+    /// field editor echoes what they type, and ↑/↓ announce from there on. The
+    /// task is cancelled in `close()` and re-checks `isVisible`, so a palette
+    /// dismissed inside the wait says nothing about a panel that is gone.
+    func announceOnOpen(
+        _ message: String?,
+        skipIf: (@MainActor @Sendable () -> Bool)? = nil
+    ) {
+        guard let message else { return }
+        openingAnnouncement = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Self.openingAnnouncementDelay))
+            guard let self, isVisible else { return }
+            if let skipIf, skipIf() { return }
+            announceToVoiceOver(message)
+        }
+    }
+
+    /// How long to let VoiceOver's own focus announcement run first. One word
+    /// escaped in 400ms, which puts a five-word phrase ("Jump to vault, edit
+    /// text") near two seconds. Erring long is the safer direction: too short
+    /// truncates the field's announcement, too long only delays this one.
+    /// Tuning this further has diminishing returns — the right ordering
+    /// depends on the user's speech rate and on what VoiceOver decides to read
+    /// next, neither of which is knowable here.
+    static let openingAnnouncementDelay = 1800
+
+    private var openingAnnouncement: Task<Void, Never>?
+
     override func close() {
         if let paletteKeyMonitor { NSEvent.removeMonitor(paletteKeyMonitor) }
         paletteKeyMonitor = nil
+        openingAnnouncement?.cancel()
+        openingAnnouncement = nil
         super.close()
     }
 
@@ -148,5 +204,64 @@ class PetPanel: NSPanel {
 
     override func cancelOperation(_ sender: Any?) {
         dismiss()
+    }
+}
+
+/// Post a spoken announcement to VoiceOver. Every palette announcement goes
+/// through here: the selection these palettes move is a `@Published var` owned
+/// by no control, so nothing about it reaches a screen reader unless it is
+/// said out loud.
+///
+/// High priority throughout, and deliberately — each caller tracks either the
+/// user's own keypress or the palette opening, so it outranks whatever the
+/// filter field's editor is echoing and should interrupt it.
+@MainActor
+func announceToVoiceOver(_ message: String) {
+    NSAccessibility.post(
+        element: NSApplication.shared,
+        notification: .announcementRequested,
+        userInfo: [
+            .announcement: message,
+            .priority: NSAccessibilityPriorityLevel.high.rawValue,
+        ]
+    )
+}
+
+/// Hover-to-highlight, disarmed until the pointer actually moves.
+///
+/// Both palettes highlight the row under the pointer, and a panel that appears
+/// *underneath* a stationary cursor gets a hover event immediately: the
+/// pointer never moved, but the hover state changed, so SwiftUI fires and the
+/// palette selects a row nobody picked. Measured 2026-07-30 on the ⌃⌥C path,
+/// where the mouse is wherever it was last left — same build, same clipboard,
+/// row 3 armed or row 1 armed depending only on where the pointer sat. Paired
+/// with a preselected row and a blind ⏎ that silently changes what ⏎ does,
+/// which is the contract the plugin picker leans on. AppKit menus already
+/// ignore hover until the pointer moves.
+///
+/// The discriminator is the pointer's position when the palette opened,
+/// compared against `NSEvent.mouseLocation` at each hover callback. That is a
+/// *query*, not an event delivery, which is why it stands in for a
+/// `.mouseMoved` monitor: these panels are non-activating, Chestnut is usually
+/// not the frontmost app when one opens, and mouse-moved events are delivered
+/// to the active app.
+///
+/// **Drive this from `.onContinuousHover`, never `.onHover`.** `.onHover`
+/// fires on hover-state *change*, so a row suppressed at open time would not
+/// highlight again until the pointer left it and came back — moving *within*
+/// the row would do nothing, which is worse than the bug being fixed.
+/// `.onContinuousHover` fires on movement inside the view, which is what gives
+/// the arming something to act on. A row's own hover *styling* still belongs
+/// on plain `.onHover`.
+struct HoverArming {
+    private let origin: CGPoint
+    private var armed = false
+
+    init() { origin = NSEvent.mouseLocation }
+
+    /// True once the pointer has moved at all since the palette opened.
+    mutating func allowsHighlight() -> Bool {
+        if !armed, NSEvent.mouseLocation != origin { armed = true }
+        return armed
     }
 }

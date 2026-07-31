@@ -16,9 +16,34 @@ final class VaultPaletteModel: ObservableObject {
     /// pin-first order applies the next time a palette opens.
     @Published var pinnedPath: String?
 
+    /// What the palette says about itself when it opens: how many vaults are
+    /// listed, which one is armed, and the rest of what that row would say.
+    ///
+    /// Spoken by `PetPanel.announceOnOpen`, which is where the delay and the
+    /// race with VoiceOver are explained.
+    ///
+    /// Fixed at init rather than computed on demand, so it describes the
+    /// palette as it *opened* — which is the whole subject of the sentence,
+    /// and keeps it honest across the wait before it is spoken.
+    ///
+    /// Fuller than a move announcement on purpose: a move reports a change
+    /// against context the user already has, this has to establish it.
+    let openingDescription: String
+
     init(vaults: [Vault], pinnedPath: String?) {
         self.vaults = vaults
         self.pinnedPath = pinnedPath
+
+        if let armed = vaults.first {
+            let count = vaults.count
+            let (name, detail) = Self.words(
+                for: armed, isPinned: armed.path == pinnedPath
+            )
+            openingDescription = "\(count) \(count == 1 ? "vault" : "vaults"). "
+                + "\(name) selected. " + detail.joined(separator: ", ") + "."
+        } else {
+            openingDescription = "No vaults."
+        }
     }
 
     var filtered: [Vault] {
@@ -46,6 +71,17 @@ final class VaultPaletteModel: ObservableObject {
         announceSelection()
     }
 
+    private var hover = HoverArming()
+
+    /// The pointer is over row `index`. Ignored until the pointer has actually
+    /// moved since the palette opened, so a hopper that pops up under a
+    /// stationary cursor does not arm whichever vault it happens to land on —
+    /// see `HoverArming`, and drive this from `.onContinuousHover`.
+    func highlight(_ index: Int) {
+        guard hover.allowsHighlight() else { return }
+        selection = index
+    }
+
     /// Speak the row ↑/↓ just landed on.
     ///
     /// VoiceOver announces the *focused* element, and focus never leaves the
@@ -64,29 +100,29 @@ final class VaultPaletteModel: ObservableObject {
     /// driven by hand, before and after.
     private func announceSelection() {
         guard let vault = selected else { return }
-        NSAccessibility.post(
-            element: NSApplication.shared,
-            notification: .announcementRequested,
-            userInfo: [
-                .announcement: Self.accessibilityLabel(
-                    for: vault, isPinned: vault.path == pinnedPath
-                ),
-                // Selection tracks the user's own keypress, so it outranks
-                // whatever the field editor is echoing and should interrupt it.
-                .priority: NSAccessibilityPriorityLevel.high.rawValue,
-            ]
+        announceToVoiceOver(
+            Self.accessibilityLabel(for: vault, isPinned: vault.path == pinnedPath)
         )
     }
 
-    /// One spelling of what a row says, shared by the announcement above and
-    /// the row's own label so the two can't drift. Open and pinned are a
-    /// glowing gem and a pin icon on screen — colour and shape only — so they
-    /// have to become words here or they reach a screen reader not at all.
+    /// The words a row is made of, split at the name so the two spellings
+    /// below can put "selected" between them. Open and pinned are a glowing
+    /// gem and a pin icon on screen — colour and shape only — so they have to
+    /// become words here or they reach a screen reader not at all.
+    private static func words(
+        for vault: Vault, isPinned: Bool
+    ) -> (name: String, detail: [String]) {
+        var detail = [vault.displayPath]
+        if vault.isOpen { detail.append("open") }
+        if isPinned { detail.append("pinned") }
+        return (vault.name, detail)
+    }
+
+    /// One spelling of what a row says, shared by the announcements above and
+    /// the row's own label so they can't drift.
     static func accessibilityLabel(for vault: Vault, isPinned: Bool) -> String {
-        var parts = [vault.name, vault.displayPath]
-        if vault.isOpen { parts.append("open") }
-        if isPinned { parts.append("pinned") }
-        return parts.joined(separator: ", ")
+        let (name, detail) = words(for: vault, isPinned: isPinned)
+        return ([name] + detail).joined(separator: ", ")
     }
 }
 
@@ -142,7 +178,7 @@ struct VaultPaletteView: View {
                                     onReveal: onReveal,
                                     onOpenDaily: onOpenDaily,
                                     onTogglePin: onTogglePin,
-                                    onHighlight: { model.selection = index }
+                                    onHighlight: { model.highlight(index) }
                                 )
                                 .id(vault.path)
                             }
@@ -242,9 +278,15 @@ private struct VaultRow: View {
                 .fill(isSelected ? Color.primary.opacity(0.08) : .clear)
         )
         .onTapGesture { onOpen(vault) }
-        .onHover { hovering in
-            rowHovered = hovering
-            if hovering { onHighlight() }
+        // Two hover callbacks, and the split is deliberate. The row's own
+        // styling (the pin that appears on hover) wants hover *state*, so it
+        // stays on `.onHover`. The selection wants hover *movement*, because
+        // the model suppresses the highlight until the pointer has moved and
+        // `.onHover` would not fire again until the pointer left the row and
+        // came back. See `HoverArming`.
+        .onHover { rowHovered = $0 }
+        .onContinuousHover { phase in
+            if case .active = phase { onHighlight() }
         }
         .contextMenu {
             if let onOpenDaily {
@@ -307,6 +349,10 @@ final class VaultPalettePanel: PetPanel {
             onDismiss: { [weak self] in self?.dismiss() }
         )
         host(view)
+        announceOnOpen(
+            model.openingDescription,
+            skipIf: { [model] in !model.filter.isEmpty }
+        )
 
         // The shared monitor handles ↑/↓/⏎; `extra` adds this palette's
         // chords: ⌘P pins, ⌥⏎ reveals in Finder (also on the rows'

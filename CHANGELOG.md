@@ -4,6 +4,30 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **A palette no longer arms a row just because it opened underneath the
+  pointer.** Both palettes highlight the row the mouse is over, and a panel
+  appearing under a stationary cursor counted as a hover even though the
+  pointer had not moved. Opening the plugin picker with ⌃⌥C, where the mouse
+  is wherever it was last left, could therefore arm the third row instead of
+  the first, and pressing ⏎ ran a plugin nobody had chosen. Hover is now
+  ignored until the pointer actually moves, the way menus behave. Moving the
+  mouse over the list works exactly as before.
+
+- **The palettes now say which row is selected when they open**, for VoiceOver
+  users. They already announced each row as ↑/↓ moved through the list, but
+  never the row that was selected to begin with, which is the one that governs
+  what ⏎ does. The plugin picker announces how many actions there are, which is
+  selected, and what it will do; the vault hopper does the same for vaults.
+
+  Known rough edge: the announcement has to wait for VoiceOver to finish
+  describing the palette's filter field, and on second and later openings
+  VoiceOver may read the palette's keyboard hints before it. The announcement
+  is still made.
+
 ## [0.7.0] — 2026-07-30
 
 ### Changed
