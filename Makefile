@@ -45,6 +45,23 @@ check: site-gen
 		|| { echo "Resources/Info.plist stamps $$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist), not $(VERSION) — its own comment promises they stay in step"; exit 1; }
 	@grep -q "in the Makefile ($(VERSION))" CLAUDE.md \
 		|| { echo "CLAUDE.md's intro names a release other than $(VERSION) — it restates VERSION by hand, so it drifts on every bump unless this catches it"; exit 1; }
+	@# CLAUDE.md's tripwire index cites a symbol per entry instead of restating
+	@# the rationale, which now lives in the doc comment on that symbol. A
+	@# rename or deletion would leave the pointer dangling and silently cost
+	@# the account it points at, so every one must still resolve.
+	@# `exit 1` inside the loop would only leave the pipeline's subshell, so
+	@# collect the dangling pointers and let the recipe's own shell fail on them.
+	@dangling=$$(grep -o 'Sources/Chestnut/[A-Za-z/]*\.swift:[A-Za-z_][A-Za-z0-9_]*' CLAUDE.md \
+		| sort -u \
+		| while IFS=: read -r file symbol; do \
+			test -f "$$file" || { echo "  $$file:$$symbol (no such file)"; continue; }; \
+			grep -qw "$$symbol" "$$file" || echo "  $$file:$$symbol (symbol gone)"; \
+		done); \
+	test -z "$$dangling" || { \
+		echo "CLAUDE.md's tripwire index has pointers that no longer resolve:"; \
+		echo "$$dangling"; \
+		echo "Each stands in for a rationale that lives in that symbol's doc comment — repoint it or restore the symbol."; \
+		exit 1; }
 
 build:
 	swift build -c $(CONFIG)
