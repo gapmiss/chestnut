@@ -1,6 +1,6 @@
 # Chestnut — partner for Obsidian
 
-Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.7.0), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
+Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.7.1), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Where things are documented
 
