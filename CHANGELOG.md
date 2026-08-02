@@ -8,6 +8,17 @@ Notable, user-facing changes to Chestnut. The format follows
 
 ### Fixed
 
+- **Dragging several files at once out of VS Code, VSCodium or any other
+  Electron app now delivers all of them.** Selecting two notes and dropping
+  them on Chestnut moved only the first, and nothing said the others had been
+  left behind. Chromium-based apps do not write the macOS file-list pasteboard
+  type that Finder does; they offer a single URL, which was all Chestnut could
+  read. The full list travels in a separate Chromium payload, and Chestnut now
+  reads it. Only local files that still exist are taken, web links dragged from
+  a page are untouched, and anything unexpected in that payload falls back to
+  the old single-file behaviour rather than guessing. Finder drags are
+  unaffected.
+
 - **A palette no longer arms a row just because it opened underneath the
   pointer.** Both palettes highlight the row the mouse is over, and a panel
   appearing under a stationary cursor counted as a hover even though the

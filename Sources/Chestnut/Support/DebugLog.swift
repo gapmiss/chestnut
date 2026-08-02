@@ -26,6 +26,58 @@ func debugFileList(_ urls: [URL], cap: Int = 10) -> String {
     return names + ", +\(urls.count - cap) more"
 }
 
+/// How a drag's pasteboard is split into items, which is the question the
+/// union of types printed by `draggingEntered` cannot answer.
+///
+/// A Finder multi-select arrives as one item *per file*; a Chromium drag
+/// (VSCodium, anything Electron) arrives as a single item carrying
+/// `public.url`, which holds one URL by definition. Both look alike in a
+/// flat type list, and the difference is exactly why a two-file drag out of
+/// VSCodium delivered one file. Per-item types make the shape visible without
+/// guessing at the source app.
+func debugPasteboardItems(_ itemTypes: [[String]], cap: Int = 4) -> String {
+    guard !itemTypes.isEmpty else { return "0 items" }
+    let shown = itemTypes.prefix(cap).enumerated().map { index, types in
+        "[\(index)] \(types.joined(separator: " "))"
+    }.joined(separator: " | ")
+    guard itemTypes.count > cap else { return "\(itemTypes.count) items: \(shown)" }
+    return "\(itemTypes.count) items: \(shown) | +\(itemTypes.count - cap) more"
+}
+
+/// The readable text hiding inside an opaque pasteboard payload.
+///
+/// `org.chromium.web-custom-data` is a Chromium-internal binary format whose
+/// layout is theirs to change, so this deliberately does not parse it: it
+/// decodes as UTF-16 little-endian (how Chromium stores its strings) and keeps
+/// only printable scalars, collapsing everything else to a single space. The
+/// point is to see *whether* a payload still contains every dragged path
+/// before deciding whether decoding it properly is worth doing. Reading a
+/// format this way is fine for a log line and not fine for routing a drop.
+func debugPrintableUTF16(_ data: Data, cap: Int = 400) -> String {
+    var units: [UInt16] = []
+    units.reserveCapacity(data.count / 2)
+    var index = data.startIndex
+    while index + 1 < data.endIndex {
+        units.append(UInt16(data[index]) | (UInt16(data[index + 1]) << 8))
+        index += 2
+    }
+    var out = ""
+    var pendingSpace = false
+    for scalar in String(decoding: units, as: UTF16.self).unicodeScalars {
+        // Printable ASCII only: a path is ASCII often enough, and anything
+        // wider risks pasting control bytes into the log.
+        if scalar.value >= 0x20, scalar.value < 0x7F {
+            if pendingSpace, !out.isEmpty { out.append(" ") }
+            pendingSpace = false
+            out.unicodeScalars.append(scalar)
+        } else {
+            pendingSpace = true
+        }
+        if out.count >= cap { return out + "…" }
+    }
+    return out
+}
+
 @MainActor
 enum DebugLog {
     private(set) static var enabled = false

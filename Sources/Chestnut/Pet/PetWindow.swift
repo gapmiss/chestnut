@@ -865,6 +865,24 @@ final class PetView: SKView {
         }
     }
 
+    /// Why a drag carried the files it did, for the debug log.
+    ///
+    /// Kept next to the flat type list rather than folded into it: the type
+    /// union says what a drag *offers*, and these three lines say how much of
+    /// it we can actually reach. A source that writes `NSFilenamesPboardType`
+    /// gives up every file at once; one that writes only `public.url` gives up
+    /// the first and silently drops the rest.
+    private func logDragShape(_ pb: NSPasteboard) {
+        let itemTypes = (pb.pasteboardItems ?? []).map { $0.types.map(\.rawValue) }
+        DebugLog.log("drag shape — \(debugPasteboardItems(itemTypes))")
+        DebugLog.log("drag shape — file URLs read: \(pb.fileURLs().count), "
+            + "public.url: \(pb.string(forType: .URL) ?? "none")")
+        if let custom = pb.data(forType: .chromiumWebCustomData) {
+            DebugLog.log("drag shape — web-custom-data \(custom.count) bytes: "
+                + debugPrintableUTF16(custom))
+        }
+    }
+
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
         guard let petWindow else { return [] }
         let pb = sender.draggingPasteboard
@@ -872,6 +890,7 @@ final class PetView: SKView {
             let types = pb.types?.map(\.rawValue) ?? []
             let source = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
             DebugLog.log("drag entered — source app: \(source), pasteboard types: \(types)")
+            logDragShape(pb)
         }
         let urls = fileURLs(from: sender)
         let hasObsidian = !obsidianLinks(from: sender).isEmpty

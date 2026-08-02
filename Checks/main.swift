@@ -1788,6 +1788,113 @@ struct Check {
         check(debugFileList([]).isEmpty,
               "log: an empty courier list names nothing")
 
+        // Per-item pasteboard types. A Finder multi-select is one item per
+        // file; a Chromium drag is a single item whose `public.url` holds one
+        // URL, which is why two files out of VSCodium delivered one.
+        check(debugPasteboardItems([]) == "0 items",
+              "log: an empty pasteboard says so")
+        check(debugPasteboardItems([["public.url"]]) == "1 items: [0] public.url",
+              "log: a single pasteboard item lists its types")
+        check(debugPasteboardItems([["public.file-url", "NSFilenamesPboardType"], ["public.file-url"]])
+              == "2 items: [0] public.file-url NSFilenamesPboardType | [1] public.file-url",
+              "log: pasteboard items are numbered and separated")
+        check(debugPasteboardItems([["a"], ["b"], ["c"]], cap: 2)
+              == "3 items: [0] a | [1] b | +1 more",
+              "log: the pasteboard item list is capped")
+
+        // Chromium's `web-custom-data` is UTF-16LE inside a binary envelope.
+        // Sniffing printable runs answers whether every dragged path survived
+        // without parsing a format Chromium is free to change.
+        let utf16 = Data("file:///a.md".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+        check(debugPrintableUTF16(utf16) == "file:///a.md",
+              "log: UTF-16 payload text is recovered")
+        check(debugPrintableUTF16(Data([0x00, 0x00, 0x41, 0x00, 0x00, 0x00, 0x42, 0x00]))
+              == "A B",
+              "log: binary runs between strings collapse to one space")
+        check(debugPrintableUTF16(utf16, cap: 4) == "file…",
+              "log: UTF-16 payload text is capped")
+        check(debugPrintableUTF16(Data()).isEmpty,
+              "log: an empty payload sniffs to nothing")
+
+        // --- Chromium multi-file drags ---
+        // VSCodium hands over one pasteboard item whose `public.url` holds a
+        // single URL, so a two-file drag delivered one file and said nothing.
+        // The rest are in `org.chromium.web-custom-data`, a base::Pickle.
+        // These build the payload the way Chromium does so a layout change
+        // here fails a check instead of a drop.
+        func pickleString(_ s: String) -> [UInt8] {
+            let units = Array(s.utf16)
+            var out: [UInt8] = []
+            let count = UInt32(units.count)
+            out += [UInt8(count & 0xFF), UInt8((count >> 8) & 0xFF),
+                    UInt8((count >> 16) & 0xFF), UInt8((count >> 24) & 0xFF)]
+            for u in units { out += [UInt8(u & 0xFF), UInt8(u >> 8)] }
+            while out.count % 4 != 0 { out.append(0) }  // pad to 4 bytes
+            return out
+        }
+        func webCustomData(_ pairs: [(String, String)]) -> Data {
+            var body: [UInt8] = []
+            let count = UInt32(pairs.count)
+            body += [UInt8(count & 0xFF), UInt8((count >> 8) & 0xFF),
+                     UInt8((count >> 16) & 0xFF), UInt8((count >> 24) & 0xFF)]
+            for (k, v) in pairs { body += pickleString(k) + pickleString(v) }
+            let size = UInt32(body.count)
+            let header: [UInt8] = [UInt8(size & 0xFF), UInt8((size >> 8) & 0xFF),
+                                   UInt8((size >> 16) & 0xFF), UInt8((size >> 24) & 0xFF)]
+            return Data(header + body)
+        }
+
+        let twoFiles = webCustomData([
+            ("application/vnd.code.uri-list",
+             "file:///tmp/deep.md\r\nfile:///tmp/terse.md"),
+            ("codeeditors", "[{\"resource\":{}}]"),
+        ])
+        let decoded = ChromiumCustomData.decode(twoFiles)
+        check(decoded["application/vnd.code.uri-list"]
+              == "file:///tmp/deep.md\r\nfile:///tmp/terse.md",
+              "chromium: the uri-list survives the pickle round trip")
+        check(decoded["codeeditors"] == "[{\"resource\":{}}]",
+              "chromium: a pair after an odd-length key still decodes")
+        check(decoded.count == 2,
+              "chromium: every pair is decoded, no more and no fewer")
+
+        let always = { (_: String) in true }
+        let recovered = ChromiumCustomData.fileURLs(inWebCustomData: twoFiles, fileExists: always)
+        check(recovered.map(\.lastPathComponent) == ["deep.md", "terse.md"],
+              "chromium: both dragged files are recovered, in drag order")
+
+        // The single-file drag that already worked must not change shape.
+        let oneFile = webCustomData([("text/uri-list", "file:///tmp/only.md")])
+        check(ChromiumCustomData.fileURLs(inWebCustomData: oneFile, fileExists: always)
+              .map(\.lastPathComponent) == ["only.md"],
+              "chromium: the standard uri-list key is read too")
+
+        // A file deleted between the drag starting and the drop is skipped
+        // rather than delivered as a phantom path.
+        check(ChromiumCustomData.fileURLs(inWebCustomData: twoFiles,
+                                          fileExists: { $0.hasSuffix("deep.md") })
+              .map(\.lastPathComponent) == ["deep.md"],
+              "chromium: a file that no longer exists is skipped")
+
+        // A web page drag puts http(s) URLs under the same key. Those belong
+        // to the text plugin, and the courier must never see them as files.
+        let webLinks = webCustomData([("text/uri-list", "https://example.com\r\n# comment")])
+        check(ChromiumCustomData.fileURLs(inWebCustomData: webLinks, fileExists: always).isEmpty,
+              "chromium: non-file URLs and comment lines are ignored")
+
+        // Malformed input abandons the parse rather than salvaging a prefix:
+        // a half-right file list is how a drop moves a file nobody dragged.
+        check(ChromiumCustomData.decode(Data()).isEmpty,
+              "chromium: empty data decodes to nothing")
+        check(ChromiumCustomData.decode(Data([0xFF, 0xFF, 0xFF, 0xFF])).isEmpty,
+              "chromium: a header with no pair count decodes to nothing")
+        check(ChromiumCustomData.decode(twoFiles.prefix(20)).isEmpty,
+              "chromium: a truncated payload decodes to nothing")
+        let lyingCount = webCustomData([("text/uri-list", "file:///tmp/a.md")])
+            .prefix(4) + Data([0xFF, 0xFF, 0x00, 0x00])
+        check(ChromiumCustomData.decode(lyingCount).isEmpty,
+              "chromium: a pair count larger than the buffer decodes to nothing")
+
         // --- Obsidian drags that arrive without a path ---
         // A folder from Obsidian's file explorer is a bare name on the text
         // pasteboard, which would classify as prose and open the text plugin
