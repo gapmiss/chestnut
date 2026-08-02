@@ -45,6 +45,13 @@ check: site-gen
 		|| { echo "Resources/Info.plist stamps $$(plutil -extract CFBundleShortVersionString raw Resources/Info.plist), not $(VERSION) — its own comment promises they stay in step"; exit 1; }
 	@grep -q "in the Makefile ($(VERSION))" CLAUDE.md \
 		|| { echo "CLAUDE.md's intro names a release other than $(VERSION) — it restates VERSION by hand, so it drifts on every bump unless this catches it"; exit 1; }
+	@# Both pages print the version in their footer. Nothing generates that
+	@# line — the site is hand-written — so a bump that misses one page ships
+	@# a download button next to a stale version number.
+	@for page in docs/index.html docs/guide.html; do \
+		grep -q ">$(VERSION)</a>" $$page \
+			|| { echo "$$page's footer names a release other than $(VERSION) — it states the version by hand"; exit 1; }; \
+	done
 	@# CLAUDE.md's tripwire index cites a symbol per entry instead of restating
 	@# the rationale, which now lives in the doc comment on that symbol. A
 	@# rename or deletion would leave the pointer dangling and silently cost
