@@ -54,8 +54,11 @@ No Electron, no bundled browser, no network calls.
 ### Homebrew
 
 ```bash
+brew trust --cask gapmiss/tap/chestnut   # required for third-party taps
 brew install --cask gapmiss/tap/chestnut
 ```
+
+`brew trust` arrived in Homebrew 6.0; on older versions it fails as an unknown command, so run `brew install` on its own.
 
 ### Manual
 
