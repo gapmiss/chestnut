@@ -949,10 +949,15 @@ function renderMenu() {
   }));
 
   menuEl.appendChild(menuSeparator());
-  // In the app each of these rows carries a second line naming the delivery
-  // or capture it would reverse ("note.md", "3 notes"). The demo has no
-  // journal, so it draws them unnamed, which is what a fresh install shows
-  // too. If the titles change in PetWindow, change them here.
+  // In the app each of these rows carries a second line naming the delivery,
+  // capture or plugin it would reverse ("note.md", "3 notes", "Transcribe").
+  // The demo has no journal, so it draws them unnamed, which is what a fresh
+  // install shows too. If the titles change in PetWindow, change them here.
+  //
+  // The third row is here because the demo ships with plugins in its Plugins
+  // submenu. In the app it is hidden entirely until a plugin is installed or
+  // the journal holds a record (PluginSaveRecord.showsUndoRow), so someone
+  // with no plugins sees two rows, not three.
   menuEl.appendChild(menuItem({
     label: "Undo Last Delivery",
     action() {
@@ -965,6 +970,13 @@ function renderMenu() {
     action() {
       closeMenu();
       showNotice("Nothing to undo", "Demo captures aren't real writes");
+    },
+  }));
+  menuEl.appendChild(menuItem({
+    label: "Undo Last Plugin Save",
+    action() {
+      closeMenu();
+      showNotice("Nothing to undo", "No plugin has saved a note here");
     },
   }));
 

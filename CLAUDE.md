@@ -144,6 +144,8 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - `last()` and `removeLast()` must resolve the top record the same way, past any line that won't decode → `Sources/Chestnut/Support/Journal.swift:topIndex`
 - An oversized record sheds its *copy* payload, never its undo instruction; the two record types answer differently and the asymmetry is the design → `Sources/Chestnut/Support/Journal.swift:JournalShedding`
 - Undo rows name their record in the **subtitle**, not the title — `NSMenu` sizes to its widest row → `Sources/Chestnut/Actions/Courier.swift:undoMenuSubtitle`
+- The plugin-save Undo row is **hidden**, not dimmed, for a user with no plugins — but a record keeps it visible after the plugin is deleted, or an undo goes unreachable → `Sources/Chestnut/Plugins/PluginSave.swift:showsUndoRow`
+- Plugin-save undo trashes without asking whether the note was edited, and that is safe *because* the save never overwrote; the size check guards a re-occupied path, not a user's edits → `Sources/Chestnut/Plugins/PluginSave.swift:noteChanged`
 - The direct-FS capture append can race Obsidian's debounced save; the CLI path is already preferred where it can be trusted → `Sources/Chestnut/Actions/Capture.swift:appendDirectly`
 
 ### Plugins and drops

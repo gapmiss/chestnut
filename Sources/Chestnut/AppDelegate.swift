@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let courier = Courier()
     private let journal: Journal<CourierOperation> = .deliveries
     private let captureJournal: Journal<CaptureRecord> = .captures
+    private let pluginSave = PluginSave()
+    private let pluginJournal: Journal<PluginSaveRecord> = .pluginSaves
     private let hotkeys = HotkeyCenter()
     private let pluginRegistry = PluginRegistry()
     private var petWindow: PetWindow?
@@ -179,6 +181,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         window.onUndoCapture = { [weak self] in
             self?.undoLastCapture()
+        }
+        window.undoPluginSaveRow = { [weak self] in
+            self?.pluginJournal.last().map { UndoRow(subtitle: $0.undoMenuSubtitle) }
+        }
+        window.onUndoPluginSave = { [weak self] in
+            self?.undoLastPluginSave()
         }
         window.installedPlugins = { [weak self] in
             self?.pluginRegistry.plugins ?? []
@@ -612,6 +620,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Record what a `save`-mode plugin just wrote, so the Undo row can reach
+    /// it. A journal that won't write is logged and dropped rather than raised:
+    /// the save itself succeeded and the user has their note, so an alert here
+    /// would report a failure they did not experience. The cost is one
+    /// unreversible save, which is where every plugin save stood before this.
+    private func journalPluginSave(
+        plugin: String, vault: Vault, note: URL,
+        noteBytes: Int, attachments: [String]
+    ) {
+        do {
+            try pluginJournal.append(PluginSaveRecord(
+                date: Date(),
+                pluginName: plugin,
+                vaultPath: vault.path,
+                notePath: note.path,
+                noteBytes: noteBytes,
+                attachmentPaths: attachments.isEmpty ? nil : attachments
+            ))
+        } catch {
+            DebugLog.log("plugin save journal failed: \(error)")
+        }
+    }
+
+    private func undoLastPluginSave() {
+        guard let record = pluginJournal.last() else { return }
+        do {
+            try pluginSave.undo(record)
+            try pluginJournal.removeLast()
+            petWindow?.petScene.celebrateDelivery()
+        } catch {
+            if presentUndoFailure(
+                "Undo plugin save failed", error.localizedDescription
+            ) {
+                discardUndoRecord { try pluginJournal.removeLast() }
+            }
+        }
+    }
+
     /// Success receipt above the pet: what happened and where, click (or the
     /// notice hotkey, registered only while the bubble is up) to follow
     /// through. Failures stay loud NSAlerts — never notices.
@@ -769,7 +815,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let captureWithAttachments = result.action == .capture
                     && !(result.attachments ?? []).isEmpty
                 self?.petWindow?.petScene.setChewing(false)
-                self?.handlePluginResult(result)
+                self?.handlePluginResult(result, plugin: manifest.name)
                 if !captureWithAttachments { cleanupTemp() }
             } catch let error as PluginError {
                 cleanupTemp()
@@ -784,7 +830,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func handlePluginResult(_ result: PluginRunner.InterpretedResult) {
+    private func handlePluginResult(
+        _ result: PluginRunner.InterpretedResult, plugin: String
+    ) {
         switch result.action {
         case .capture:
             captureDraft = result.content
@@ -795,7 +843,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleCapture()
             }
         case .save:
-            savePluginOutput(result)
+            savePluginOutput(result, plugin: plugin)
         case .clipboard:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result.content, forType: .string)
@@ -814,7 +862,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func savePluginOutput(_ result: PluginRunner.InterpretedResult) {
+    private func savePluginOutput(
+        _ result: PluginRunner.InterpretedResult, plugin pluginName: String
+    ) {
         let filename = result.filename ?? "Untitled.md"
         let content = result.content
         let folder = result.folder
@@ -863,6 +913,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 try content.write(
                     to: url, atomically: true, encoding: .utf8
                 )
+                // Collected as each copy lands, not derived up front from
+                // `attachments`: `availableURL` picks the suffixed name only
+                // once it sees what is already there, and a copy that throws
+                // half way through must leave the journal naming the files
+                // that exist rather than the ones that were planned.
+                var attachmentPaths: [String] = []
+                defer {
+                    journalPluginSave(
+                        plugin: pluginName, vault: vault, note: url,
+                        noteBytes: content.utf8.count,
+                        attachments: attachmentPaths
+                    )
+                }
                 for att in attachments {
                     let src = URL(fileURLWithPath: att.source)
                         .standardizedFileURL
@@ -870,6 +933,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         for: attDir.appendingPathComponent(att.filename)
                     )
                     try FileManager.default.copyItem(at: src, to: dest)
+                    attachmentPaths.append(dest.path)
                 }
                 petWindow?.petScene.celebrateDelivery()
                 controller.noteInteraction()

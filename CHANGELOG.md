@@ -4,6 +4,23 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Notes written by a plugin can now be taken back.** A plugin using `save`
+  output wrote a note straight into a vault, and there was no way to undo it —
+  couriered notes and quick captures both had an Undo row, plugin saves did
+  not. The right-click menu now carries **Undo Last Plugin Save**, naming the
+  plugin that wrote the note on its second line. Undo moves the note and any
+  attachments the save copied to the Trash, never deleting them. If the note
+  has changed size since the save, undo refuses rather than risk trashing a
+  file Chestnut never wrote, and offers to discard the journal entry instead.
+  The row is hidden entirely for anyone with no plugins installed, and stays
+  visible while there is still something to take back even if the plugin has
+  since been deleted. This covers what Chestnut writes on a plugin's behalf;
+  files a plugin's own script copies or deletes are outside the journal.
+
 ## [0.7.1] — 2026-08-02
 
 ### Fixed

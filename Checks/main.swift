@@ -149,6 +149,7 @@ struct Check {
         courierChecks()
         petGeometryChecks()
         undoMenuRowChecks()
+        pluginSaveChecks()
         captureChecks()
         configChecks()
         appStateChecks()
@@ -2719,6 +2720,106 @@ struct Check {
         let exact = String(repeating: "n", count: UndoName.budget)
         check(delivery([exact]).undoMenuSubtitle == exact,
               "a name exactly at the budget is left whole")
+
+        // Plugin saves name the *plugin*, not the note — see
+        // PluginSaveRecord.undoMenuSubtitle for why this row differs.
+        func save(_ plugin: String) -> PluginSaveRecord {
+            PluginSaveRecord(
+                date: Date(), pluginName: plugin, vaultPath: "/v",
+                notePath: "/v/Untitled.md", noteBytes: 0, attachmentPaths: nil
+            )
+        }
+        check(save("Transcribe").undoMenuSubtitle == "Transcribe",
+              "plugin save names the plugin that wrote the note")
+        check(save("").undoMenuSubtitle == nil,
+              "a plugin save with no name draws a plain row")
+        check(save(String(repeating: "p", count: 80)).undoMenuSubtitle?.count == UndoName.budget,
+              "an over-long plugin name is cut to the same budget")
+    }
+
+    // MARK: - Plugin save undo
+
+    static func pluginSaveChecks() {
+        // The row is hidden for a user who has never installed a plugin, but
+        // must never hide a record that still has files to take back.
+        check(PluginSaveRecord.showsUndoRow(pluginsInstalled: false, hasRecord: false) == false,
+              "no plugins and no record: the row is absent entirely")
+        check(PluginSaveRecord.showsUndoRow(pluginsInstalled: true, hasRecord: false),
+              "a plugin installed shows the row, dimmed")
+        check(PluginSaveRecord.showsUndoRow(pluginsInstalled: false, hasRecord: true),
+              "a record survives the plugin being deleted — the row stays reachable")
+
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chestnut-check-pluginsave-\(UUID().uuidString)")
+        let vault = base.appendingPathComponent("vault")
+        try? FileManager.default.createDirectory(at: vault, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let journal = Journal<PluginSaveRecord>(
+            fileURL: base.appendingPathComponent("plugins.jsonl"))
+        let note = vault.appendingPathComponent("From Plugin.md")
+        let attachment = vault.appendingPathComponent("shot.png")
+        let body = "# Saved by a plugin\n"
+        try? body.write(to: note, atomically: true, encoding: .utf8)
+        try? Data([0x89, 0x50, 0x4E, 0x47]).write(to: attachment)
+
+        let record = PluginSaveRecord(
+            date: Date(), pluginName: "Transcribe", vaultPath: vault.path,
+            notePath: note.path, noteBytes: body.utf8.count,
+            attachmentPaths: [attachment.path]
+        )
+        try? journal.append(record)
+        // Date compared loosely, like the other journal round-trips here:
+        // ISO8601 encoding drops sub-second precision.
+        let restoredSave = journal.last()
+        check(restoredSave?.pluginName == "Transcribe"
+                && restoredSave?.notePath == note.path
+                && restoredSave?.noteBytes == body.utf8.count
+                && restoredSave?.attachmentPaths == [attachment.path],
+              "a plugin save round-trips through the journal")
+        check(record.sheddingPayload() == nil,
+              "a plugin save record has no payload to shed")
+
+        // A note edited since the save is refused, not guessed at: by then the
+        // path may belong to an entirely different file.
+        try? "# Saved by a plugin\nplus my own notes\n".write(
+            to: note, atomically: true, encoding: .utf8)
+        var refused = false
+        do { try PluginSave().undo(record) } catch { refused = true }
+        check(refused, "a note whose size no longer matches refuses to undo")
+        check(FileManager.default.fileExists(atPath: note.path),
+              "the refused undo left the note in place")
+        check(FileManager.default.fileExists(atPath: attachment.path),
+              "the refused undo left the attachments alone too")
+
+        // Restored to what the plugin wrote, undo trashes note and attachment.
+        try? body.write(to: note, atomically: true, encoding: .utf8)
+        do {
+            try PluginSave().undo(record)
+            check(!FileManager.default.fileExists(atPath: note.path),
+                  "undo removes the note the plugin saved")
+            check(!FileManager.default.fileExists(atPath: attachment.path),
+                  "undo removes the attachments it copied")
+        } catch {
+            check(false, "undo of an untouched plugin save threw: \(error)")
+        }
+
+        // A note the user already deleted is not a failure — nothing is left
+        // to reverse for it, and the attachments still get cleaned up.
+        let orphanAtt = vault.appendingPathComponent("orphan.png")
+        try? Data([0x89]).write(to: orphanAtt)
+        let gone = PluginSaveRecord(
+            date: Date(), pluginName: "Transcribe", vaultPath: vault.path,
+            notePath: vault.appendingPathComponent("never-existed.md").path,
+            noteBytes: 12, attachmentPaths: [orphanAtt.path]
+        )
+        do {
+            try PluginSave().undo(gone)
+            check(!FileManager.default.fileExists(atPath: orphanAtt.path),
+                  "a missing note still lets the attachments be cleaned up")
+        } catch {
+            check(false, "undo of an already-deleted note threw: \(error)")
+        }
     }
 
     // MARK: - Obsidian link parsing

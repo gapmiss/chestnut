@@ -131,6 +131,17 @@ extension Journal where Record == CaptureRecord {
     static var captures: Journal { Journal(fileURL: fileURL(named: "captures.jsonl")) }
 }
 
+extension Journal where Record == PluginSaveRecord {
+    /// `plugins.jsonl`, not `plugin-saves.jsonl`: the row above is titled
+    /// "Undo Last Plugin Save" because `save` is the only plugin output mode
+    /// that writes files today, but journal file names outlive the feature
+    /// they were named for — `deliveries` still reads `journal.jsonl` for
+    /// exactly that reason. A general name lets the row be renamed, or another
+    /// plugin write become undoable, without the file on disk having to lie or
+    /// old records having to be migrated.
+    static var pluginSaves: Journal { Journal(fileURL: fileURL(named: "plugins.jsonl")) }
+}
+
 /// How much history a journal keeps. Undo serves "take back the thing I just
 /// did": a record that refuses to reverse is kept and blocks everything older
 /// than it, so depth past a handful is unreachable in practice. Keeping less

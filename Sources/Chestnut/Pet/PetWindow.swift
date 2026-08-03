@@ -48,6 +48,8 @@ final class PetWindow: NSPanel {
     var onCapture: (() -> Void)?
     var onUndoCapture: (() -> Void)?
     var undoCaptureRow: (() -> UndoRow?)?
+    var onUndoPluginSave: (() -> Void)?
+    var undoPluginSaveRow: (() -> UndoRow?)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
@@ -66,6 +68,7 @@ final class PetWindow: NSPanel {
     /// `validateMenuItem`.
     private var undoDeliveryAvailable = false
     private var undoCaptureAvailable = false
+    private var undoPluginSaveAvailable = false
 
     /// See `PetGeometry.Margin` — kept as an alias so call sites read the same.
     typealias Margin = PetGeometry.Margin
@@ -324,6 +327,16 @@ final class PetWindow: NSPanel {
         undoCaptureAvailable = capture != nil
         menu.addItem(undoMenuItem("Undo Last Delivery", #selector(undoDelivery), delivery))
         menu.addItem(undoMenuItem("Undo Last Capture", #selector(undoCapture), capture))
+        let pluginSave = undoPluginSaveRow?()
+        undoPluginSaveAvailable = pluginSave != nil
+        if PluginSaveRecord.showsUndoRow(
+            pluginsInstalled: !(installedPlugins?() ?? []).isEmpty,
+            hasRecord: pluginSave != nil
+        ) {
+            menu.addItem(undoMenuItem(
+                "Undo Last Plugin Save", #selector(undoPluginSave), pluginSave
+            ))
+        }
 
         menu.addItem(.separator())
         menu.addItem(sizeMenuItem())
@@ -606,6 +619,8 @@ final class PetWindow: NSPanel {
 
     @objc private func undoCapture() { onUndoCapture?() }
 
+    @objc private func undoPluginSave() { onUndoPluginSave?() }
+
     @objc private func toggleReduceMotion() {
         state.reduceMotion.toggle()
         applyMotionSetting()
@@ -734,6 +749,7 @@ final class PetWindow: NSPanel {
         // reading the journal a second time for every right-click.
         if menuItem.action == #selector(undoDelivery) { return undoDeliveryAvailable }
         if menuItem.action == #selector(undoCapture) { return undoCaptureAvailable }
+        if menuItem.action == #selector(undoPluginSave) { return undoPluginSaveAvailable }
         // The system already stilled the pet; the row has nothing left to give
         // and must not appear to offer a way back.
         if menuItem.action == #selector(toggleReduceMotion) { return !Self.systemReduceMotion }

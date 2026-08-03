@@ -30,6 +30,7 @@ check: site-gen
 		Sources/$(APP)/Pet/PetGeometry.swift \
 		Sources/$(APP)/Pet/SpriteTheme.swift \
 		Sources/$(APP)/Plugins/PluginManifest.swift \
+		Sources/$(APP)/Plugins/PluginSave.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \
 		Sources/$(APP)/Plugins/PluginRunner.swift \
 		Sources/$(APP)/Plugins/PluginDispatch.swift \

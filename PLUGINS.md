@@ -102,6 +102,16 @@ a plugin.
 | `notify` | Shows stdout as a notice bubble above the pet. |
 | `structured` | Parses stdout as a JSON envelope for full control (see below). |
 
+### Undoing a save
+
+`save` is the only mode that writes files without the user seeing them first, so every save is journaled and the right-click menu gains an **Undo Last Plugin Save** row naming your plugin. Undo moves the note and any attachments the save copied to the Trash. Nothing is ever deleted outright, and nothing pre-existing is ever touched: a save that would land on an occupied name gets an Obsidian-style suffix instead of overwriting, so every path undo touches is one Chestnut created.
+
+Undo refuses if the note has changed size since the save, because by then the path may belong to a file Chestnut never wrote. You get an alert offering to discard the journal entry instead.
+
+This covers what Chestnut writes on your plugin's behalf. It cannot cover what your script does itself — files your script copies, moves or deletes directly are outside the journal and stay done. If your plugin makes its own filesystem changes, say so in its `description`.
+
+`capture` output is undoable too, once submitted, through **Undo Last Capture**. `clipboard` and `notify` write nothing.
+
 ### Limits
 
 - **Stdout** is capped at **1 MB**. Output beyond that is silently truncated.
