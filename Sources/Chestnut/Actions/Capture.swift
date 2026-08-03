@@ -139,24 +139,30 @@ struct Capture {
     /// deleted) if still untouched; otherwise the appended suffix is removed —
     /// and if the note no longer ends with it, refuse rather than guess.
     func undo(_ record: CaptureRecord) throws {
+        // One instance for the whole reversal, so the vault's setting is read
+        // once for a note and all its attachments (see `VaultTrash.memo`).
+        let trash = VaultTrash()
         let note = URL(fileURLWithPath: record.notePath)
         let data = (try? Data(contentsOf: note)) ?? Data()
         let appended = Data(record.appended.utf8)
         if record.createdFile, data == appended {
-            try fm.trashItem(at: note, resultingItemURL: nil)
-            trashAttachments(of: record)
+            try trash.trash(note)
+            trashAttachments(of: record, using: trash)
             return
         }
         guard data.count >= appended.count, data.suffix(appended.count) == appended else {
             throw CaptureError.noteChanged(record.notePath)
         }
         try data.dropLast(appended.count).write(to: note, options: .atomic)
-        trashAttachments(of: record)
+        trashAttachments(of: record, using: trash)
     }
 
-    /// Attachments copied by a capture go to the Trash on undo, never deleted
-    /// — mirroring `Courier.undo`. Called only once the text has been
-    /// reversed, so an undo that refuses leaves the files alone.
+    /// Attachments copied by a capture are trashed on undo, never deleted —
+    /// mirroring `Courier.undo`. Which trash depends on the vault: `VaultTrash`
+    /// follows Obsidian's `trashOption`, so these land in `<vault>/.trash/` for
+    /// a vault set to `"local"` and in the macOS Trash otherwise. Called only
+    /// once the text has been reversed, so an undo that refuses leaves the
+    /// files alone.
     ///
     /// A file that won't trash is skipped silently. The note is already
     /// reversed by this point, so throwing would report the whole undo as
@@ -164,11 +170,11 @@ struct Capture {
     /// the main actor, where `DebugLog.log` isn't reachable. The file simply
     /// stays put, which is the same outcome as before attachments were
     /// journaled at all.
-    private func trashAttachments(of record: CaptureRecord) {
+    private func trashAttachments(of record: CaptureRecord, using trash: VaultTrash) {
         for path in (record.attachmentPaths ?? []).reversed() {
             let url = URL(fileURLWithPath: path)
             guard fm.fileExists(atPath: url.path) else { continue }
-            try? fm.trashItem(at: url, resultingItemURL: nil)
+            try? trash.trash(url)
         }
     }
 

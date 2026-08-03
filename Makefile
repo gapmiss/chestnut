@@ -25,6 +25,7 @@ check: site-gen
 		Sources/$(APP)/Support/AppState.swift \
 		Sources/$(APP)/Support/DebugLog.swift \
 		Sources/$(APP)/Support/ObsidianCLI.swift \
+		Sources/$(APP)/Support/VaultTrash.swift \
 		Sources/$(APP)/Support/Hotkeys.swift \
 		Sources/$(APP)/Pet/PetFrames.swift \
 		Sources/$(APP)/Pet/PetGeometry.swift \

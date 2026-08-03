@@ -21,6 +21,21 @@ Notable, user-facing changes to Chestnut. The format follows
   since been deleted. This covers what Chestnut writes on a plugin's behalf;
   files a plugin's own script copies or deletes are outside the journal.
 
+### Changed
+
+- **Undo now sends files to whichever trash the vault is set to use.** Obsidian
+  lets each vault say where deleted files go, and someone who points a vault at
+  its own `.trash` folder expects everything deleted from that vault to land
+  there. Chestnut always used the macOS Trash instead, so undone files ended up
+  somewhere the user was not looking and Obsidian's own restore-from-trash
+  could not see them. All three undos — couriered deliveries, quick captures
+  and plugin saves — now read the vault's setting and follow it, attachments
+  included. Vaults left on the default are unaffected. One deliberate
+  exception: a vault set to delete permanently still gets the macOS Trash,
+  because an undo takes back something Chestnut did rather than something you
+  chose to delete, and there would be nothing to recover if you changed your
+  mind.
+
 ## [0.7.1] — 2026-08-02
 
 ### Fixed

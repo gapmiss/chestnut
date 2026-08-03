@@ -150,6 +150,7 @@ struct Check {
         petGeometryChecks()
         undoMenuRowChecks()
         pluginSaveChecks()
+        vaultTrashChecks()
         captureChecks()
         configChecks()
         appStateChecks()
@@ -2820,6 +2821,136 @@ struct Check {
         } catch {
             check(false, "undo of an already-deleted note threw: \(error)")
         }
+    }
+
+    // MARK: - Vault trash (Obsidian's trashOption)
+
+    static func vaultTrashChecks() {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("chestnut-check-vaulttrash-\(UUID().uuidString)")
+        defer { try? fm.removeItem(at: base) }
+
+        /// Build `<base>/<name>` as a vault, writing `app.json` only when an
+        /// option is given, so "no app.json at all" stays testable.
+        func makeVault(_ name: String, option: String?) -> URL {
+            let vault = base.appendingPathComponent(name)
+            try? fm.createDirectory(
+                at: vault.appendingPathComponent(".obsidian"),
+                withIntermediateDirectories: true)
+            try? fm.createDirectory(
+                at: vault.appendingPathComponent("notes"),
+                withIntermediateDirectories: true)
+            if let option {
+                try? option.write(
+                    to: vault.appendingPathComponent(".obsidian/app.json"),
+                    atomically: true, encoding: .utf8)
+            }
+            return vault
+        }
+
+        func writeNote(_ url: URL, _ text: String = "hello") {
+            try? fm.createDirectory(
+                at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? text.write(to: url, atomically: true, encoding: .utf8)
+        }
+
+        // Finding the vault a file belongs to.
+        let plain = makeVault("plain", option: nil)
+        let inside = plain.appendingPathComponent("notes/a.md")
+        writeNote(inside)
+        check(VaultTrash.vaultRoot(containing: inside)?.path == plain.standardizedFileURL.path,
+              "a file under a vault resolves to that vault's root")
+
+        let loose = base.appendingPathComponent("loose/b.md")
+        writeNote(loose)
+        check(VaultTrash.vaultRoot(containing: loose) == nil,
+              "a file with no .obsidian above it belongs to no vault")
+
+        // A vault inside a vault: the nearer one owns the file, because it has
+        // its own trashOption and that is the one the user set for it.
+        let outer = makeVault("outer", option: nil)
+        let innerRoot = outer.appendingPathComponent("inner")
+        try? fm.createDirectory(
+            at: innerRoot.appendingPathComponent(".obsidian"),
+            withIntermediateDirectories: true)
+        let nested = innerRoot.appendingPathComponent("notes/c.md")
+        writeNote(nested)
+        check(VaultTrash.vaultRoot(containing: nested)?.path
+                == innerRoot.standardizedFileURL.path,
+              "a nested vault resolves to the nearest .obsidian, not the outermost")
+
+        // Reading the setting.
+        check(VaultTrash.trashOption(forVault: makeVault("opt-local", option: #"{"trashOption":"local"}"#)) == .local,
+              #"trashOption "local" is read as local"#)
+        check(VaultTrash.trashOption(forVault: makeVault("opt-system", option: #"{"trashOption":"system"}"#)) == .system,
+              #"trashOption "system" is read as system"#)
+        check(VaultTrash.trashOption(forVault: makeVault("opt-none", option: #"{"trashOption":"none"}"#)) == .none,
+              #"trashOption "none" is read as none"#)
+
+        // Every way of not saying anything means the system Trash, which is
+        // what every undo did before trashOption was honored at all.
+        check(VaultTrash.trashOption(forVault: makeVault("opt-missing", option: nil)) == .system,
+              "a vault with no app.json falls back to the system Trash")
+        check(VaultTrash.trashOption(forVault: makeVault("opt-garbage", option: "{not json")) == .system,
+              "an unparseable app.json falls back to the system Trash")
+        check(VaultTrash.trashOption(forVault: makeVault("opt-absent", option: #"{"attachmentFolderPath":"files"}"#)) == .system,
+              "an app.json without the key falls back to the system Trash")
+        check(VaultTrash.trashOption(forVault: makeVault("opt-unknown", option: #"{"trashOption":"elsewhere"}"#)) == .system,
+              "an unrecognised trashOption falls back to the system Trash")
+
+        // "local" moves into <vault>/.trash, creating it on demand.
+        let localVault = makeVault("local", option: #"{"trashOption":"local"}"#)
+        let first = localVault.appendingPathComponent("notes/note.md")
+        writeNote(first, "first")
+        do {
+            try VaultTrash().trash(first)
+        } catch {
+            check(false, "local trash threw: \(error)")
+        }
+        let landed = localVault.appendingPathComponent(".trash/note.md")
+        check(!fm.fileExists(atPath: first.path), "local trash removes the file from where it was")
+        check(fm.fileExists(atPath: landed.path),
+              "local trash creates <vault>/.trash and moves the file into it")
+
+        // Same name twice: the second gets an Obsidian-style suffix rather
+        // than replacing the first, which the user may still want back.
+        let second = localVault.appendingPathComponent("other/note.md")
+        writeNote(second, "second")
+        try? VaultTrash().trash(second)
+        let suffixed = localVault.appendingPathComponent(".trash/note 1.md")
+        check(fm.fileExists(atPath: suffixed.path),
+              "a second file of the same name lands as 'note 1.md'")
+        check((try? String(contentsOf: landed, encoding: .utf8)) == "first",
+              "the first trashed file is left untouched by the second")
+        check((try? String(contentsOf: suffixed, encoding: .utf8)) == "second",
+              "the second trashed file kept its own contents")
+
+        // The "none" clamp. Obsidian would delete permanently; an undo never
+        // does, because it reverses something Chestnut did rather than
+        // something the user chose to delete.
+        check(VaultTrash.honored(.none) == .system,
+              #"trashOption "none" is clamped to the system Trash on undo"#)
+        check(VaultTrash.honored(.local) == .local && VaultTrash.honored(.system) == .system,
+              "the clamp leaves the other two settings alone")
+
+        // The filesystem half of the clamp, as far as it can be observed: the
+        // file leaves the vault and does not go to <vault>/.trash. That it
+        // arrives in ~/.Trash cannot be asserted here — macOS privacy
+        // protection makes that directory unreadable to this process, and a
+        // check that cannot observe its own effect is worse than none.
+        let noneVault = makeVault("none", option: #"{"trashOption":"none"}"#)
+        let doomed = noneVault.appendingPathComponent("notes/keep.md")
+        writeNote(doomed, "not deleted")
+        do {
+            try VaultTrash().trash(doomed)
+        } catch {
+            check(false, #"trashing from a "none" vault threw: \#(error)"#)
+        }
+        check(!fm.fileExists(atPath: noneVault.appendingPathComponent(".trash").path),
+              #""none" does not use the vault-local .trash folder"#)
+        check(!fm.fileExists(atPath: doomed.path),
+              #""none" still removes the file from where the undo found it"#)
     }
 
     // MARK: - Obsidian link parsing

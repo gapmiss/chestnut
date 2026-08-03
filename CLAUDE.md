@@ -147,6 +147,8 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - The plugin-save Undo row is **hidden**, not dimmed, for a user with no plugins — but a record keeps it visible after the plugin is deleted, or an undo goes unreachable → `Sources/Chestnut/Plugins/PluginSave.swift:showsUndoRow`
 - Plugin-save undo trashes without asking whether the note was edited, and that is safe *because* the save never overwrote; the size check guards a re-occupied path, not a user's edits → `Sources/Chestnut/Plugins/PluginSave.swift:noteChanged`
 - The direct-FS capture append can race Obsidian's debounced save; the CLI path is already preferred where it can be trusted → `Sources/Chestnut/Actions/Capture.swift:appendDirectly`
+- All three undos follow the vault's own `trashOption`, but `"none"` is deliberately **not** honored — it is clamped to the system Trash, because an undo reverses something Chestnut did rather than something the user chose to delete → `Sources/Chestnut/Support/VaultTrash.swift:honored`
+- The `obsidian` CLI's `delete` does **not** honor `trashOption` (tested twice against a `"local"` vault); undo is filesystem-only → `Sources/Chestnut/Support/VaultTrash.swift:VaultTrash`
 
 ### Plugins and drops
 

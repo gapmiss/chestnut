@@ -224,7 +224,7 @@ brew install --cask gapmiss/tap/chestnut</code></pre>
         <thead><tr><th>Mode</th><th>What happens</th></tr></thead>
         <tbody>
           <tr><td><code>capture</code></td><td>Pre-fills the Quick Capture panel with the script's stdout.</td></tr>
-          <tr><td><code>save</code></td><td>Writes stdout directly to the active vault. First line = filename, rest = content.</td></tr>
+          <tr><td><code>save</code></td><td>Writes stdout directly to the active vault. First line = filename, rest = content. Every save is journaled, so <strong>Undo Last Plugin Save</strong> can take it back.</td></tr>
           <tr><td><code>clipboard</code></td><td>Copies stdout to the system clipboard.</td></tr>
           <tr><td><code>notify</code></td><td>Shows stdout in a speech bubble.</td></tr>
           <tr><td><code>structured</code></td><td>Expects a <a href="#structured-envelope">JSON envelope</a> on stdout for runtime control.</td></tr>
@@ -608,6 +608,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
           <tr><td>Capture&hellip;</td><td>Opens the Quick Capture panel.</td></tr>
           <tr><td>Undo Last Delivery</td><td>Reverses the most recent courier delivery (move or copy). A second line names what it would take back (<code>recipe.md</code>, <code>3 notes</code>); on macOS 14.0&ndash;14.3, which has no second line, the row is unnamed.</td></tr>
           <tr><td>Undo Last Capture</td><td>Removes the last Quick Capture append, and trashes any attachments it saved. Named the same way.</td></tr>
+          <tr><td>Undo Last Plugin Save</td><td>Trashes the note a <code>save</code> plugin wrote, and any attachments it copied. The second line names the plugin rather than the note, since the note is one you never named. This row is hidden entirely if you have no plugins installed, and stays visible while there is still a save to take back even if you have since deleted the plugin.</td></tr>
           <tr><td><strong>Size &rarr;</strong></td><td>Small, Medium (default), or Large sprite.</td></tr>
           <tr><td><strong>Theme &rarr;</strong></td><td>Switch sprite color palette. Custom themes appear here too.</td></tr>
           <tr><td><strong>Settings &rarr;</strong></td><td>Everything you set once, one level down.</td></tr>
@@ -661,6 +662,26 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
       <a href="#hotkey-config">Hotkeys</a>) and relaunch. Right-clicking
       Chestnut still opens the menu meanwhile, and the menu, the capture panel
       and the vault palettes all read correctly with VoiceOver.
+    </p>
+
+    <h3>A file undo took back isn't in the Trash</h3>
+    <p>
+      Look in the vault's own <code>.trash</code> folder. Obsidian's
+      <strong>Settings &rarr; Files and links &rarr; Deleted files</strong>
+      decides where deletions from a vault go, and Chestnut follows whatever
+      that vault is set to. If it says <em>Move to Obsidian trash</em>, the
+      files undo takes back land in <code>.trash</code> at the vault root,
+      where Obsidian's own deleted-files list can see and restore them. If it
+      says <em>Move to system trash</em>, or you have never changed it, they go
+      to the macOS Trash as before. The setting is per vault, so two vaults can
+      behave differently.
+    </p>
+    <p>
+      The third option, <em>Permanently delete</em>, is the one exception:
+      Chestnut still sends those files to the macOS Trash. An undo takes back
+      something Chestnut did rather than something you chose to delete, and a
+      permanent one would leave nothing to recover if you changed your mind a
+      moment later.
     </p>
 
     <h3>An undo says it failed</h3>

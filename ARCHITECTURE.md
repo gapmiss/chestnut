@@ -49,7 +49,7 @@ Unparseable files are *moved* to the first free `.bak`/`.bak.N`, never copied ov
 
 ```
 Vaults… / Capture…
-Undo Last Delivery / Undo Last Capture   (each subtitled with the record it reverses)
+Undo Last Delivery / Undo Last Capture / Undo Last Plugin Save   (each subtitled with the record it reverses; the third row is hidden until a plugin is installed or a record exists)
 Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸
 Check for Updates… (version + ↗ in one badge) / Support Chestnut
 Quit
@@ -84,6 +84,16 @@ Both types hold no state so they stay `Sendable` — `Courier`'s `fm` is *comput
 Journals are capped by `JournalLimits` — 20 records and 1 MB — and rewritten atomically on every append. Both limits are load-bearing: a courier record can carry a whole note body in `NoteRewrite.original`.
 
 A record that blows the byte cap on its own is **shed, not dropped**. `trimmed` keeps a lone record at any size, so the ceiling is enforced in `append` before the line is ever written. What a record gives up differs by type, and that asymmetry is the design — see the `JournalShedding` tripwire in `CLAUDE.md`.
+
+## Where undone files go
+
+All three undos — courier copy, capture, plugin save — remove files through one type, `VaultTrash`, rather than calling `FileManager.trashItem` themselves. It reads `trashOption` from the destination vault's `.obsidian/app.json` and follows it: `"system"` (or absent) is the macOS Trash, `"local"` is `<vault>/.trash/`, which is what Obsidian's own restore-from-trash reads.
+
+The vault is found by walking up from the file until a directory holds `.obsidian/`, nearest first, **not** taken from the record. `CourierOperation` has no vault field, and adding one would leave every already-journaled record unable to name its vault. `CaptureRecord` and `PluginSaveRecord` do carry `vaultPath` and still go through the walk, so there is one answer to the question and the three undos cannot drift.
+
+One instance per undo call, memoizing the option per vault root, because a single reversal can touch a note and fifty attachments. Never shared across calls: the user can change the setting in Obsidian between two undos.
+
+`"none"` is read faithfully and then clamped to the system Trash — the one deliberate departure from matching Obsidian, tripwired in `CLAUDE.md`. The `obsidian` CLI is not involved; its `delete` ignores `trashOption` outright.
 
 ## Window behaviour and login
 

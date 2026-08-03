@@ -104,7 +104,7 @@ a plugin.
 
 ### Undoing a save
 
-`save` is the only mode that writes files without the user seeing them first, so every save is journaled and the right-click menu gains an **Undo Last Plugin Save** row naming your plugin. Undo moves the note and any attachments the save copied to the Trash. Nothing is ever deleted outright, and nothing pre-existing is ever touched: a save that would land on an occupied name gets an Obsidian-style suffix instead of overwriting, so every path undo touches is one Chestnut created.
+`save` is the only mode that writes files without the user seeing them first, so every save is journaled and the right-click menu gains an **Undo Last Plugin Save** row naming your plugin. Undo trashes the note and any attachments the save copied, following the vault's own **Deleted files** setting: a vault set to move deletions to its `.trash` folder gets them there, anything else gets the macOS Trash. A vault set to delete permanently is the one exception — those files go to the macOS Trash too, because an undo takes back something Chestnut did rather than something the user chose to delete. Nothing is ever deleted outright, and nothing pre-existing is ever touched: a save that would land on an occupied name gets an Obsidian-style suffix instead of overwriting, so every path undo touches is one Chestnut created.
 
 Undo refuses if the note has changed size since the save, because by then the path may belong to a file Chestnut never wrote. You get an alert offering to discard the journal entry instead.
 

@@ -181,7 +181,14 @@ struct Courier {
     }
 
     /// Reverse a journaled delivery: moves go back (content restored where
-    /// references were rewritten); copies are moved to the Trash, never deleted.
+    /// references were rewritten); copies are trashed, never deleted — to the
+    /// destination vault's own trash, per `VaultTrash`.
+    ///
+    /// Only the copy branch removes anything. A move-mode undo puts each
+    /// delivered file back where it came from and trashes nothing, because the
+    /// source was never disturbed. The asymmetry is the design, not an
+    /// oversight: treating the two branches alike would trash a file the user
+    /// still has only one of.
     ///
     /// Every transfer is attempted exactly once, and one that fails does not
     /// stop the ones behind it. The common failure is a delivered file the
@@ -196,13 +203,17 @@ struct Courier {
         var unreachable: [String] = []
 
         if op.isCopy {
+            // One instance for the whole reversal, so the destination vault's
+            // `trashOption` is read once for a note and all its attachments
+            // (see `VaultTrash.memo`).
+            let trash = VaultTrash()
             for t in op.transfers.reversed() {
                 let url = URL(fileURLWithPath: t.to)
                 // A copy that is already gone is not a failure: there is no
                 // copy left to take back.
                 guard fm.fileExists(atPath: url.path) else { continue }
                 do {
-                    try fm.trashItem(at: url, resultingItemURL: nil)
+                    try trash.trash(url)
                 } catch {
                     unreachable.append(url.lastPathComponent)
                 }

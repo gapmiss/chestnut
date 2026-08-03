@@ -92,7 +92,13 @@ struct PluginSave {
 
     /// Trash every file the save created, note first, then attachments.
     ///
-    /// Trashed, never deleted — like every other undo in the app. That is also
+    /// Trashed, never deleted — like every other undo in the app. Where that
+    /// is depends on the vault: `VaultTrash` honors Obsidian's `trashOption`,
+    /// so a vault set to `"local"` gets its files back in `<vault>/.trash/`.
+    /// A vault set to `"none"` is the one case where "trashed" is a promise
+    /// Chestnut keeps and Obsidian would not — that setting is clamped to the
+    /// system Trash, so the sentence above stays true and the recoverability
+    /// this comment rests on is never given up. That is also
     /// why there is no "did the user edit this note" refusal of the kind
     /// `Capture.undo` makes: capture reverses by truncating bytes off a file in
     /// place, which cannot be taken back, whereas everything here is a file
@@ -113,27 +119,31 @@ struct PluginSave {
     /// original length gets trashed anyway, and recovering it costs one trip
     /// to the Trash. Cheap and honest beats exact here.
     func undo(_ record: PluginSaveRecord) throws {
+        // One instance for the whole reversal, so the vault's setting is read
+        // once for a note and all its attachments (see `VaultTrash.memo`).
+        let trash = VaultTrash()
         let note = URL(fileURLWithPath: record.notePath)
         if let data = try? Data(contentsOf: note) {
             guard data.count == record.noteBytes else {
                 throw PluginSaveError.noteChanged(record.notePath)
             }
-            try fm.trashItem(at: note, resultingItemURL: nil)
+            try trash.trash(note)
         }
-        trashAttachments(of: record)
+        trashAttachments(of: record, using: trash)
     }
 
-    /// Attachments go to the Trash once the note is dealt with, so an undo
-    /// that refuses leaves every file alone. A file that won't trash is
+    /// Attachments are trashed once the note is dealt with, so an undo that
+    /// refuses leaves every file alone. Where they land follows the vault's
+    /// `trashOption` exactly as the note's does. A file that won't trash is
     /// skipped silently, for the same reason `Capture.trashAttachments` skips
     /// one: the note is already reversed by this point, so throwing would
     /// report the whole undo as failed when the part the user asked about
     /// succeeded.
-    private func trashAttachments(of record: PluginSaveRecord) {
+    private func trashAttachments(of record: PluginSaveRecord, using trash: VaultTrash) {
         for path in (record.attachmentPaths ?? []).reversed() {
             let url = URL(fileURLWithPath: path)
             guard fm.fileExists(atPath: url.path) else { continue }
-            try? fm.trashItem(at: url, resultingItemURL: nil)
+            try? trash.trash(url)
         }
     }
 }
