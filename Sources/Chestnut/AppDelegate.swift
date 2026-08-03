@@ -132,11 +132,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Best-effort, and the word is exact. This runs when the app is *asked* to
-    /// quit — the menu's Quit row, `NSApp.terminate`, a plain `SIGTERM`. It does
-    /// not run on `SIGKILL`, on a crash, or on a force quit from Activity
-    /// Monitor, and macOS offers no hook that does. So a plugin can outlive
-    /// Chestnut, and the claim `PLUGINS.md` makes is "quitting Chestnut
-    /// normally stops running plugins", never "no plugin survives Chestnut".
+    /// quit through AppKit: the menu's Quit row, `NSApp.terminate`, or the
+    /// standard quit Apple Event (`osascript -e 'tell application "Chestnut" to
+    /// quit'`).
+    ///
+    /// It does **not** run on a plain `SIGTERM` — measured, not assumed: an
+    /// accessory app sent `SIGTERM` dies on the signal's default action with no
+    /// delegate callback at all, exactly as it does on `SIGKILL`. So `pkill -x
+    /// Chestnut` leaves a running plugin behind, and so does a crash or a force
+    /// quit from Activity Monitor. macOS offers no hook that covers those.
+    ///
+    /// A plugin can therefore outlive Chestnut, and the claim `PLUGINS.md`
+    /// makes is "quitting Chestnut normally stops running plugins", never "no
+    /// plugin survives Chestnut".
     ///
     /// Nothing waits for the children to die. `SIGTERM` to each group is sent
     /// and the quit continues: a plugin that ignores the signal survives, which

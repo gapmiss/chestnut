@@ -224,8 +224,9 @@ While a plugin runs:
   then SIGKILL a second later, and the notice says the run was stopped rather
   than that it timed out.
 - Quitting Chestnut from the menu stops running plugins the same way. This is
-  best-effort: it happens when Chestnut is asked to quit, so a force quit or a
-  crash can leave your script running. Nothing macOS offers can change that.
+  best-effort, and only covers a real quit: a crash, a force quit from Activity
+  Monitor, or `pkill`/`kill` from a terminal all leave your script running.
+  Nothing macOS offers can change that.
 
 A plugin that finishes more than a minute after it started does not steal focus.
 An `action: "capture"` that arrives that late parks its draft and shows a notice
