@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pluginJournal: Journal<PluginSaveRecord> = .pluginSaves
     private let hotkeys = HotkeyCenter()
     private let pluginRegistry = PluginRegistry()
+    /// Every plugin process running right now. The chewing pose and the
+    /// Running Plugins submenu are both derived from it.
+    private let runRegistry = PluginRunRegistry()
     private var petWindow: PetWindow?
     /// The one panel on screen (Vault Hopper, courier destination picker,
     /// or capture bubble).
@@ -118,11 +121,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         pluginRegistry.disabled = state.disabledPlugins
         pluginRegistry.start()
+
+        // The pose follows the registry, never an individual run: two
+        // overlapping runs used to leave the pet still while the second was
+        // still working. See `PluginRunRegistry`.
+        runRegistry.onChange = { [weak self] in
+            guard let self else { return }
+            petWindow?.petScene.setChewing(!runRegistry.isEmpty)
+        }
     }
 
+    /// Best-effort, and the word is exact. This runs when the app is *asked* to
+    /// quit — the menu's Quit row, `NSApp.terminate`, a plain `SIGTERM`. It does
+    /// not run on `SIGKILL`, on a crash, or on a force quit from Activity
+    /// Monitor, and macOS offers no hook that does. So a plugin can outlive
+    /// Chestnut, and the claim `PLUGINS.md` makes is "quitting Chestnut
+    /// normally stops running plugins", never "no plugin survives Chestnut".
+    ///
+    /// Nothing waits for the children to die. `SIGTERM` to each group is sent
+    /// and the quit continues: a plugin that ignores the signal survives, which
+    /// is the same outcome as before this existed, and a `waitpid` that hung
+    /// would stall the quit itself — a worse failure than the one it fixes.
     func applicationWillTerminate(_ notification: Notification) {
         hotkeys.stop()
         pluginRegistry.stop()
+        runRegistry.terminateAll()
     }
 
     private func openPetWindow() {
@@ -203,6 +226,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.pluginRegistry.disabled = self.state.disabledPlugins
             self.state.save()
+        }
+        window.runningPlugins = { [weak self] in
+            self?.runRegistry.runs ?? []
+        }
+        window.onCancelPluginRun = { [weak self] id in
+            self?.runRegistry.cancel(id)
         }
         window.onOpenPluginsFolder = {
             let dir = PluginRegistry.pluginsDirectory
@@ -794,44 +823,88 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // onClose, which would delete it as abandoned.
         if pendingPluginTempPath == input.filePath { pendingPluginTempPath = nil }
         palette?.dismiss()
-        petWindow?.petScene.setChewing(true)
         let tempPath = input.filePath
         let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        let handle = PluginRunHandle()
+        let startedAt = Date()
+        // Streamed progress arrives on a background thread. `DispatchQueue.main`
+        // rather than a `Task`, because the queue keeps the messages in the
+        // order the plugin printed them and hopping through unstructured tasks
+        // does not — "3 of 50" after "4 of 50" is worse than no progress.
+        let onNotify: @Sendable (String) -> Void = { [weak self] text in
+            guard !text.isEmpty else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.showNotice(manifest.name, text)
+                }
+            }
+        }
         Task { [weak self] in
             func cleanupTemp() {
                 if let tempPath, tempPath.hasPrefix(tempPrefix) {
                     try? FileManager.default.removeItem(atPath: tempPath)
                 }
             }
+            // Registering turns the chewing pose on and puts the run in the
+            // cancel submenu; the `defer` takes both back. One `defer` rather
+            // than a call down each exit path — this block has three exits
+            // today, each of which used to toggle the pose for itself, and that
+            // is exactly the shape that lets a fourth one drift out of sync. A
+            // leaked entry chews forever and offers a cancel row that does
+            // nothing.
+            let runID = self?.runRegistry.register(name: manifest.name, handle: handle)
+            defer { if let runID { self?.runRegistry.remove(runID) } }
             do {
                 let raw = try await PluginRunner.run(
-                    manifest: manifest, pluginDir: dir, input: input
+                    manifest: manifest, pluginDir: dir, input: input,
+                    handle: handle, onNotify: onNotify
                 )
-                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, stderr=\(raw.stderr.prefix(200))")
-                let result = try PluginRunner.interpret(
+                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, skipped \(raw.skippedLines) line(s), stderr=\(raw.stderr.prefix(200))")
+                // Nil means a streaming plugin that reported progress and asked
+                // for nothing else. It has already had its say; there is
+                // nothing left to apply and nothing to announce.
+                guard let result = try PluginRunner.interpret(
                     result: raw, manifest: manifest
-                )
+                ) else {
+                    if let runID { self?.runRegistry.remove(runID) }
+                    cleanupTemp()
+                    return
+                }
                 DebugLog.log("plugin result: action=\(result.action.rawValue), content=\(result.content.count) bytes, attachments=\(result.attachments?.count ?? 0)")
                 let captureWithAttachments = result.action == .capture
                     && !(result.attachments ?? []).isEmpty
-                self?.petWindow?.petScene.setChewing(false)
-                self?.handlePluginResult(result, plugin: manifest.name)
+                // Deregistered here as well as in the `defer`, for the
+                // animation's sake rather than the registry's: a successful
+                // result plays `celebrateDelivery`, and stopping the chew pose
+                // afterwards would cut the celebration off with `play`. Removal
+                // is idempotent — the `defer` below is still the guarantee, and
+                // this call is not one the correctness rests on.
+                if let runID { self?.runRegistry.remove(runID) }
+                self?.handlePluginResult(
+                    result, plugin: manifest.name,
+                    elapsed: Date().timeIntervalSince(startedAt)
+                )
                 if !captureWithAttachments { cleanupTemp() }
             } catch let error as PluginError {
                 cleanupTemp()
-                self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(error)
             } catch {
                 cleanupTemp()
-                self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(
                     .nonZeroExit(error.localizedDescription))
             }
         }
     }
 
+    /// A run that takes longer than this has outlived the user's attention, and
+    /// anything it does that takes over the screen is an interruption rather
+    /// than a response. One minute: inside that, the person is still watching
+    /// the drop they just made; past it, they have moved on to another app.
+    private static let unattendedRunSeconds: TimeInterval = 60
+
     private func handlePluginResult(
-        _ result: PluginRunner.InterpretedResult, plugin: String
+        _ result: PluginRunner.InterpretedResult, plugin: String,
+        elapsed: TimeInterval
     ) {
         switch result.action {
         case .capture:
@@ -839,6 +912,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             captureAttachments = result.attachments ?? []
             if let open = palette as? CapturePanel {
                 open.setDraft(result.content)
+            } else if elapsed > Self.unattendedRunSeconds {
+                // The single most user-hostile thing this feature could do is
+                // open a text panel and take the keyboard forty minutes after
+                // the drop, while the user is typing in something else. So a
+                // late capture parks its draft and says so; the draft is held
+                // in `captureDraft` and the next Capture… shows it, exactly as
+                // a dismissed capture panel's draft is.
+                //
+                // Streaming cannot produce a capture mid-run at all — only
+                // `notify` is acted on before exit (see `StreamCollector`) —
+                // but this is not only a streaming problem: any plugin can now
+                // run for hours, and this is the path a capture arrives on
+                // whether it streamed or not.
+                showNotice(
+                    "\(plugin) has a draft ready",
+                    "Click to open it in Capture"
+                ) { [weak self] in
+                    self?.toggleCapture()
+                }
             } else {
                 toggleCapture()
             }
@@ -1009,7 +1101,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// A cancellation is not an error — the user asked for it — so it gets its
+    /// own title rather than being reported under "Plugin error" like a failure
+    /// they need to look into.
     private func handlePluginError(_ error: PluginError) {
+        if case .cancelled = error {
+            showNotice("Plugin stopped", "You cancelled the run.")
+            return
+        }
         showNotice("Plugin error", error.localizedDescription)
     }
 

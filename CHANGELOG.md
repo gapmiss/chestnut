@@ -21,8 +21,35 @@ Notable, user-facing changes to Chestnut. The format follows
   since been deleted. This covers what Chestnut writes on a plugin's behalf;
   files a plugin's own script copies or deletes are outside the journal.
 
+- **Plugins can now take hours, and you can watch them and stop them.** A
+  plugin was killed after 300 seconds, which ruled out the slow work people
+  most want to drop on Chestnut: transcribing a recording, OCR-ing a long scan,
+  converting a folder of documents, running a local model over a PDF. The
+  ceiling is now 4 hours, and a long run no longer happens out of sight.
+  Right-click Chestnut and **Running Plugins** lists everything running by
+  name, with how long it has been going; clicking a run stops it, together with
+  anything it started. The submenu is absent when nothing is running, and
+  quitting Chestnut from the menu stops running plugins rather than leaving
+  them behind.
+- **Plugins can report progress while they work.** Set `"stream": true`
+  alongside `"output": "structured"` and each line your script prints is one
+  JSON envelope, so `{"action":"notify","notify":"3 of 50"}` updates the speech
+  bubble as the run goes. Only `notify` happens while the plugin is alive —
+  anything that writes a note, replaces the clipboard or opens a panel still
+  waits for a clean exit, so a plugin that fails still writes nothing.
+  Existing plugins are untouched: without `"stream": true`, stdout is one
+  envelope exactly as before.
+
 ### Changed
 
+- **The pet keeps chewing until the last plugin finishes.** With two plugins
+  running at once, the first to finish stopped the animation while the second
+  was still working. The pose now follows however many runs are actually going.
+- **A plugin that finishes long after the drop no longer steals focus.** A
+  plugin using `capture` output opened the capture panel and took the keyboard
+  the moment it finished, which is fine after two seconds and hostile after
+  forty minutes. A result arriving more than a minute after the drop now shows
+  a notice you click to open it, and the draft waits for you.
 - **Undo now sends files to whichever trash the vault is set to use.** Obsidian
   lets each vault say where deleted files go, and someone who points a vault at
   its own `.trash` folder expects everything deleted from that vault to land

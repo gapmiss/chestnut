@@ -22,6 +22,15 @@ struct PluginManifest: Sendable {
     let output: PluginOutputMode
     let script: String
     let timeout: TimeInterval
+    /// Opt-in: treat each line of stdout as one complete JSON envelope, handled
+    /// as it arrives, instead of the whole of stdout being one envelope.
+    ///
+    /// Opt-in and not the new default for `structured`, which is not a
+    /// stylistic preference. An existing `structured` plugin emits a single
+    /// JSON object that may be pretty-printed across many lines — the shipped
+    /// examples do exactly that — so splitting on newlines unconditionally
+    /// would break every one of them, silently, at upgrade time.
+    let stream: Bool
     let scriptURL: URL
 
     func matchesFile(type: PluginInputType, ext: String) -> Bool {
@@ -52,12 +61,14 @@ extension PluginManifest {
         let output: String
         let script: String
         let timeout: Double?
+        let stream: Bool?
 
         // Spelled out rather than synthesized so the names can be enumerated.
         // Adding a property without a case here fails to compile, which is what
         // keeps `manifestFields` honest.
         enum CodingKeys: String, CodingKey, CaseIterable {
-            case api, name, description, accepts, extensions, output, script, timeout
+            case api, name, description, accepts, extensions, output, script,
+                 timeout, stream
         }
     }
 
@@ -79,7 +90,23 @@ extension PluginManifest {
     /// else read from disk: 0 (or negative) schedules the SIGTERM at launch,
     /// so the plugin dies instantly and every run reports "timed out"; a huge
     /// value keeps the pet chewing on a hung plugin effectively forever.
-    static let timeoutRange: ClosedRange<TimeInterval> = 1...300
+    ///
+    /// **`0` keeps clamping up to one second, and never becomes "no timeout".**
+    /// Reversing that meaning would turn a manifest that is merely broken
+    /// today — one whose plugin is killed almost immediately — into an
+    /// unkillable one on the next upgrade, without its author touching a thing.
+    ///
+    /// The ceiling is four hours, up from five minutes. Five minutes ruled out
+    /// the work this feature exists for: transcribing a 90-minute recording on
+    /// CPU takes 10 to 60 minutes, and OCR or a batch conversion of a folder can
+    /// run longer. Four hours covers those with room to spare.
+    ///
+    /// There is still a ceiling, and there deliberately is no way to remove it.
+    /// The Running Plugins submenu is discoverable UI, not a guarantee: it works
+    /// only for a user who notices something is running and thinks to stop it.
+    /// An unbounded timeout would let a plugin nobody remembers chew until the
+    /// machine is rebooted.
+    static let timeoutRange: ClosedRange<TimeInterval> = 1...14400
     static let defaultTimeout: TimeInterval = 10
 
     static func clampedTimeout(_ raw: Double?) -> TimeInterval {
@@ -136,6 +163,19 @@ extension PluginManifest {
                   timeoutRange.lowerBound, timeoutRange.upperBound, timeout)
         }
 
+        // Streaming is a way of reading structured envelopes, so it means
+        // nothing without them. A plugin that asks for it in any other output
+        // mode gets a log line and a plain run, rather than being rejected: the
+        // same forgiving treatment an out-of-range timeout gets, and the
+        // alternative is a plugin that vanishes from the menu over a field it
+        // did not need.
+        var stream = raw.stream ?? false
+        if stream, outputMode != .structured {
+            NSLog("Plugin \"%@\": \"stream\" needs output \"structured\"; ignoring it",
+                  raw.name)
+            stream = false
+        }
+
         return .ok(PluginManifest(
             api: raw.api,
             name: raw.name,
@@ -145,6 +185,7 @@ extension PluginManifest {
             output: outputMode,
             script: raw.script,
             timeout: timeout,
+            stream: stream,
             scriptURL: scriptURL
         ))
     }

@@ -54,6 +54,10 @@ final class PetWindow: NSPanel {
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
+    /// Plugin processes running right now, newest last, for the Running
+    /// Plugins submenu. Read once per menu build.
+    var runningPlugins: (() -> [PluginRunRegistry.Run])?
+    var onCancelPluginRun: ((UUID) -> Void)?
     /// Menu → Edit Configuration…; the delegate opens config.json.
     var onEditConfiguration: (() -> Void)?
     /// True while the right-click menu is on screen. The delegate releases the
@@ -343,6 +347,7 @@ final class PetWindow: NSPanel {
         menu.addItem(themeMenuItem())
         menu.addItem(settingsMenuItem())
         menu.addItem(pluginsMenuItem())
+        if let running = runningPluginsMenuItem() { menu.addItem(running) }
 
         menu.addItem(.separator())
         menu.addItem(updatesMenuItem())
@@ -525,6 +530,36 @@ final class PetWindow: NSPanel {
         return Self.submenuItem("Plugins", submenu)
     }
 
+    /// Running Plugins: one row per live plugin process, clicking it stops that
+    /// run. Absent entirely when nothing is running — see
+    /// `PluginRunRegistry.showsRunningSubmenu` for why it isn't shown empty.
+    ///
+    /// The list is a snapshot taken when the menu is built. A run that finishes
+    /// while the menu is open leaves a row that no longer matches anything, and
+    /// clicking it does nothing at all: cancel is looked up by the run's id, and
+    /// an id the registry has dropped is not found. That is the reason cancel
+    /// takes an id rather than a row index.
+    private func runningPluginsMenuItem() -> NSMenuItem? {
+        let runs = runningPlugins?() ?? []
+        guard PluginRunRegistry.showsRunningSubmenu(runCount: runs.count) else {
+            return nil
+        }
+        let submenu = NSMenu()
+        let now = Date()
+        for run in runs {
+            let item = menuItem(run.name, #selector(cancelPluginRunAction(_:)))
+            item.representedObject = run.id
+            if #available(macOS 14.4, *) {
+                item.subtitle = PluginRunRegistry.elapsedLabel(
+                    seconds: now.timeIntervalSince(run.started))
+            }
+            submenu.addItem(item)
+        }
+        let parent = Self.submenuItem("Running Plugins", submenu)
+        parent.badge = NSMenuItemBadge(count: runs.count)
+        return parent
+    }
+
     /// The version rides along as a badge rather than a dead disabled row: it
     /// stays quotable in a bug report without spending a line. NSMenuItem
     /// allows only one badge, so the opens-in-browser ↗ joins the string.
@@ -665,6 +700,11 @@ final class PetWindow: NSPanel {
     @objc private func togglePluginAction(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         togglePlugin?(name)
+    }
+
+    @objc private func cancelPluginRunAction(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        onCancelPluginRun?(id)
     }
 
     @objc private func openPluginsFolder() { onOpenPluginsFolder?() }

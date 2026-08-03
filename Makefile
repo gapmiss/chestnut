@@ -34,6 +34,7 @@ check: site-gen
 		Sources/$(APP)/Plugins/PluginSave.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \
 		Sources/$(APP)/Plugins/PluginRunner.swift \
+		Sources/$(APP)/Plugins/PluginRunRegistry.swift \
 		Sources/$(APP)/Plugins/PluginDispatch.swift \
 		Sources/$(APP)/Plugins/DropRouter.swift
 	$(BUILD)/chestnut-check

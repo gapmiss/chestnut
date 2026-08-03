@@ -160,6 +160,12 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - On `capture`, only attachments the submitted note refers to are copied → `Sources/Chestnut/Actions/Capture.swift:partitionAttachmentsByReference`
 - The registry creates the plugins directory **before** watching it; deleting that line costs hot-reload for the whole session → `Sources/Chestnut/Plugins/PluginRegistry.swift:start`
 - Courier candidacy is passed in from the drop site and must never be re-derived, or ⌃⌥C offers delivery of a temp file that gets deleted → `Sources/Chestnut/AppDelegate.swift:discardPendingPluginTemp`
+- The chewing pose is derived from the set of live runs, never toggled per run; two overlapping plugins used to leave the pet still while one was still working → `Sources/Chestnut/Plugins/PluginRunRegistry.swift:PluginRunRegistry`
+- The Running Plugins submenu is **hidden** at zero runs, not shown empty — same rule and reasoning as the plugin-save Undo row → `Sources/Chestnut/Plugins/PluginRunRegistry.swift:showsRunningSubmenu`
+- Nothing signals a process group without first asking the kernel whether that PID is still our child. Foundation reaps the child *before* the termination handler runs (measured 3/3), so holding the `Process` object does not reserve the PID → `Sources/Chestnut/Plugins/PluginRunner.swift:isOurChild`
+- Streaming acts on `notify` only; everything that writes waits for exit 0, which is what keeps "a plugin that fails writes nothing" true → `Sources/Chestnut/Plugins/PluginRunner.swift:StreamCollector`
+- Streaming is opt-in, because an existing `structured` plugin pretty-prints one envelope across many lines and line-splitting by default would break every one → `Sources/Chestnut/Plugins/PluginManifest.swift:stream`
+- A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
 
 ## Conventions
 
