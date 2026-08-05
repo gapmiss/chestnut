@@ -989,6 +989,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // branch, and the Capture… row badges itself while one is
                 // waiting. So this notice is a shortcut and nothing more:
                 // missing it costs the shortcut, never the draft.
+                //
+                // Logged because parking and opening the panel are opposite
+                // outcomes that otherwise leave the same trail — `plugin
+                // result: action=capture` and nothing more. Without this line,
+                // "the plugin did nothing" cannot be answered from the log:
+                // a draft waiting behind the Capture… badge and a panel that
+                // opened and was closed look identical. The parked `save`
+                // path writes its own line for the same reason.
+                DebugLog.log(
+                    "plugin capture parked: \(plugin)'s draft is waiting for Capture…"
+                )
                 showNotice(
                     "\(plugin) has a draft ready",
                     "Click to open it in Capture"
