@@ -153,6 +153,10 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - All three undos follow the vault's own `trashOption`, but `"none"` is deliberately **not** honored — it is clamped to the system Trash, because an undo reverses something Chestnut did rather than something the user chose to delete → `Sources/Chestnut/Support/VaultTrash.swift:honored`
 - The `obsidian` CLI's `delete` does **not** honor `trashOption` (tested twice against a `"local"` vault); undo is filesystem-only → `Sources/Chestnut/Support/VaultTrash.swift:VaultTrash`
 
+### Distribution
+
+- **After a `brew upgrade`, do not tell the maintainer the app will be Gatekeeper-blocked or to run `xattr -dr`.** Homebrew re-stamps `com.apple.quarantine` on every cask download and `spctl -a -vv` says `rejected` for any ad-hoc signature — neither predicts a prompt, and an approval already given survives the upgrade. Corrected three times now, twice from the quarantine attribute and once from `spctl` → `ARCHITECTURE.md`, "Distribution"
+
 ### Plugins and drops
 
 - `Route` has **no plugin-only case**, and making it unrepresentable is what stops a refactor from restoring the shadowing → `Sources/Chestnut/Plugins/DropRouter.swift:Route`
