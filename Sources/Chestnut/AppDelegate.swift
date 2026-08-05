@@ -730,7 +730,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Plugins
 
     private func handlePasteHotkey() {
-        guard let classified = PluginDispatch.classify(.general) else { return }
+        // An unclassifiable clipboard gets a notice rather than a silent
+        // return. This is the only dead end on the paste path with no visible
+        // outcome, which makes an empty or stale clipboard indistinguishable
+        // from a hotkey that never registered — and the difference between
+        // those two is the whole of what the user needs to know. The matching
+        // dead end one level down already speaks ("No plugin handles this").
+        guard let classified = PluginDispatch.classify(.general) else {
+            showNotice("Nothing to paste", "The clipboard is empty or unreadable")
+            return
+        }
         // No courier candidate: the clipboard image is written to a temp file
         // that gets deleted after the run, so offering delivery would hand the
         // courier a path that disappears underneath it and journal an undo
