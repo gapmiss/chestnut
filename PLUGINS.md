@@ -246,6 +246,22 @@ fades like any other, and the menu is what holds the result.
 A `save` whose envelope names a `vault` is unaffected by any of this. It needs
 no picker, so it lands straight away however late it finishes.
 
+**If your plugin runs for hours, name the vault.** Set `"vault"` in the envelope
+to a vault path, or to `"pinned"` or `"last"`, and the note is written the moment
+your script exits — no waiting row, no picker, and a journal record the user can
+undo. Leaving it out means the result waits in the menu for a user who may have
+walked away, and **a waiting save does not survive Chestnut exiting.** It is held
+in memory only: quitting, logging out, restarting or a crash discards it, and the
+plugin has to run again. Chestnut shows the waiting row in the same menu the user
+must open to quit, but nothing protects the result from a restart three hours
+into an overnight job.
+
+This is a deliberate limit rather than a gap waiting to be filled. Chestnut keeps
+completed work — a written note is journaled and undoable — and forgets work in
+flight, the same way an unsubmitted capture draft is forgotten. A four-hour job
+should not depend on the app staying alive to find out where its output goes, and
+naming the vault removes that dependency entirely.
+
 ### Reporting progress
 
 Set `"stream": true` (with `"output": "structured"`) and print **one complete

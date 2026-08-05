@@ -122,7 +122,13 @@ The rule replaced all of it with state. A waiting save is a value in `pendingPlu
 
 The corollary for anything new: before writing `showNotice(…) { … }`, ask what is lost if that closure never runs. If the answer is anything but "a shortcut", the design is wrong and the state belongs somewhere the menu can reach.
 
-The limit of the rule, unresolved: both stores are in-memory, so quitting Chestnut with a save still waiting discards it silently. The work no longer depends on a bubble surviving; it still depends on the process surviving.
+**The limit of the rule is deliberate.** Both stores are in-memory, so quitting Chestnut with a save still waiting discards it. The work no longer depends on a bubble surviving; it still depends on the process surviving.
+
+That is where the line sits by choice: completed work persists — a written note is journaled and undoable — and work in flight does not, the same way an unsubmitted capture draft has never survived a restart. Persisting a pending save was considered and rejected for 0.8.0. A quit-time fallback (clipboard or temp file) covers only the polite quit, not a crash, a logout or a restart, and partial coverage is worse than none here: a route that usually works teaches the user to rely on it, so the loss arrives after trust is established. That is the same failure the rule above exists to prevent.
+
+Two things make the residue small. Chestnut is `LSUIElement` with no Dock icon and no ⌘Q, so the only way to quit deliberately is the right-click menu — which is the menu the waiting row is in. And a plugin can opt out entirely: a `save` envelope naming its `vault` never parks, so it writes on exit however long it ran. `PLUGINS.md` tells authors of long-running plugins to do exactly that.
+
+Revisit only if someone reports losing real work this way. The fix then is persisting to `AppState` with a maximum age on restore, covering the capture draft at the same time — not a fallback on the quit path.
 
 ## Drop routing
 
