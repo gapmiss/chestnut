@@ -712,27 +712,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   - duration: Overrides the user's notice duration. For an offer rather
     ///     than a receipt — see `unattendedNoticeSeconds`.
     ///   - onExpire: Runs when the bubble goes away *without* being followed —
-    ///     faded out, replaced by another notice, or dismissed. Not called when
-    ///     the user clicks it or presses the notice hotkey. This is where an
-    ///     offer nobody took gets turned into something that is not lost.
+    ///     faded out, dismissed, or pushed aside by the next notice. Not called
+    ///     when the user clicks it or presses the notice hotkey. This is where
+    ///     an offer nobody took gets turned into something that is not lost.
+    ///
+    ///     Its argument says which of those happened, and the reason it needs
+    ///     to know is that a handler is free to show a notice of its own. On a
+    ///     fade there is nothing on screen and saying so is right. On a
+    ///     replacement the bubble taking this one's place is already being
+    ///     built, and a second one would land on top of it — so a handler
+    ///     should still do the work and stay quiet about it.
     private func showNotice(
         _ title: String, _ subtitle: String,
         duration: TimeInterval? = nil,
         onClick: (() -> Void)? = nil,
-        onExpire: (() -> Void)? = nil
+        onExpire: ((NoticeExit) -> Void)? = nil
     ) {
-        notice?.dismiss()
+        notice?.dismissForReplacement()
         guard let petWindow else {
-            onExpire?()
+            onExpire?(.replaced)
             return
         }
         let hint = onClick == nil ? nil : HotkeySpec.display(config.hotkeys.notice)
         var followed = false
         let action = onClick.map { act in { followed = true; act() } }
         let panel = NoticePanel(title: title, subtitle: subtitle, hotkeyHint: hint, onClick: action)
-        panel.onDismiss = { [weak self] in
+        panel.onDismiss = { [weak self, unowned panel] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
-            if !followed { onExpire?() }
+            guard !followed else { return }
+            onExpire?(panel.wasReplaced ? .replaced : .faded)
         }
         panel.show(
             aboveSprite: petWindow.spriteFrame,
@@ -968,6 +976,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// somewhere reachable.
     private static let unattendedNoticeSeconds: TimeInterval = 60
 
+    /// How a notice ended, for a handler that must react differently to being
+    /// ignored than to being pushed aside. See `showNotice`.
+    enum NoticeExit {
+        /// Timed out on screen, or the user dismissed it. Nothing is up now.
+        case faded
+        /// Another notice is taking its place, and that one is about to show.
+        case replaced
+    }
+
     private func handlePluginResult(
         _ result: PluginRunner.InterpretedResult, plugin: String,
         elapsed: TimeInterval
@@ -1170,9 +1187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Where the output goes when it cannot be saved: never nowhere. Both
         // the picker the user walks away from and the offer they never take
         // end here.
-        func copyToClipboard() {
+        func copyToClipboard(announce: Bool = true) {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(content, forType: .string)
+            guard announce else { return }
             showNotice(
                 "Copied to clipboard",
                 "Plugin output saved to clipboard"
@@ -1223,7 +1241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             "Click to choose a vault",
             duration: Self.unattendedNoticeSeconds,
             onClick: { askForVault() },
-            onExpire: { copyToClipboard() }
+            onExpire: { exit in copyToClipboard(announce: exit == .faded) }
         )
     }
 
