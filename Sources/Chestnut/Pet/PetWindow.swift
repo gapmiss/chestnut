@@ -61,6 +61,8 @@ final class PetWindow: NSPanel {
     /// draft, which waits in `captureDraft` for the next Capture…
     var pendingPluginSaves: (() -> [String])?
     var onResumePluginSave: ((Int) -> Void)?
+    /// Whether a capture draft is waiting, which badges the Capture… row.
+    var hasCaptureDraft: (() -> Bool)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
@@ -333,7 +335,18 @@ final class PetWindow: NSPanel {
         menu.delegate = self
 
         menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
-        menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
+        let captureItem = menuItem(
+            "Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture
+        )
+        // A draft waiting in `captureDraft` is invisible until this row is
+        // clicked, and the notice announcing it is a receipt that fades. The
+        // badge is the standing sign that opening Capture… will not give you
+        // an empty editor. No separate row, because this row already does the
+        // thing — a second one would just be the same action twice.
+        if hasCaptureDraft?() == true {
+            captureItem.badge = NSMenuItemBadge(string: "draft")
+        }
+        menu.addItem(captureItem)
         // Hidden rather than dimmed when nothing is waiting, the same rule the
         // Undo Last Plugin Save row and the Running Plugins submenu follow: a
         // row that can never be clicked teaches nothing.

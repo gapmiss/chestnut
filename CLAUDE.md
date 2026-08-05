@@ -169,7 +169,7 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - Streaming acts on `notify` only; everything that writes waits for exit 0, which is what keeps "a plugin that fails writes nothing" true → `Sources/Chestnut/Plugins/PluginRunner.swift:StreamCollector`
 - Streaming is opt-in, because an existing `structured` plugin pretty-prints one envelope across many lines and line-splitting by default would break every one → `Sources/Chestnut/Plugins/PluginManifest.swift:stream`
 - A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice, and a late `save` needing a vault parks the same way — measured, that picker caught a Return meant for another app and wrote a note to a vault nobody chose → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
-- A notice that *offers* something outlives the user's notice duration → `Sources/Chestnut/AppDelegate.swift:unattendedNoticeSeconds`
+- A waiting capture draft badges the Capture… row, because a notice fades and the draft does not → `Sources/Chestnut/Pet/PetWindow.swift:hasCaptureDraft`
 - **Nothing may exist only inside a notice.** A waiting plugin save is state with a menu row of its own; the bubble is an announcement that costs nothing to miss. Holding the offer in the bubble's closure made every way a bubble can end a way to lose a plugin's work, and crashed the app once → `Sources/Chestnut/AppDelegate.swift:PendingPluginSave`
 - A notice handler may show another notice: `dismiss` takes and clears the handler *before* running it → `Sources/Chestnut/Panels/NoticePanel.swift:dismiss`
 

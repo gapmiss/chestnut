@@ -225,6 +225,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onResumePluginSave = { [weak self] index in
             self?.resumePluginSave(at: index)
         }
+        window.hasCaptureDraft = { [weak self] in
+            !(self?.captureDraft.isEmpty ?? true)
+        }
         window.installedPlugins = { [weak self] in
             self?.pluginRegistry.plugins ?? []
         }
@@ -715,8 +718,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// notice hotkey, registered only while the bubble is up) to follow
     /// through. Failures stay loud NSAlerts — never notices.
     /// - Parameters:
-    ///   - duration: Overrides the user's notice duration. For an offer rather
-    ///     than a receipt — see `unattendedNoticeSeconds`.
+    ///   - duration: Overrides the user's notice duration. Nothing passes this
+    ///     today; a parked result once did, and it read as a bubble that would
+    ///     not go away.
     ///
     /// A notice is a receipt and nothing else. Missing one — faded, dismissed,
     /// replaced by the next — must never cost anything, so nothing may exist
@@ -950,23 +954,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the drop they just made; past it, they have moved on to another app.
     private static let unattendedRunSeconds: TimeInterval = 60
 
-    /// How long a notice stays up when it is the *offer* of something rather
-    /// than the receipt for it, deliberately ignoring the user's notice
-    /// duration instead of respecting it.
-    ///
-    /// That setting is about how long a receipt lingers, and missing a receipt
-    /// costs nothing because the thing it reports already happened. An
-    /// unattended result inverts this. Its notice is the only route to a draft
-    /// or a save that has not landed yet, and it is the one notice the user is
-    /// almost certain to miss, because the reason it exists at all is that they
-    /// stopped watching a minute ago. Ten seconds — the default, and what this
-    /// used to get — was measured by hand to be unclickable in exactly that
-    /// situation.
-    ///
-    /// A minute is not a guarantee that it will be seen, which is why every
-    /// unattended notice also has an `onExpire` that leaves the result
-    /// somewhere reachable.
-    private static let unattendedNoticeSeconds: TimeInterval = 60
+    // A parked result once forced its notice to stay up for a minute, six
+    // times the default, because the bubble was the only route to it. Both
+    // parked things now have a home the menu can show — a waiting save has a
+    // row of its own, a waiting draft badges Capture… — so the bubble is a
+    // receipt again and lasts as long as the user asked receipts to last.
+    // Sixty seconds of speech balloon over someone else's work was measured
+    // and disliked, and nothing needs it now.
 
     private func handlePluginResult(
         _ result: PluginRunner.InterpretedResult, plugin: String,
@@ -991,14 +985,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // but this is not only a streaming problem: any plugin can now
                 // run for hours, and this is the path a capture arrives on
                 // whether it streamed or not.
-                // No `onExpire`: the draft was assigned to `captureDraft`
-                // above, before this branch, so the next Capture… shows it
-                // whether or not this notice is ever clicked. Nothing is lost
-                // by missing it — only the shortcut is.
+                // The draft was assigned to `captureDraft` above, before this
+                // branch, and the Capture… row badges itself while one is
+                // waiting. So this notice is a shortcut and nothing more:
+                // missing it costs the shortcut, never the draft.
                 showNotice(
                     "\(plugin) has a draft ready",
-                    "Click to open it in Capture",
-                    duration: Self.unattendedNoticeSeconds
+                    "Click to open it in Capture"
                 ) { [weak self] in
                     self?.toggleCapture()
                 }
@@ -1233,8 +1226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugLog.log("plugin save parked: \(pluginName) is waiting for a vault")
         showNotice(
             "\(pluginName) is waiting to save",
-            "Click to choose a vault",
-            duration: Self.unattendedNoticeSeconds
+            "Click to choose a vault"
         ) { [weak self] in
             self?.resumePluginSave(id: pending.id)
         }
