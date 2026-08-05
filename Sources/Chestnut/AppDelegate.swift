@@ -686,7 +686,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try pluginSave.undo(record)
             try pluginJournal.removeLast()
             petWindow?.petScene.celebrateDelivery()
+            // The other half of the pair logged in `savePluginOutput`: a note
+            // leaving a vault deserves a line as much as one arriving in it.
+            // Note that `undo` treats an already-missing note as success and
+            // trashes nothing, so this line means the record is gone, not
+            // necessarily that a file moved.
+            DebugLog.log("plugin save undone: \(record.pluginName) → \(record.notePath)")
         } catch {
+            DebugLog.log(
+                "plugin save undo failed: \(record.pluginName)"
+                + " → \(record.notePath): \(error)"
+            )
             if presentUndoFailure(
                 "Undo plugin save failed", error.localizedDescription
             ) {
@@ -698,15 +708,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Success receipt above the pet: what happened and where, click (or the
     /// notice hotkey, registered only while the bubble is up) to follow
     /// through. Failures stay loud NSAlerts — never notices.
-    private func showNotice(_ title: String, _ subtitle: String, onClick: (() -> Void)? = nil) {
+    /// - Parameters:
+    ///   - duration: Overrides the user's notice duration. For an offer rather
+    ///     than a receipt — see `unattendedNoticeSeconds`.
+    ///   - onExpire: Runs when the bubble goes away *without* being followed —
+    ///     faded out, replaced by another notice, or dismissed. Not called when
+    ///     the user clicks it or presses the notice hotkey. This is where an
+    ///     offer nobody took gets turned into something that is not lost.
+    private func showNotice(
+        _ title: String, _ subtitle: String,
+        duration: TimeInterval? = nil,
+        onClick: (() -> Void)? = nil,
+        onExpire: (() -> Void)? = nil
+    ) {
         notice?.dismiss()
-        guard let petWindow else { return }
+        guard let petWindow else {
+            onExpire?()
+            return
+        }
         let hint = onClick == nil ? nil : HotkeySpec.display(config.hotkeys.notice)
-        let panel = NoticePanel(title: title, subtitle: subtitle, hotkeyHint: hint, onClick: onClick)
+        var followed = false
+        let action = onClick.map { act in { followed = true; act() } }
+        let panel = NoticePanel(title: title, subtitle: subtitle, hotkeyHint: hint, onClick: action)
         panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
+            if !followed { onExpire?() }
         }
-        panel.show(aboveSprite: petWindow.spriteFrame, for: state.noticeDuration)
+        panel.show(
+            aboveSprite: petWindow.spriteFrame,
+            for: duration ?? state.noticeDuration
+        )
         notice = panel
         if onClick != nil { hotkeys.setNoticeHotkeyEnabled(true) }
     }
@@ -919,6 +950,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// the drop they just made; past it, they have moved on to another app.
     private static let unattendedRunSeconds: TimeInterval = 60
 
+    /// How long a notice stays up when it is the *offer* of something rather
+    /// than the receipt for it, deliberately ignoring the user's notice
+    /// duration instead of respecting it.
+    ///
+    /// That setting is about how long a receipt lingers, and missing a receipt
+    /// costs nothing because the thing it reports already happened. An
+    /// unattended result inverts this. Its notice is the only route to a draft
+    /// or a save that has not landed yet, and it is the one notice the user is
+    /// almost certain to miss, because the reason it exists at all is that they
+    /// stopped watching a minute ago. Ten seconds — the default, and what this
+    /// used to get — was measured by hand to be unclickable in exactly that
+    /// situation.
+    ///
+    /// A minute is not a guarantee that it will be seen, which is why every
+    /// unattended notice also has an `onExpire` that leaves the result
+    /// somewhere reachable.
+    private static let unattendedNoticeSeconds: TimeInterval = 60
+
     private func handlePluginResult(
         _ result: PluginRunner.InterpretedResult, plugin: String,
         elapsed: TimeInterval
@@ -942,9 +991,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 // but this is not only a streaming problem: any plugin can now
                 // run for hours, and this is the path a capture arrives on
                 // whether it streamed or not.
+                // No `onExpire`: the draft was assigned to `captureDraft`
+                // above, before this branch, so the next Capture… shows it
+                // whether or not this notice is ever clicked. Nothing is lost
+                // by missing it — only the shortcut is.
                 showNotice(
                     "\(plugin) has a draft ready",
-                    "Click to open it in Capture"
+                    "Click to open it in Capture",
+                    duration: Self.unattendedNoticeSeconds
                 ) { [weak self] in
                     self?.toggleCapture()
                 }
@@ -952,7 +1006,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 toggleCapture()
             }
         case .save:
-            savePluginOutput(result, plugin: plugin)
+            savePluginOutput(result, plugin: plugin, elapsed: elapsed)
         case .clipboard:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result.content, forType: .string)
@@ -972,7 +1026,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func savePluginOutput(
-        _ result: PluginRunner.InterpretedResult, plugin pluginName: String
+        _ result: PluginRunner.InterpretedResult, plugin pluginName: String,
+        elapsed: TimeInterval
     ) {
         let filename = result.filename ?? "Untitled.md"
         let content = result.content
@@ -1003,6 +1058,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 !Courier.isContained($0, inVault: vault.path)
             }
             if escapes {
+                DebugLog.log(
+                    "plugin save refused: \(pluginName) → \(noteURL.path)"
+                    + " escapes \(vault.path)"
+                )
                 presentAlert(
                     "Plugin save failed",
                     "Target path would escape the vault root or write inside .obsidian/."
@@ -1034,6 +1093,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         noteBytes: content.utf8.count,
                         attachments: attachmentPaths
                     )
+                    // Logged next to the journal write and for the same
+                    // reason the courier logs every from → to pair: this is
+                    // the moment a file appears in a vault. Without it the
+                    // log falls silent exactly there, and finding where a
+                    // note went meant reading the journal — which records
+                    // only saves that succeeded, and exists to be popped.
+                    DebugLog.log(
+                        "plugin save: \(pluginName) → \(url.path)"
+                        + ", \(content.utf8.count) bytes"
+                        + ", \(attachmentPaths.count) attachment(s)"
+                    )
                 }
                 for att in attachments {
                     let src = URL(fileURLWithPath: att.source)
@@ -1055,6 +1125,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     )
                 }
             } catch {
+                DebugLog.log(
+                    "plugin save failed: \(pluginName) → \(vault.path): \(error)"
+                )
                 presentAlert(
                     "Plugin save failed", error.localizedDescription
                 )
@@ -1082,15 +1155,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let resolved {
             save(to: resolved)
-        } else {
-            let vaults = pinnedFirst(registry.vaults)
-            guard !vaults.isEmpty else {
-                presentAlert(
-                    "Nowhere to save",
-                    "No vaults found in Obsidian's vault list."
-                )
-                return
-            }
+            return
+        }
+
+        let vaults = pinnedFirst(registry.vaults)
+        guard !vaults.isEmpty else {
+            presentAlert(
+                "Nowhere to save",
+                "No vaults found in Obsidian's vault list."
+            )
+            return
+        }
+
+        // Where the output goes when it cannot be saved: never nowhere. Both
+        // the picker the user walks away from and the offer they never take
+        // end here.
+        func copyToClipboard() {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(content, forType: .string)
+            showNotice(
+                "Copied to clipboard",
+                "Plugin output saved to clipboard"
+            )
+        }
+
+        func askForVault() {
             var saved = false
             let panel = VaultPalettePanel(
                 vaults: vaults,
@@ -1103,19 +1192,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 saved = true
                 save(to: vault)
             }
-            presentPalette(panel)
-            let oldClose = panel.onClose
-            panel.onClose = { [weak self] in
-                oldClose?()
+            // `afterDismiss`, not `onClose`: a second plugin finishing while
+            // this picker is open calls `presentPalette`, which clears
+            // `onClose` before dismissing. Chaining onto `onClose` put this
+            // fallback exactly where that line wipes it, so the first
+            // plugin's output was not saved, not copied, and not reported.
+            panel.afterDismiss = {
                 guard !saved else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(content, forType: .string)
-                self?.showNotice(
-                    "Copied to clipboard",
-                    "Plugin output saved to clipboard"
-                )
+                copyToClipboard()
             }
+            presentPalette(panel)
         }
+
+        guard elapsed > Self.unattendedRunSeconds else {
+            askForVault()
+            return
+        }
+        // A picker is a panel that takes the keyboard, so it is subject to the
+        // same rule as a late capture (see `handlePluginResult`) — and the
+        // reason is not only theoretical. Measured during hand testing: the
+        // picker opened underneath a Return the user was pressing in another
+        // app, that keystroke selected the highlighted vault, and a note was
+        // written to a vault they never chose. Nothing about the keystroke was
+        // addressed to Chestnut.
+        //
+        // A save that names its vault is untouched by this: it resolved above
+        // and needs no UI at all.
+        showNotice(
+            "\(pluginName) is waiting to save",
+            "Click to choose a vault",
+            duration: Self.unattendedNoticeSeconds,
+            onClick: { askForVault() },
+            onExpire: { copyToClipboard() }
+        )
     }
 
     /// A cancellation is not an error — the user asked for it — so it gets its

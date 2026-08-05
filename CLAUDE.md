@@ -123,6 +123,7 @@ Each line is a verdict you can act on without opening anything, plus where the f
 - Selection moves are announced explicitly; row traits alone are silent while focus stays in the filter field → `Sources/Chestnut/Panels/VaultPalette.swift:announceSelection`
 - Hover must not arm until the pointer moves, and the selection half must use `.onContinuousHover`, never `.onHover` → `Sources/Chestnut/Panels/PetPanel.swift:HoverArming`
 - Every spoken announcement posts through one site → `Sources/Chestnut/Panels/PetPanel.swift:announceToVoiceOver`
+- A caller's own cleanup rides on `afterDismiss`, never chained onto `onClose` — `presentPalette` clears `onClose` when one palette supersedes another, and a plugin save lost its whole output that way → `Sources/Chestnut/Panels/PetPanel.swift:afterDismiss`
 
 Changes here can only be verified with VoiceOver actually running (⌘F5). Nothing in `make check` can hear. `Panels/` is outside the check target.
 
@@ -165,7 +166,8 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - Nothing signals a process group without first asking the kernel whether that PID is still our child. Foundation reaps the child *before* the termination handler runs (measured 3/3), so holding the `Process` object does not reserve the PID → `Sources/Chestnut/Plugins/PluginRunner.swift:isOurChild`
 - Streaming acts on `notify` only; everything that writes waits for exit 0, which is what keeps "a plugin that fails writes nothing" true → `Sources/Chestnut/Plugins/PluginRunner.swift:StreamCollector`
 - Streaming is opt-in, because an existing `structured` plugin pretty-prints one envelope across many lines and line-splitting by default would break every one → `Sources/Chestnut/Plugins/PluginManifest.swift:stream`
-- A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
+- A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice, and a late `save` needing a vault parks the same way — measured, that picker caught a Return meant for another app and wrote a note to a vault nobody chose → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
+- A notice that *offers* something outlives the user's notice duration, and every one of them carries an `onExpire` that leaves the result somewhere reachable → `Sources/Chestnut/AppDelegate.swift:unattendedNoticeSeconds`
 
 ## Conventions
 

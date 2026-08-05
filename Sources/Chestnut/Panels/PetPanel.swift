@@ -9,6 +9,24 @@ import SwiftUI
 @MainActor
 class PetPanel: NSPanel {
     var onClose: (() -> Void)?
+
+    /// The cleanup belonging to whoever *opened* this panel, kept apart from
+    /// `onClose` because those two have different owners and different
+    /// lifetimes.
+    ///
+    /// `onClose` belongs to the host: `AppDelegate.presentPalette` sets it to
+    /// its own bookkeeping and clears it when one palette supersedes another,
+    /// so the outgoing panel cannot undo state the incoming one just set up.
+    /// A caller that chained its own work onto `onClose` had that work thrown
+    /// away by the same line — which is how a plugin save whose vault picker
+    /// was replaced lost its clipboard fallback, and with it the plugin's
+    /// entire output.
+    ///
+    /// This one runs on every dismissal, including the one that replaces the
+    /// panel, and it is never cleared from outside. Anything that must happen
+    /// whatever became of the panel goes here.
+    var afterDismiss: (() -> Void)?
+
     private var isClosing = false
 
     init() {
@@ -200,6 +218,13 @@ class PetPanel: NSPanel {
         isClosing = true
         close()
         onClose?()
+        // After the host's bookkeeping, so the caller's cleanup sees the
+        // panel already unregistered. Cleared as it runs: `isClosing` means
+        // this can only happen once, and holding the closure afterwards would
+        // keep whatever it captured alive for as long as the panel object is.
+        let caller = afterDismiss
+        afterDismiss = nil
+        caller?()
     }
 
     override func cancelOperation(_ sender: Any?) {
