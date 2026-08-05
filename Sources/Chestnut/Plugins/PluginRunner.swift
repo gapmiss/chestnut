@@ -278,6 +278,16 @@ enum PluginRunner {
     /// succeeded. Loosening that would mean a plugin exiting 1 could still have
     /// left three notes in a vault, with the exit code arriving too late to
     /// gate them.
+    /// Log from `interpret`, which is `nonisolated` while `DebugLog` is
+    /// `@MainActor`. The hop is deferred rather than awaited so `interpret`
+    /// keeps its synchronous signature: making it `@MainActor` instead would
+    /// compile here but not in `Checks/main.swift` or the hand-test probe,
+    /// both of which call it off the main actor. The cost is that these lines
+    /// can land in the log a moment after the ones the caller writes.
+    private static func logLater(_ message: String) {
+        Task { @MainActor in DebugLog.log(message) }
+    }
+
     static func interpret(
         result: RawResult, manifest: PluginManifest
     ) throws -> InterpretedResult? {
@@ -290,18 +300,44 @@ enum PluginRunner {
         if manifest.stream {
             guard let envelope = result.streamedEnvelope else { return nil }
             guard let interpreted = interpretEnvelope(envelope) else {
+                logLater(
+                    "plugin \(manifest.name): streamed envelope decoded but "
+                        + "describes no action this build can carry out "
+                        + "(action=\(envelope.action))")
                 throw PluginError.badStructuredOutput(truncated: false)
             }
             return interpreted
         }
 
         if manifest.output == .structured {
-            guard let data = result.stdout.data(using: .utf8),
-                  let envelope = try? JSONDecoder().decode(
-                      PluginEnvelope.self, from: data
-                  ),
-                  let interpreted = interpretEnvelope(envelope)
-            else {
+            // The notice can only ever say "invalid structured output" — it has
+            // no room for a parser message and the person reading it may not be
+            // the person who wrote the plugin. So the reason goes to the debug
+            // log, which is where a plugin author already looks. Three distinct
+            // failures hide behind one error case, and telling them apart is
+            // most of the debugging: stdout that is not UTF-8, JSON the decoder
+            // rejects (a raw newline inside a string value is the one that
+            // catches everybody), and a valid envelope naming an action this
+            // build does not implement.
+            guard let data = result.stdout.data(using: .utf8) else {
+                logLater(
+                    "plugin \(manifest.name): stdout is not valid UTF-8")
+                throw PluginError.badStructuredOutput(truncated: result.stdoutTruncated)
+            }
+            let envelope: PluginEnvelope
+            do {
+                envelope = try JSONDecoder().decode(PluginEnvelope.self, from: data)
+            } catch {
+                logLater(
+                    "plugin \(manifest.name): stdout is not valid JSON — \(error)"
+                        + (result.stdoutTruncated ? " (stdout was truncated at 1 MB)" : "")
+                        + "\n  stdout began: \(result.stdout.prefix(200))")
+                throw PluginError.badStructuredOutput(truncated: result.stdoutTruncated)
+            }
+            guard let interpreted = interpretEnvelope(envelope) else {
+                logLater(
+                    "plugin \(manifest.name): envelope decoded but describes no "
+                        + "action this build can carry out (action=\(envelope.action))")
                 throw PluginError.badStructuredOutput(truncated: result.stdoutTruncated)
             }
             return interpreted
