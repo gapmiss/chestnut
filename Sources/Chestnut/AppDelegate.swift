@@ -219,6 +219,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onUndoPluginSave = { [weak self] in
             self?.undoLastPluginSave()
         }
+        window.pendingPluginSaves = { [weak self] in
+            self?.pendingPluginSaves.map(\.plugin) ?? []
+        }
+        window.onResumePluginSave = { [weak self] index in
+            self?.resumePluginSave(at: index)
+        }
         window.installedPlugins = { [weak self] in
             self?.pluginRegistry.plugins ?? []
         }
@@ -711,36 +717,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// - Parameters:
     ///   - duration: Overrides the user's notice duration. For an offer rather
     ///     than a receipt — see `unattendedNoticeSeconds`.
-    ///   - onExpire: Runs when the bubble goes away *without* being followed —
-    ///     faded out, dismissed, or pushed aside by the next notice. Not called
-    ///     when the user clicks it or presses the notice hotkey. This is where
-    ///     an offer nobody took gets turned into something that is not lost.
     ///
-    ///     Its argument says which of those happened, and the reason it needs
-    ///     to know is that a handler is free to show a notice of its own. On a
-    ///     fade there is nothing on screen and saying so is right. On a
-    ///     replacement the bubble taking this one's place is already being
-    ///     built, and a second one would land on top of it — so a handler
-    ///     should still do the work and stay quiet about it.
+    /// A notice is a receipt and nothing else. Missing one — faded, dismissed,
+    /// replaced by the next — must never cost anything, so nothing may exist
+    /// only inside one. A caller with something to hand over puts it somewhere
+    /// reachable first and then announces it here.
     private func showNotice(
         _ title: String, _ subtitle: String,
         duration: TimeInterval? = nil,
-        onClick: (() -> Void)? = nil,
-        onExpire: ((NoticeExit) -> Void)? = nil
+        onClick: (() -> Void)? = nil
     ) {
-        notice?.dismissForReplacement()
-        guard let petWindow else {
-            onExpire?(.replaced)
-            return
-        }
+        notice?.dismiss()
+        guard let petWindow else { return }
         let hint = onClick == nil ? nil : HotkeySpec.display(config.hotkeys.notice)
-        var followed = false
-        let action = onClick.map { act in { followed = true; act() } }
-        let panel = NoticePanel(title: title, subtitle: subtitle, hotkeyHint: hint, onClick: action)
-        panel.onDismiss = { [weak self, unowned panel] in
+        let panel = NoticePanel(title: title, subtitle: subtitle, hotkeyHint: hint, onClick: onClick)
+        panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
-            guard !followed else { return }
-            onExpire?(panel.wasReplaced ? .replaced : .faded)
         }
         panel.show(
             aboveSprite: petWindow.spriteFrame,
@@ -976,15 +968,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// somewhere reachable.
     private static let unattendedNoticeSeconds: TimeInterval = 60
 
-    /// How a notice ended, for a handler that must react differently to being
-    /// ignored than to being pushed aside. See `showNotice`.
-    enum NoticeExit {
-        /// Timed out on screen, or the user dismissed it. Nothing is up now.
-        case faded
-        /// Another notice is taking its place, and that one is about to show.
-        case replaced
-    }
-
     private func handlePluginResult(
         _ result: PluginRunner.InterpretedResult, plugin: String,
         elapsed: TimeInterval
@@ -1184,13 +1167,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        // Where the output goes when it cannot be saved: never nowhere. Both
-        // the picker the user walks away from and the offer they never take
-        // end here.
-        func copyToClipboard(announce: Bool = true) {
+        // The picker the user opened and then walked away from: they saw it,
+        // they dismissed it, and the output goes somewhere they can reach
+        // rather than nowhere. This is the original fallback and it predates
+        // everything else here.
+        func copyToClipboard() {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(content, forType: .string)
-            guard announce else { return }
             showNotice(
                 "Copied to clipboard",
                 "Plugin output saved to clipboard"
@@ -1236,13 +1219,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         //
         // A save that names its vault is untouched by this: it resolved above
         // and needs no UI at all.
+        //
+        // The output is put somewhere before the notice is shown, never inside
+        // it. An earlier version kept the waiting save alive only as a closure
+        // held by the bubble, which made every way a bubble can end — faded,
+        // dismissed, replaced by the next one — a way to lose a plugin's work,
+        // and the handling of those cases is what turned this function into a
+        // thicket and crashed the app once. The notice below is now only an
+        // announcement: it can be missed with no consequence, because the menu
+        // row holds the offer for as long as it stands.
+        let pending = PendingPluginSave(result: result, plugin: pluginName)
+        pendingPluginSaves.append(pending)
+        DebugLog.log("plugin save parked: \(pluginName) is waiting for a vault")
         showNotice(
             "\(pluginName) is waiting to save",
             "Click to choose a vault",
-            duration: Self.unattendedNoticeSeconds,
-            onClick: { askForVault() },
-            onExpire: { exit in copyToClipboard(announce: exit == .faded) }
-        )
+            duration: Self.unattendedNoticeSeconds
+        ) { [weak self] in
+            self?.resumePluginSave(id: pending.id)
+        }
+    }
+
+    /// A plugin's finished output with nowhere to go yet, held until the user
+    /// says where. One entry per waiting plugin and one menu row each: a
+    /// single slot would have let a second late plugin overwrite the first,
+    /// which is the same loss this whole design exists to prevent.
+    private struct PendingPluginSave {
+        let id = UUID()
+        let result: PluginRunner.InterpretedResult
+        let plugin: String
+    }
+
+    private var pendingPluginSaves: [PendingPluginSave] = []
+
+    /// Menu → Save X's Output…. The row's position is its index, which is safe
+    /// only because the menu is rebuilt on every open.
+    private func resumePluginSave(at index: Int) {
+        guard pendingPluginSaves.indices.contains(index) else { return }
+        resumePluginSave(id: pendingPluginSaves[index].id)
+    }
+
+    /// Resuming replays the save with an elapsed time of zero, which is true of
+    /// *this* moment however long the plugin itself took: the user just asked
+    /// for it, so a picker is now a response rather than an interruption.
+    ///
+    /// By identity and not by position, because a notice outlives the list it
+    /// refers to. Its bubble can still be on screen when a second plugin parks
+    /// behind it, and resuming "the first one" would then run whichever save
+    /// the user was not looking at.
+    private func resumePluginSave(id: UUID) {
+        guard let index = pendingPluginSaves.firstIndex(where: { $0.id == id })
+        else { return }
+        let pending = pendingPluginSaves.remove(at: index)
+        savePluginOutput(pending.result, plugin: pending.plugin, elapsed: 0)
     }
 
     /// A cancellation is not an error — the user asked for it — so it gets its

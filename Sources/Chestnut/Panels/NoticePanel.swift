@@ -91,17 +91,6 @@ final class NoticePanel: NSPanel {
         dismiss()
     }
 
-    /// Set by `dismissForReplacement`, read by the handler: a bubble pushed
-    /// aside by the next notice ended differently from one nobody looked at,
-    /// and a caller that must do something about an unfollowed notice needs to
-    /// tell those two apart.
-    private(set) var wasReplaced = false
-
-    func dismissForReplacement() {
-        wasReplaced = true
-        dismiss()
-    }
-
     func dismiss() {
         fadeTask?.cancel()
         fadeTask = nil

@@ -50,6 +50,17 @@ final class PetWindow: NSPanel {
     var undoCaptureRow: (() -> UndoRow?)?
     var onUndoPluginSave: (() -> Void)?
     var undoPluginSaveRow: (() -> UndoRow?)?
+    /// Names of plugins whose saves are waiting for the user to pick a vault,
+    /// oldest first, empty when nothing is waiting. Read once per menu build,
+    /// and one row is added per entry.
+    ///
+    /// This row is what keeps a pending save from living inside a notice. A
+    /// notice is a receipt: it fades, it gets replaced, and nothing should be
+    /// lost when it does. The waiting save is state, so it is reachable here
+    /// for as long as it is waiting — the same shape as a parked capture
+    /// draft, which waits in `captureDraft` for the next Capture…
+    var pendingPluginSaves: (() -> [String])?
+    var onResumePluginSave: ((Int) -> Void)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
@@ -323,6 +334,19 @@ final class PetWindow: NSPanel {
 
         menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
         menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
+        // Hidden rather than dimmed when nothing is waiting, the same rule the
+        // Undo Last Plugin Save row and the Running Plugins submenu follow: a
+        // row that can never be clicked teaches nothing.
+        for (index, waiting) in (pendingPluginSaves?() ?? []).enumerated() {
+            let item = menuItem(
+                "Save \(waiting)'s Output…", #selector(resumePluginSave)
+            )
+            // The row carries which waiting save it belongs to, so two
+            // plugins waiting at once stay separable. Menu items are rebuilt
+            // on every open, so the index cannot go stale between builds.
+            item.tag = index
+            menu.addItem(item)
+        }
 
         menu.addItem(.separator())
         let delivery = undoDeliveryRow?()
@@ -655,6 +679,9 @@ final class PetWindow: NSPanel {
     @objc private func undoCapture() { onUndoCapture?() }
 
     @objc private func undoPluginSave() { onUndoPluginSave?() }
+    @objc private func resumePluginSave(_ sender: NSMenuItem) {
+        onResumePluginSave?(sender.tag)
+    }
 
     @objc private func toggleReduceMotion() {
         state.reduceMotion.toggle()

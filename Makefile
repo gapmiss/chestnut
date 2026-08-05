@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.7.1
+VERSION := 0.8.0
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app

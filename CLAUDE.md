@@ -1,6 +1,6 @@
 # Chestnut — partner for Obsidian
 
-Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.7.1), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
+Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.8.0), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Where things are documented
 
@@ -40,8 +40,10 @@ pkill -x Chestnut  # quit the app (no Dock icon; use right-click menu)
 **Bash output truncation:** the harness silently truncates long stdout. Never rely on seeing full output. Always pipe through `tail -n N` or `grep`. For `make check`:
 
 ```bash
-make check 2>&1 | grep -E "FAIL|ALL CHECKS|FAILED"; echo "exit: $?"
+make check > /tmp/chk.txt 2>&1; echo "EXIT: $?"; tail -5 /tmp/chk.txt
 ```
+
+Redirect to a file and read `make`'s own exit status. Do **not** pipe `make check` into `grep` and report `$?` — that is grep's status, not make's, and the two disagree in the case that matters. `ALL CHECKS PASSED` is printed by the Swift binary partway through the target; the version-drift, tripwire and site checks all run *after* it and fail the build on their own. A grep for `ALL CHECKS` finds that line while `make` is exiting non-zero, which has already produced a confident "checks pass" over a failing tree.
 
 ## Source layout
 
@@ -167,7 +169,9 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - Streaming acts on `notify` only; everything that writes waits for exit 0, which is what keeps "a plugin that fails writes nothing" true → `Sources/Chestnut/Plugins/PluginRunner.swift:StreamCollector`
 - Streaming is opt-in, because an existing `structured` plugin pretty-prints one envelope across many lines and line-splitting by default would break every one → `Sources/Chestnut/Plugins/PluginManifest.swift:stream`
 - A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice, and a late `save` needing a vault parks the same way — measured, that picker caught a Return meant for another app and wrote a note to a vault nobody chose → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
-- A notice that *offers* something outlives the user's notice duration, and every one of them carries an `onExpire` that leaves the result somewhere reachable → `Sources/Chestnut/AppDelegate.swift:unattendedNoticeSeconds`
+- A notice that *offers* something outlives the user's notice duration → `Sources/Chestnut/AppDelegate.swift:unattendedNoticeSeconds`
+- **Nothing may exist only inside a notice.** A waiting plugin save is state with a menu row of its own; the bubble is an announcement that costs nothing to miss. Holding the offer in the bubble's closure made every way a bubble can end a way to lose a plugin's work, and crashed the app once → `Sources/Chestnut/AppDelegate.swift:PendingPluginSave`
+- A notice handler may show another notice: `dismiss` takes and clears the handler *before* running it → `Sources/Chestnut/Panels/NoticePanel.swift:dismiss`
 
 ## Conventions
 
