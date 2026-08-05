@@ -4,7 +4,7 @@ Notable, user-facing changes to Chestnut. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.8.0] — 2026-08-05
 
 ### Added
 
@@ -48,8 +48,20 @@ Notable, user-facing changes to Chestnut. The format follows
 - **A plugin that finishes long after the drop no longer steals focus.** A
   plugin using `capture` output opened the capture panel and took the keyboard
   the moment it finished, which is fine after two seconds and hostile after
-  forty minutes. A result arriving more than a minute after the drop now shows
-  a notice you click to open it, and the draft waits for you.
+  forty minutes. A plugin using `save` output did the same thing with the vault
+  picker, and that one could write a note: the picker appeared underneath a
+  keystroke meant for another app, turned it into a choice, and saved to a
+  vault nobody picked. Any plugin result arriving more than a minute after the
+  drop now waits instead of opening anything. A waiting draft is there the next
+  time you open Capture, and a waiting save gets its own row in the right-click
+  menu — **Save <plugin>'s Output…** — which opens the vault picker when you
+  are ready for it. A notice announces each, but missing the notice costs
+  nothing now, because neither result lives inside it.
+
+- **Capture… tells you a draft is waiting.** The row now carries a `draft`
+  badge whenever there is unsubmitted text, whether a plugin produced it or you
+  typed it and closed the panel. Submitting the draft clears the badge, as does
+  emptying the box and closing the panel.
 - **Undo now sends files to whichever trash the vault is set to use.** Obsidian
   lets each vault say where deleted files go, and someone who points a vault at
   its own `.trash` folder expects everything deleted from that vault to land
@@ -62,6 +74,36 @@ Notable, user-facing changes to Chestnut. The format follows
   because an undo takes back something Chestnut did rather than something you
   chose to delete, and there would be nothing to recover if you changed your
   mind.
+
+### Fixed
+
+- **Two plugins finishing close together no longer lose one plugin's work.**
+  When both needed to ask which vault to save to, the second vault picker
+  replaced the first before it was answered, and the first plugin's note was
+  then not saved, not copied to the clipboard, and not reported. The only sign
+  anything had happened was being asked about one vault instead of two. Both
+  saves now wait their turn and both are reachable from the menu.
+
+- **Pressing the paste hotkey with an empty clipboard now says so.** ⌃⌥C did
+  nothing at all when the clipboard held nothing Chestnut could use, which is
+  indistinguishable from a hotkey that never registered. It now says "Nothing
+  to paste".
+
+- **Chestnut no longer crashes if a notice's action shows another notice.**
+  Clicking a notice whose action produced a second one could send the app into
+  an endless loop and kill it.
+
+- **A plugin whose structured output cannot be parsed now records why.** Three
+  different failures — output that is not text, JSON the parser rejected, and a
+  valid envelope naming an action Chestnut does not have — all produced the
+  same "invalid structured output" message with nothing to go on. The reason
+  now goes to the debug log, which is where a plugin author can read it.
+
+- **Saving and undoing a plugin's note now leaves a trail in the debug log.**
+  The log recorded the run, its exit and its requested action, then went silent
+  at the moment a file was written into a vault. It now records the destination
+  on success and the reason on every failure, on both the save and the undo,
+  matching what the courier already wrote.
 
 ## [0.7.1] — 2026-08-02
 
@@ -632,6 +674,7 @@ company while you write.
   color themes; launch at login; full-screen visibility toggle.
 - No network calls, no telemetry, never touches Obsidian's files.
 
+[0.8.0]: https://github.com/gapmiss/chestnut/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/gapmiss/chestnut/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/gapmiss/chestnut/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/gapmiss/chestnut/compare/v0.6.1...v0.6.2

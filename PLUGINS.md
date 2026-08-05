@@ -229,9 +229,22 @@ While a plugin runs:
   Nothing macOS offers can change that.
 
 A plugin that finishes more than a minute after it started does not steal focus.
-An `action: "capture"` that arrives that late parks its draft and shows a notice
-you can click to open it; the draft is still there the next time you open
-Capture.
+Past that point the user has moved on to another application, and anything that
+opens a panel there is an interruption over someone else's work. So a late
+result waits rather than appearing:
+
+- An `action: "capture"` parks its draft. The **Capture…** row badges itself
+  `draft`, and the draft is there the next time that row is opened.
+- An `action: "save"` that has to ask which vault parks too, rather than opening
+  the vault picker. A row reading **Save <plugin>'s Output…** appears in the
+  right-click menu and opens the picker when the user is ready. Two plugins
+  waiting at once get a row each.
+
+Both also show a notice when they park, but the notice is only a shortcut — it
+fades like any other, and the menu is what holds the result.
+
+A `save` whose envelope names a `vault` is unaffected by any of this. It needs
+no picker, so it lands straight away however late it finishes.
 
 ### Reporting progress
 

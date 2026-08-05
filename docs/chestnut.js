@@ -943,10 +943,21 @@ function renderMenu() {
     label: "Vaults…", hint: "⌃⌥V",
     action() { closePanels(); openHopper(); },
   }));
+  // The badge marks text waiting in the editor, exactly as the app marks text
+  // waiting in `captureDraft`: closing the panel without submitting keeps the
+  // draft in both, and submitting clears it in both. Type something, close the
+  // panel, reopen this menu and the badge is there.
   menuEl.appendChild(menuItem({
     label: "Capture…", hint: "⌃⌥Space",
+    badge: editor.value.trim() === "" ? undefined : "draft",
     action() { closePanels(); openCapture(); },
   }));
+
+  // Two rows the app can show here are deliberately absent, because the demo
+  // never runs a plugin and the app hides both under that same condition: a
+  // "Save <plugin>'s Output…" row per plugin save waiting for a vault, and a
+  // Running Plugins submenu listing live runs. Adding either here would draw
+  // something no visitor's copy would show.
 
   menuEl.appendChild(menuSeparator());
   // In the app each of these rows carries a second line naming the delivery,
