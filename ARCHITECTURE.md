@@ -48,12 +48,15 @@ Unparseable files are *moved* to the first free `.bak`/`.bak.N`, never copied ov
 `PetWindow.showMenu` is an assembly list, one builder method per group. Order is actions first, then the pet's identity, then about:
 
 ```
-Vaults… / Capture…
+Vaults… / Capture…                                              (Capture… badges `draft` while unsubmitted text is waiting)
+Save <plugin>'s Output…                                         (one row per plugin save waiting for a vault; absent when none is)
 Undo Last Delivery / Undo Last Capture / Undo Last Plugin Save   (each subtitled with the record it reverses; the third row is hidden until a plugin is installed or a record exists)
-Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸
+Size ▸ / Theme ▸ / Settings ▸ / Plugins ▸ / Running Plugins ▸     (Running Plugins is absent when nothing is running)
 Check for Updates… (version + ↗ in one badge) / Support Chestnut
 Quit
 ```
+
+Four things in that list appear only when they have something to say: the `draft` badge, the `Save …'s Output…` rows, the Undo Last Plugin Save row, and Running Plugins ▸. All four are **hidden rather than dimmed**, because a row that can never be clicked teaches nothing about what the app does. The two that carry pending work — the badge and the save rows — are also the subject of the rule below.
 
 Size and Theme stay top-level deliberately; everything set-once lives in Settings ▸, which is flat: Opacity ▸, Notice Bubble ▸, then Reduce Motion / Copy on Drop / Show in Full Screen / Launch at Login, then Reset Position / Edit Configuration….
 
@@ -106,6 +109,26 @@ One instance per undo call, memoizing the option per vault root, because a singl
 Plugin runs and the courier compete for the same one-at-a-time surfaces. `presentPalette` dismisses whatever palette and notice are up, so a plugin picker or a `save` plugin's vault palette opening beside the courier's destination palette clobbers one or the other.
 
 That is why the picker's courier row dismisses *before* calling `beginDelivery`, as `runPlugin` does — otherwise the dismissed panel's `onClose` clears `palette` out from under the destination palette that just opened.
+
+## A notice is a receipt, and nothing may exist only inside one
+
+A notice bubble reports something that already happened. Missing one must therefore cost nothing, and there are several ways to miss one: it fades after the user's notice duration, it can be dismissed, and `presentPalette` replaces it when the next panel opens. None of those is an error path, so none of them can be made reliable.
+
+**So no result, draft or offer may live only in a notice's closure.** Whatever the bubble announces must already be reachable somewhere that outlives it — a menu row, a badge, a journal record, the clipboard.
+
+This was learned by breaking it. A plugin save that needed a vault was held as a closure captured by its own bubble, so that clicking the notice opened the picker. That made every way a bubble can end a way to lose a plugin's work. Each ending needed its own fallback, each fallback needed to know which ending had happened, and the resulting branching sent `NoticePanel.dismiss` into unbounded recursion and killed the app with `EXC_BAD_ACCESS` on the stack guard page.
+
+The rule replaced all of it with state. A waiting save is a value in `pendingPluginSaves` with a menu row of its own. A waiting capture draft is a string in `captureDraft` that badges the Capture… row. Both notices went back to being announcements, and both now last as long as the user asked receipts to last, because nothing depends on them being seen.
+
+The corollary for anything new: before writing `showNotice(…) { … }`, ask what is lost if that closure never runs. If the answer is anything but "a shortcut", the design is wrong and the state belongs somewhere the menu can reach.
+
+**The limit of the rule is deliberate.** Both stores are in-memory, so quitting Chestnut with a save still waiting discards it. The work no longer depends on a bubble surviving; it still depends on the process surviving.
+
+That is where the line sits by choice: completed work persists — a written note is journaled and undoable — and work in flight does not, the same way an unsubmitted capture draft has never survived a restart. Persisting a pending save was considered and rejected for 0.8.0. A quit-time fallback (clipboard or temp file) covers only the polite quit, not a crash, a logout or a restart, and partial coverage is worse than none here: a route that usually works teaches the user to rely on it, so the loss arrives after trust is established. That is the same failure the rule above exists to prevent.
+
+Two things make the residue small. Chestnut is `LSUIElement` with no Dock icon and no ⌘Q, so the only way to quit deliberately is the right-click menu — which is the menu the waiting row is in. And a plugin can opt out entirely: a `save` envelope naming its `vault` never parks, so it writes on exit however long it ran. `PLUGINS.md` tells authors of long-running plugins to do exactly that.
+
+Revisit only if someone reports losing real work this way. The fix then is persisting to `AppState` with a maximum age on restore, covering the capture draft at the same time — not a fallback on the quit path.
 
 ## Drop routing
 

@@ -161,7 +161,9 @@ struct Check {
         pluginManifestChecks()
         await pluginRegistryChecks()
         pluginRunnerChecks()
+        pluginRunChecks()
         await pluginRunnerEndToEndChecks()
+        await pluginStreamingEndToEndChecks()
         obsidianCLIChecks()
         pluginDispatchChecks()
         dropRouterChecks()
@@ -1269,7 +1271,7 @@ struct Check {
 
         // Interpret: non-zero exit.
         let failResult = PluginRunner.RawResult(exitCode: 1, stdout: "", stderr: "bad input\nsecond line")
-        let failManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let failManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, stream: false, scriptURL: URL(fileURLWithPath: "/x"))
         do {
             _ = try PluginRunner.interpret(result: failResult, manifest: failManifest)
             check(false, "non-zero exit should throw")
@@ -1285,7 +1287,7 @@ struct Check {
 
         // Interpret: capture mode.
         let captureResult = PluginRunner.RawResult(exitCode: 0, stdout: "captured text", stderr: "")
-        let captureManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let captureManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .capture, script: "x", timeout: 10, stream: false, scriptURL: URL(fileURLWithPath: "/x"))
         if let interp = try? PluginRunner.interpret(result: captureResult, manifest: captureManifest) {
             check(interp.action == .capture, "capture mode action is .capture")
             check(interp.content == "captured text", "capture mode content is stdout")
@@ -1295,7 +1297,7 @@ struct Check {
         }
 
         // Interpret: save mode extracts filename from first line.
-        let saveManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let saveManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, stream: false, scriptURL: URL(fileURLWithPath: "/x"))
 
         let saveResult = PluginRunner.RawResult(exitCode: 0, stdout: "My Note Title\nBody here", stderr: "")
         if let interp = try? PluginRunner.interpret(result: saveResult, manifest: saveManifest) {
@@ -1353,7 +1355,7 @@ struct Check {
             stdout: #"{"action":"save","content":"hello","filename":"test.md","vault":"ask"}"#,
             stderr: ""
         )
-        let structuredManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .structured, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let structuredManifest = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .structured, script: "x", timeout: 10, stream: false, scriptURL: URL(fileURLWithPath: "/x"))
         if let interp = try? PluginRunner.interpret(result: structuredResult, manifest: structuredManifest) {
             check(interp.action == .save, "structured envelope action is .save")
             check(interp.content == "hello", "structured envelope content parses")
@@ -1374,12 +1376,12 @@ struct Check {
         // Table-driven on purpose: the rule is "these two agree", not any
         // particular output, so a future change to the grammar only has to
         // stay consistent.
-        let saveManifestT5 = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, scriptURL: URL(fileURLWithPath: "/x"))
+        let saveManifestT5 = PluginManifest(api: 1, name: "t", description: "", accepts: [.text], extensions: [], output: .save, script: "x", timeout: 10, stream: false, scriptURL: URL(fileURLWithPath: "/x"))
         func filenameViaPlain(_ raw: String) -> String? {
             try? PluginRunner.interpret(
                 result: PluginRunner.RawResult(exitCode: 0, stdout: raw + "\nbody", stderr: ""),
                 manifest: saveManifestT5
-            ).filename
+            )?.filename
         }
         func filenameViaStructured(_ raw: String) -> String? {
             guard let json = try? JSONSerialization.data(withJSONObject: [
@@ -1388,7 +1390,7 @@ struct Check {
             return try? PluginRunner.interpret(
                 result: PluginRunner.RawResult(exitCode: 0, stdout: stdout, stderr: ""),
                 manifest: structuredManifest
-            ).filename
+            )?.filename
         }
         for raw in ["a/b", "x:y", "back\\slash", "no-extension", "  padded  ",
                     "already.md", "/", String(repeating: "z", count: 300)] {
@@ -1454,6 +1456,228 @@ struct Check {
 
     // MARK: - PluginRunner end-to-end
 
+    // MARK: - Long-running plugins: registry, cancel row, streaming
+
+    /// Covers what can be checked without a screen or a process: the registry
+    /// the chewing pose and the cancel submenu are both derived from, and the
+    /// line-at-a-time envelope reading a streaming plugin uses.
+    ///
+    /// The chewing animation, focus stealing, and a cancel actually killing a
+    /// process group cannot be checked here — `PetWindow` and `Panels/` are
+    /// outside this target and nothing here can see a sprite.
+    @MainActor
+    static func pluginRunChecks() {
+        // --- The registry the pose is derived from ---
+        let registry = PluginRunRegistry()
+        var changes = 0
+        registry.onChange = { changes += 1 }
+        check(registry.isEmpty, "a fresh registry is empty, so the pet is still")
+
+        let first = registry.register(name: "Transcribe", handle: PluginRunHandle())
+        let second = registry.register(name: "Summarize", handle: PluginRunHandle())
+        check(registry.count == 2, "two overlapping runs are both registered")
+        registry.remove(first)
+        // This is the bug the registry exists for: the first run to finish used
+        // to stop the pose while the second was still working.
+        check(!registry.isEmpty, "one run finishing leaves the other one active")
+        registry.remove(second)
+        check(registry.isEmpty, "the pose stops only when the last run is gone")
+        check(changes == 4, "every register and remove reported a change")
+
+        // A `defer` can fire after a cancel already removed the entry, so a
+        // second removal has to be a no-op rather than a crash.
+        let stale = UUID()
+        registry.remove(stale)
+        check(registry.isEmpty, "removing an id that isn't there is a no-op")
+        check(changes == 4, "a no-op removal doesn't report a change")
+        check(registry.cancel(stale) == false, "cancelling an unknown run reports false")
+
+        check(PluginRunRegistry.showsRunningSubmenu(runCount: 0) == false,
+              "nothing running: the Running Plugins submenu is absent entirely")
+        check(PluginRunRegistry.showsRunningSubmenu(runCount: 1),
+              "one run: the submenu appears")
+
+        check(PluginRunRegistry.elapsedLabel(seconds: 4) == "running 4s",
+              "elapsed label under a minute is in seconds")
+        check(PluginRunRegistry.elapsedLabel(seconds: 125) == "running 2m",
+              "elapsed label past a minute is in whole minutes")
+        check(PluginRunRegistry.elapsedLabel(seconds: 7_500) == "running 2h 5m",
+              "elapsed label past an hour carries both parts")
+
+        // --- Streaming off is still the default, and still whole-stdout ---
+        // The regression guard for every plugin that shipped before streaming
+        // existed: those envelopes are pretty-printed across many lines, and
+        // splitting on newlines by default would break all of them silently.
+        let pretty = """
+        {
+          "action": "save",
+          "content": "hello",
+          "filename": "test.md"
+        }
+        """
+        let plainManifest = PluginManifest(
+            api: 1, name: "t", description: "", accepts: [.text], extensions: [],
+            output: .structured, script: "x", timeout: 10, stream: false,
+            scriptURL: URL(fileURLWithPath: "/x"))
+        check(plainManifest.stream == false, "stream defaults to off")
+        let prettyResult = try? PluginRunner.interpret(
+            result: PluginRunner.RawResult(exitCode: 0, stdout: pretty, stderr: ""),
+            manifest: plainManifest)
+        check(prettyResult?.action == .save && prettyResult?.filename == "test.md",
+              "streaming off: a pretty-printed envelope is still one envelope")
+
+        // --- One line, one envelope ---
+        switch PluginRunner.classifyStreamLine(#"{"action":"notify","notify":"3 of 50"}"#) {
+        case .progress(let text): check(text == "3 of 50", "a notify line is live progress")
+        default: check(false, "a notify line should classify as progress")
+        }
+        switch PluginRunner.classifyStreamLine(#"{"action":"save","filename":"a.md"}"#) {
+        case .terminal(let envelope):
+            check(envelope.action == "save", "a save line is held until exit")
+        default: check(false, "a save line should classify as terminal")
+        }
+        for junk in ["", "   ", "not json", #"{"action":"save""#] {
+            if case .skipped = PluginRunner.classifyStreamLine(junk) {
+                check(true, "a line that isn't an envelope is skipped: \"\(junk)\"")
+            } else {
+                check(false, "expected \"\(junk)\" to be skipped")
+            }
+        }
+
+        // --- Chunk boundaries have nothing to do with line boundaries ---
+        let collected = Collector()
+        let buffer = LineBuffer(lineLimit: 32) { collected.add($0) }
+        buffer.append(Data(#"{"a":1}"#.utf8))
+        buffer.append(Data("\n{\"b\":2}\n\n{\"c\"".utf8))
+        buffer.append(Data(":3}\n".utf8))
+        check(collected.lines == [#"{"a":1}"#, #"{"b":2}"#, "", #"{"c":3}"#],
+              "three envelopes split across five reads come back whole and in order")
+
+        collected.reset()
+        buffer.append(Data((String(repeating: "x", count: 100) + "\n").utf8))
+        buffer.append(Data("{\"tail\":1}".utf8))
+        check(collected.lines == [String(repeating: "x", count: 32)],
+              "a line past the cap is cut there, and the rest discarded")
+        buffer.flush()
+        check(collected.lines.count == 2 && collected.lines[1] == #"{"tail":1}"#,
+              "a last line with no trailing newline still arrives, on flush")
+        if case .skipped = PluginRunner.classifyStreamLine(collected.lines[0]) {
+            check(true, "the truncated stub is skipped, not fatal")
+        } else {
+            check(false, "a truncated line should be skipped")
+        }
+
+        // --- clampedTimeout after the ceiling moved ---
+        check(PluginManifest.clampedTimeout(0) == PluginManifest.timeoutRange.lowerBound,
+              "timeout 0 still clamps up to one second, never \"no timeout\"")
+        check(PluginManifest.clampedTimeout(-5) == PluginManifest.timeoutRange.lowerBound,
+              "a negative timeout still clamps up to one second")
+        check(PluginManifest.clampedTimeout(nil) == PluginManifest.defaultTimeout,
+              "an absent timeout still falls back to the default")
+        check(PluginManifest.clampedTimeout(3600) == 3600,
+              "an hour is now inside the range")
+        check(PluginManifest.clampedTimeout(99_999) == PluginManifest.timeoutRange.upperBound,
+              "past the ceiling still clamps rather than running unbounded")
+    }
+
+    /// Collects lines from `LineBuffer`'s `@Sendable` callback.
+    final class Collector: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _lines: [String] = []
+        var lines: [String] { lock.lock(); defer { lock.unlock() }; return _lines }
+        func add(_ line: String) { lock.lock(); _lines.append(line); lock.unlock() }
+        func reset() { lock.lock(); _lines.removeAll(); lock.unlock() }
+    }
+
+    /// The streaming contract, run against real scripts: progress arrives
+    /// while the plugin is alive, and a plugin that fails still writes nothing.
+    static func pluginStreamingEndToEndChecks() async {
+        let fm = FileManager.default
+        let base = URL(fileURLWithPath:
+            NSTemporaryDirectory() + "chestnut-check-stream-\(ProcessInfo.processInfo.processIdentifier)")
+        try! fm.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: base) }
+
+        func writeScript(_ name: String, _ body: String) -> PluginManifest {
+            let dir = base.appendingPathComponent(name)
+            try! fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            let scriptURL = dir.appendingPathComponent("run.sh")
+            try! ("#!/bin/sh\n" + body).write(to: scriptURL, atomically: true, encoding: .utf8)
+            try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+            return PluginManifest(
+                api: 1, name: name, description: "", accepts: [.text],
+                extensions: [], output: .structured, script: "run.sh",
+                timeout: 5, stream: true, scriptURL: scriptURL)
+        }
+
+        let input = PluginRunner.Input(type: .text, text: "", filePath: nil, sourceApp: nil)
+        let progress = Collector()
+
+        // Progress lines, then one save, then a clean exit.
+        let ok = writeScript("ok", """
+        echo '{"action":"notify","notify":"1 of 2"}'
+        echo 'this line is not JSON and must not stop the run'
+        echo '{"action":"notify","notify":"2 of 2"}'
+        printf '{"action":"save","filename":"out.md","content":"body"}\\n'
+        """)
+        do {
+            let raw = try await PluginRunner.run(
+                manifest: ok, pluginDir: base.appendingPathComponent("ok"),
+                input: input, onNotify: { progress.add($0) })
+            check(progress.lines == ["1 of 2", "2 of 2"],
+                  "streaming: progress arrived in order (got \(progress.lines))")
+            check(raw.skippedLines == 1, "streaming: the junk line was skipped and counted")
+            let result = try PluginRunner.interpret(result: raw, manifest: ok)
+            check(result?.action == .save && result?.filename == "out.md",
+                  "streaming: the save envelope is applied after a clean exit")
+        } catch {
+            check(false, "streaming: the good run should not throw (\(error))")
+        }
+
+        // The contract this design was chosen for: envelopes that write are
+        // held until the exit code says the run succeeded, so a plugin that
+        // prints a save and then fails leaves nothing behind. Its progress
+        // messages still reached the user, because those are the only thing
+        // acted on while the plugin is alive.
+        progress.reset()
+        let failing = writeScript("failing", """
+        echo '{"action":"notify","notify":"working"}'
+        echo '{"action":"save","filename":"never.md","content":"body"}'
+        exit 1
+        """)
+        do {
+            let raw = try await PluginRunner.run(
+                manifest: failing, pluginDir: base.appendingPathComponent("failing"),
+                input: input, onNotify: { progress.add($0) })
+            _ = try PluginRunner.interpret(result: raw, manifest: failing)
+            check(false, "streaming: a non-zero exit should throw")
+        } catch let error as PluginError {
+            guard case .nonZeroExit = error else {
+                check(false, "streaming: expected nonZeroExit, got \(error)")
+                return
+            }
+            check(true, "streaming: a save printed before exit 1 is never applied")
+            check(progress.lines == ["working"],
+                  "streaming: progress printed before the failure still reached the user")
+        } catch {
+            check(false, "streaming: unexpected error type (\(error))")
+        }
+
+        // Nothing but progress: the run has already had its say, so there is
+        // nothing left to apply and no closing bubble.
+        progress.reset()
+        let quiet = writeScript("quiet", "echo '{\"action\":\"notify\",\"notify\":\"done\"}'")
+        do {
+            let raw = try await PluginRunner.run(
+                manifest: quiet, pluginDir: base.appendingPathComponent("quiet"),
+                input: input, onNotify: { progress.add($0) })
+            let result = try PluginRunner.interpret(result: raw, manifest: quiet)
+            check(result == nil, "streaming: progress-only run asks for nothing at the end")
+        } catch {
+            check(false, "streaming: the progress-only run should not throw (\(error))")
+        }
+    }
+
     static func pluginRunnerEndToEndChecks() async {
         let fm = FileManager.default
         let base = URL(fileURLWithPath:
@@ -1470,7 +1694,7 @@ struct Check {
             return PluginManifest(
                 api: 1, name: name, description: "", accepts: [.text],
                 extensions: [], output: .capture, script: "run.sh",
-                timeout: 3, scriptURL: scriptURL
+                timeout: 3, stream: false, scriptURL: scriptURL
             )
         }
 
@@ -1509,7 +1733,7 @@ struct Check {
         let hang = PluginManifest(
             api: 1, name: "hang", description: "", accepts: [.text],
             extensions: [], output: .capture, script: "run.sh",
-            timeout: 1, scriptURL: base.appendingPathComponent("hang/run.sh")
+            timeout: 1, stream: false, scriptURL: base.appendingPathComponent("hang/run.sh")
         )
         let hangDir = base.appendingPathComponent("hang")
         try! fm.createDirectory(at: hangDir, withIntermediateDirectories: true)

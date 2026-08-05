@@ -1,6 +1,6 @@
 # Chestnut — partner for Obsidian
 
-Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.7.1), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
+Native macOS desktop companion for Obsidian users (one vault or many). An always-on-top pixel-art treasure-chest creature ("Chestnut") that reacts to writing activity and acts as a control surface across vaults. Free app funded by GitHub Sponsors, no license mechanism, no paywall, no network calls. Current release is `VERSION` in the Makefile (0.8.0), shipped as a DMG and a Homebrew cask (`gapmiss/tap/chestnut`, a separate repo — see RELEASING.md).
 
 ## Where things are documented
 
@@ -40,8 +40,10 @@ pkill -x Chestnut  # quit the app (no Dock icon; use right-click menu)
 **Bash output truncation:** the harness silently truncates long stdout. Never rely on seeing full output. Always pipe through `tail -n N` or `grep`. For `make check`:
 
 ```bash
-make check 2>&1 | grep -E "FAIL|ALL CHECKS|FAILED"; echo "exit: $?"
+make check > /tmp/chk.txt 2>&1; echo "EXIT: $?"; tail -5 /tmp/chk.txt
 ```
+
+Redirect to a file and read `make`'s own exit status. Do **not** pipe `make check` into `grep` and report `$?` — that is grep's status, not make's, and the two disagree in the case that matters. `ALL CHECKS PASSED` is printed by the Swift binary partway through the target; the version-drift, tripwire and site checks all run *after* it and fail the build on their own. A grep for `ALL CHECKS` finds that line while `make` is exiting non-zero, which has already produced a confident "checks pass" over a failing tree.
 
 ## Source layout
 
@@ -123,6 +125,7 @@ Each line is a verdict you can act on without opening anything, plus where the f
 - Selection moves are announced explicitly; row traits alone are silent while focus stays in the filter field → `Sources/Chestnut/Panels/VaultPalette.swift:announceSelection`
 - Hover must not arm until the pointer moves, and the selection half must use `.onContinuousHover`, never `.onHover` → `Sources/Chestnut/Panels/PetPanel.swift:HoverArming`
 - Every spoken announcement posts through one site → `Sources/Chestnut/Panels/PetPanel.swift:announceToVoiceOver`
+- A caller's own cleanup rides on `afterDismiss`, never chained onto `onClose` — `presentPalette` clears `onClose` when one palette supersedes another, and a plugin save lost its whole output that way → `Sources/Chestnut/Panels/PetPanel.swift:afterDismiss`
 
 Changes here can only be verified with VoiceOver actually running (⌘F5). Nothing in `make check` can hear. `Panels/` is outside the check target.
 
@@ -160,6 +163,15 @@ Changes here can only be verified with VoiceOver actually running (⌘F5). Nothi
 - On `capture`, only attachments the submitted note refers to are copied → `Sources/Chestnut/Actions/Capture.swift:partitionAttachmentsByReference`
 - The registry creates the plugins directory **before** watching it; deleting that line costs hot-reload for the whole session → `Sources/Chestnut/Plugins/PluginRegistry.swift:start`
 - Courier candidacy is passed in from the drop site and must never be re-derived, or ⌃⌥C offers delivery of a temp file that gets deleted → `Sources/Chestnut/AppDelegate.swift:discardPendingPluginTemp`
+- The chewing pose is derived from the set of live runs, never toggled per run; two overlapping plugins used to leave the pet still while one was still working → `Sources/Chestnut/Plugins/PluginRunRegistry.swift:PluginRunRegistry`
+- The Running Plugins submenu is **hidden** at zero runs, not shown empty — same rule and reasoning as the plugin-save Undo row → `Sources/Chestnut/Plugins/PluginRunRegistry.swift:showsRunningSubmenu`
+- Nothing signals a process group without first asking the kernel whether that PID is still our child. Foundation reaps the child *before* the termination handler runs (measured 3/3), so holding the `Process` object does not reserve the PID → `Sources/Chestnut/Plugins/PluginRunner.swift:isOurChild`
+- Streaming acts on `notify` only; everything that writes waits for exit 0, which is what keeps "a plugin that fails writes nothing" true → `Sources/Chestnut/Plugins/PluginRunner.swift:StreamCollector`
+- Streaming is opt-in, because an existing `structured` plugin pretty-prints one envelope across many lines and line-splitting by default would break every one → `Sources/Chestnut/Plugins/PluginManifest.swift:stream`
+- A plugin result arriving more than a minute after the drop never takes focus; a late `capture` parks its draft behind a clickable notice, and a late `save` needing a vault parks the same way — measured, that picker caught a Return meant for another app and wrote a note to a vault nobody chose → `Sources/Chestnut/AppDelegate.swift:unattendedRunSeconds`
+- A waiting capture draft badges the Capture… row, because a notice fades and the draft does not → `Sources/Chestnut/Pet/PetWindow.swift:hasCaptureDraft`
+- **Nothing may exist only inside a notice.** A waiting plugin save is state with a menu row of its own; the bubble is an announcement that costs nothing to miss. Holding the offer in the bubble's closure made every way a bubble can end a way to lose a plugin's work, and crashed the app once → `Sources/Chestnut/AppDelegate.swift:PendingPluginSave`
+- A notice handler may show another notice: `dismiss` takes and clears the handler *before* running it → `Sources/Chestnut/Panels/NoticePanel.swift:dismiss`
 
 ## Conventions
 

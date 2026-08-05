@@ -14,6 +14,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let pluginJournal: Journal<PluginSaveRecord> = .pluginSaves
     private let hotkeys = HotkeyCenter()
     private let pluginRegistry = PluginRegistry()
+    /// Every plugin process running right now. The chewing pose and the
+    /// Running Plugins submenu are both derived from it.
+    private let runRegistry = PluginRunRegistry()
     private var petWindow: PetWindow?
     /// The one panel on screen (Vault Hopper, courier destination picker,
     /// or capture bubble).
@@ -118,11 +121,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         pluginRegistry.disabled = state.disabledPlugins
         pluginRegistry.start()
+
+        // The pose follows the registry, never an individual run: two
+        // overlapping runs used to leave the pet still while the second was
+        // still working. See `PluginRunRegistry`.
+        runRegistry.onChange = { [weak self] in
+            guard let self else { return }
+            petWindow?.petScene.setChewing(!runRegistry.isEmpty)
+        }
     }
 
+    /// Best-effort, and the word is exact. This runs when the app is *asked* to
+    /// quit through AppKit: the menu's Quit row, `NSApp.terminate`, or the
+    /// standard quit Apple Event (`osascript -e 'tell application "Chestnut" to
+    /// quit'`).
+    ///
+    /// It does **not** run on a plain `SIGTERM` — measured, not assumed: an
+    /// accessory app sent `SIGTERM` dies on the signal's default action with no
+    /// delegate callback at all, exactly as it does on `SIGKILL`. So `pkill -x
+    /// Chestnut` leaves a running plugin behind, and so does a crash or a force
+    /// quit from Activity Monitor. macOS offers no hook that covers those.
+    ///
+    /// A plugin can therefore outlive Chestnut, and the claim `PLUGINS.md`
+    /// makes is "quitting Chestnut normally stops running plugins", never "no
+    /// plugin survives Chestnut".
+    ///
+    /// Nothing waits for the children to die. `SIGTERM` to each group is sent
+    /// and the quit continues: a plugin that ignores the signal survives, which
+    /// is the same outcome as before this existed, and a `waitpid` that hung
+    /// would stall the quit itself — a worse failure than the one it fixes.
     func applicationWillTerminate(_ notification: Notification) {
         hotkeys.stop()
         pluginRegistry.stop()
+        runRegistry.terminateAll()
     }
 
     private func openPetWindow() {
@@ -188,6 +219,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.onUndoPluginSave = { [weak self] in
             self?.undoLastPluginSave()
         }
+        window.pendingPluginSaves = { [weak self] in
+            self?.pendingPluginSaves.map(\.plugin) ?? []
+        }
+        window.onResumePluginSave = { [weak self] index in
+            self?.resumePluginSave(at: index)
+        }
+        window.hasCaptureDraft = { [weak self] in
+            !(self?.captureDraft.isEmpty ?? true)
+        }
         window.installedPlugins = { [weak self] in
             self?.pluginRegistry.plugins ?? []
         }
@@ -203,6 +243,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             self.pluginRegistry.disabled = self.state.disabledPlugins
             self.state.save()
+        }
+        window.runningPlugins = { [weak self] in
+            self?.runRegistry.runs ?? []
+        }
+        window.onCancelPluginRun = { [weak self] id in
+            self?.runRegistry.cancel(id)
         }
         window.onOpenPluginsFolder = {
             let dir = PluginRegistry.pluginsDirectory
@@ -649,7 +695,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try pluginSave.undo(record)
             try pluginJournal.removeLast()
             petWindow?.petScene.celebrateDelivery()
+            // The other half of the pair logged in `savePluginOutput`: a note
+            // leaving a vault deserves a line as much as one arriving in it.
+            // Note that `undo` treats an already-missing note as success and
+            // trashes nothing, so this line means the record is gone, not
+            // necessarily that a file moved.
+            DebugLog.log("plugin save undone: \(record.pluginName) → \(record.notePath)")
         } catch {
+            DebugLog.log(
+                "plugin save undo failed: \(record.pluginName)"
+                + " → \(record.notePath): \(error)"
+            )
             if presentUndoFailure(
                 "Undo plugin save failed", error.localizedDescription
             ) {
@@ -661,7 +717,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Success receipt above the pet: what happened and where, click (or the
     /// notice hotkey, registered only while the bubble is up) to follow
     /// through. Failures stay loud NSAlerts — never notices.
-    private func showNotice(_ title: String, _ subtitle: String, onClick: (() -> Void)? = nil) {
+    /// - Parameters:
+    ///   - duration: Overrides the user's notice duration. Nothing passes this
+    ///     today; a parked result once did, and it read as a bubble that would
+    ///     not go away.
+    ///
+    /// A notice is a receipt and nothing else. Missing one — faded, dismissed,
+    /// replaced by the next — must never cost anything, so nothing may exist
+    /// only inside one. A caller with something to hand over puts it somewhere
+    /// reachable first and then announces it here.
+    private func showNotice(
+        _ title: String, _ subtitle: String,
+        duration: TimeInterval? = nil,
+        onClick: (() -> Void)? = nil
+    ) {
         notice?.dismiss()
         guard let petWindow else { return }
         let hint = onClick == nil ? nil : HotkeySpec.display(config.hotkeys.notice)
@@ -669,7 +738,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDismiss = { [weak self] in
             self?.hotkeys.setNoticeHotkeyEnabled(false)
         }
-        panel.show(aboveSprite: petWindow.spriteFrame, for: state.noticeDuration)
+        panel.show(
+            aboveSprite: petWindow.spriteFrame,
+            for: duration ?? state.noticeDuration
+        )
         notice = panel
         if onClick != nil { hotkeys.setNoticeHotkeyEnabled(true) }
     }
@@ -693,7 +765,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Plugins
 
     private func handlePasteHotkey() {
-        guard let classified = PluginDispatch.classify(.general) else { return }
+        // An unclassifiable clipboard gets a notice rather than a silent
+        // return. This is the only dead end on the paste path with no visible
+        // outcome, which makes an empty or stale clipboard indistinguishable
+        // from a hotkey that never registered — and the difference between
+        // those two is the whole of what the user needs to know. The matching
+        // dead end one level down already speaks ("No plugin handles this").
+        guard let classified = PluginDispatch.classify(.general) else {
+            showNotice("Nothing to paste", "The clipboard is empty or unreadable")
+            return
+        }
         // No courier candidate: the clipboard image is written to a temp file
         // that gets deleted after the run, so offering delivery would hand the
         // courier a path that disappears underneath it and journal an undo
@@ -794,44 +875,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // onClose, which would delete it as abandoned.
         if pendingPluginTempPath == input.filePath { pendingPluginTempPath = nil }
         palette?.dismiss()
-        petWindow?.petScene.setChewing(true)
         let tempPath = input.filePath
         let tempPrefix = NSTemporaryDirectory() + "chestnut-plugins/"
+        let handle = PluginRunHandle()
+        let startedAt = Date()
+        // Streamed progress arrives on a background thread. `DispatchQueue.main`
+        // rather than a `Task`, because the queue keeps the messages in the
+        // order the plugin printed them and hopping through unstructured tasks
+        // does not — "3 of 50" after "4 of 50" is worse than no progress.
+        let onNotify: @Sendable (String) -> Void = { [weak self] text in
+            guard !text.isEmpty else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    self?.showNotice(manifest.name, text)
+                }
+            }
+        }
         Task { [weak self] in
             func cleanupTemp() {
                 if let tempPath, tempPath.hasPrefix(tempPrefix) {
                     try? FileManager.default.removeItem(atPath: tempPath)
                 }
             }
+            // Registering turns the chewing pose on and puts the run in the
+            // cancel submenu; the `defer` takes both back. One `defer` rather
+            // than a call down each exit path — this block has three exits
+            // today, each of which used to toggle the pose for itself, and that
+            // is exactly the shape that lets a fourth one drift out of sync. A
+            // leaked entry chews forever and offers a cancel row that does
+            // nothing.
+            let runID = self?.runRegistry.register(name: manifest.name, handle: handle)
+            defer { if let runID { self?.runRegistry.remove(runID) } }
             do {
                 let raw = try await PluginRunner.run(
-                    manifest: manifest, pluginDir: dir, input: input
+                    manifest: manifest, pluginDir: dir, input: input,
+                    handle: handle, onNotify: onNotify
                 )
-                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, stderr=\(raw.stderr.prefix(200))")
-                let result = try PluginRunner.interpret(
+                DebugLog.log("plugin run: \(manifest.name) exited \(raw.exitCode), stdout=\(raw.stdout.count) bytes, skipped \(raw.skippedLines) line(s), stderr=\(raw.stderr.prefix(200))")
+                // Nil means a streaming plugin that reported progress and asked
+                // for nothing else. It has already had its say; there is
+                // nothing left to apply and nothing to announce.
+                guard let result = try PluginRunner.interpret(
                     result: raw, manifest: manifest
-                )
+                ) else {
+                    if let runID { self?.runRegistry.remove(runID) }
+                    cleanupTemp()
+                    return
+                }
                 DebugLog.log("plugin result: action=\(result.action.rawValue), content=\(result.content.count) bytes, attachments=\(result.attachments?.count ?? 0)")
                 let captureWithAttachments = result.action == .capture
                     && !(result.attachments ?? []).isEmpty
-                self?.petWindow?.petScene.setChewing(false)
-                self?.handlePluginResult(result, plugin: manifest.name)
+                // Deregistered here as well as in the `defer`, for the
+                // animation's sake rather than the registry's: a successful
+                // result plays `celebrateDelivery`, and stopping the chew pose
+                // afterwards would cut the celebration off with `play`. Removal
+                // is idempotent — the `defer` below is still the guarantee, and
+                // this call is not one the correctness rests on.
+                if let runID { self?.runRegistry.remove(runID) }
+                self?.handlePluginResult(
+                    result, plugin: manifest.name,
+                    elapsed: Date().timeIntervalSince(startedAt)
+                )
                 if !captureWithAttachments { cleanupTemp() }
             } catch let error as PluginError {
                 cleanupTemp()
-                self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(error)
             } catch {
                 cleanupTemp()
-                self?.petWindow?.petScene.setChewing(false)
                 self?.handlePluginError(
                     .nonZeroExit(error.localizedDescription))
             }
         }
     }
 
+    /// A run that takes longer than this has outlived the user's attention, and
+    /// anything it does that takes over the screen is an interruption rather
+    /// than a response. One minute: inside that, the person is still watching
+    /// the drop they just made; past it, they have moved on to another app.
+    private static let unattendedRunSeconds: TimeInterval = 60
+
+    // A parked result once forced its notice to stay up for a minute, six
+    // times the default, because the bubble was the only route to it. Both
+    // parked things now have a home the menu can show — a waiting save has a
+    // row of its own, a waiting draft badges Capture… — so the bubble is a
+    // receipt again and lasts as long as the user asked receipts to last.
+    // Sixty seconds of speech balloon over someone else's work was measured
+    // and disliked, and nothing needs it now.
+
     private func handlePluginResult(
-        _ result: PluginRunner.InterpretedResult, plugin: String
+        _ result: PluginRunner.InterpretedResult, plugin: String,
+        elapsed: TimeInterval
     ) {
         switch result.action {
         case .capture:
@@ -839,11 +972,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             captureAttachments = result.attachments ?? []
             if let open = palette as? CapturePanel {
                 open.setDraft(result.content)
+            } else if elapsed > Self.unattendedRunSeconds {
+                // The single most user-hostile thing this feature could do is
+                // open a text panel and take the keyboard forty minutes after
+                // the drop, while the user is typing in something else. So a
+                // late capture parks its draft and says so; the draft is held
+                // in `captureDraft` and the next Capture… shows it, exactly as
+                // a dismissed capture panel's draft is.
+                //
+                // Streaming cannot produce a capture mid-run at all — only
+                // `notify` is acted on before exit (see `StreamCollector`) —
+                // but this is not only a streaming problem: any plugin can now
+                // run for hours, and this is the path a capture arrives on
+                // whether it streamed or not.
+                // The draft was assigned to `captureDraft` above, before this
+                // branch, and the Capture… row badges itself while one is
+                // waiting. So this notice is a shortcut and nothing more:
+                // missing it costs the shortcut, never the draft.
+                //
+                // Logged because parking and opening the panel are opposite
+                // outcomes that otherwise leave the same trail — `plugin
+                // result: action=capture` and nothing more. Without this line,
+                // "the plugin did nothing" cannot be answered from the log:
+                // a draft waiting behind the Capture… badge and a panel that
+                // opened and was closed look identical. The parked `save`
+                // path writes its own line for the same reason.
+                DebugLog.log(
+                    "plugin capture parked: \(plugin)'s draft is waiting for Capture…"
+                )
+                showNotice(
+                    "\(plugin) has a draft ready",
+                    "Click to open it in Capture"
+                ) { [weak self] in
+                    self?.toggleCapture()
+                }
             } else {
                 toggleCapture()
             }
         case .save:
-            savePluginOutput(result, plugin: plugin)
+            savePluginOutput(result, plugin: plugin, elapsed: elapsed)
         case .clipboard:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(result.content, forType: .string)
@@ -863,7 +1030,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func savePluginOutput(
-        _ result: PluginRunner.InterpretedResult, plugin pluginName: String
+        _ result: PluginRunner.InterpretedResult, plugin pluginName: String,
+        elapsed: TimeInterval
     ) {
         let filename = result.filename ?? "Untitled.md"
         let content = result.content
@@ -894,6 +1062,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 !Courier.isContained($0, inVault: vault.path)
             }
             if escapes {
+                DebugLog.log(
+                    "plugin save refused: \(pluginName) → \(noteURL.path)"
+                    + " escapes \(vault.path)"
+                )
                 presentAlert(
                     "Plugin save failed",
                     "Target path would escape the vault root or write inside .obsidian/."
@@ -925,6 +1097,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                         noteBytes: content.utf8.count,
                         attachments: attachmentPaths
                     )
+                    // Logged next to the journal write and for the same
+                    // reason the courier logs every from → to pair: this is
+                    // the moment a file appears in a vault. Without it the
+                    // log falls silent exactly there, and finding where a
+                    // note went meant reading the journal — which records
+                    // only saves that succeeded, and exists to be popped.
+                    DebugLog.log(
+                        "plugin save: \(pluginName) → \(url.path)"
+                        + ", \(content.utf8.count) bytes"
+                        + ", \(attachmentPaths.count) attachment(s)"
+                    )
                 }
                 for att in attachments {
                     let src = URL(fileURLWithPath: att.source)
@@ -946,6 +1129,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     )
                 }
             } catch {
+                DebugLog.log(
+                    "plugin save failed: \(pluginName) → \(vault.path): \(error)"
+                )
                 presentAlert(
                     "Plugin save failed", error.localizedDescription
                 )
@@ -973,15 +1159,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let resolved {
             save(to: resolved)
-        } else {
-            let vaults = pinnedFirst(registry.vaults)
-            guard !vaults.isEmpty else {
-                presentAlert(
-                    "Nowhere to save",
-                    "No vaults found in Obsidian's vault list."
-                )
-                return
-            }
+            return
+        }
+
+        let vaults = pinnedFirst(registry.vaults)
+        guard !vaults.isEmpty else {
+            presentAlert(
+                "Nowhere to save",
+                "No vaults found in Obsidian's vault list."
+            )
+            return
+        }
+
+        // The picker the user opened and then walked away from: they saw it,
+        // they dismissed it, and the output goes somewhere they can reach
+        // rather than nowhere. This is the original fallback and it predates
+        // everything else here.
+        func copyToClipboard() {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(content, forType: .string)
+            showNotice(
+                "Copied to clipboard",
+                "Plugin output saved to clipboard"
+            )
+        }
+
+        func askForVault() {
             var saved = false
             let panel = VaultPalettePanel(
                 vaults: vaults,
@@ -994,22 +1197,94 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 saved = true
                 save(to: vault)
             }
-            presentPalette(panel)
-            let oldClose = panel.onClose
-            panel.onClose = { [weak self] in
-                oldClose?()
+            // `afterDismiss`, not `onClose`: a second plugin finishing while
+            // this picker is open calls `presentPalette`, which clears
+            // `onClose` before dismissing. Chaining onto `onClose` put this
+            // fallback exactly where that line wipes it, so the first
+            // plugin's output was not saved, not copied, and not reported.
+            panel.afterDismiss = {
                 guard !saved else { return }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(content, forType: .string)
-                self?.showNotice(
-                    "Copied to clipboard",
-                    "Plugin output saved to clipboard"
-                )
+                copyToClipboard()
             }
+            presentPalette(panel)
+        }
+
+        guard elapsed > Self.unattendedRunSeconds else {
+            askForVault()
+            return
+        }
+        // A picker is a panel that takes the keyboard, so it is subject to the
+        // same rule as a late capture (see `handlePluginResult`) — and the
+        // reason is not only theoretical. Measured during hand testing: the
+        // picker opened underneath a Return the user was pressing in another
+        // app, that keystroke selected the highlighted vault, and a note was
+        // written to a vault they never chose. Nothing about the keystroke was
+        // addressed to Chestnut.
+        //
+        // A save that names its vault is untouched by this: it resolved above
+        // and needs no UI at all.
+        //
+        // The output is put somewhere before the notice is shown, never inside
+        // it. An earlier version kept the waiting save alive only as a closure
+        // held by the bubble, which made every way a bubble can end — faded,
+        // dismissed, replaced by the next one — a way to lose a plugin's work,
+        // and the handling of those cases is what turned this function into a
+        // thicket and crashed the app once. The notice below is now only an
+        // announcement: it can be missed with no consequence, because the menu
+        // row holds the offer for as long as it stands.
+        let pending = PendingPluginSave(result: result, plugin: pluginName)
+        pendingPluginSaves.append(pending)
+        DebugLog.log("plugin save parked: \(pluginName) is waiting for a vault")
+        showNotice(
+            "\(pluginName) is waiting to save",
+            "Click to choose a vault"
+        ) { [weak self] in
+            self?.resumePluginSave(id: pending.id)
         }
     }
 
+    /// A plugin's finished output with nowhere to go yet, held until the user
+    /// says where. One entry per waiting plugin and one menu row each: a
+    /// single slot would have let a second late plugin overwrite the first,
+    /// which is the same loss this whole design exists to prevent.
+    private struct PendingPluginSave {
+        let id = UUID()
+        let result: PluginRunner.InterpretedResult
+        let plugin: String
+    }
+
+    private var pendingPluginSaves: [PendingPluginSave] = []
+
+    /// Menu → Save X's Output…. The row's position is its index, which is safe
+    /// only because the menu is rebuilt on every open.
+    private func resumePluginSave(at index: Int) {
+        guard pendingPluginSaves.indices.contains(index) else { return }
+        resumePluginSave(id: pendingPluginSaves[index].id)
+    }
+
+    /// Resuming replays the save with an elapsed time of zero, which is true of
+    /// *this* moment however long the plugin itself took: the user just asked
+    /// for it, so a picker is now a response rather than an interruption.
+    ///
+    /// By identity and not by position, because a notice outlives the list it
+    /// refers to. Its bubble can still be on screen when a second plugin parks
+    /// behind it, and resuming "the first one" would then run whichever save
+    /// the user was not looking at.
+    private func resumePluginSave(id: UUID) {
+        guard let index = pendingPluginSaves.firstIndex(where: { $0.id == id })
+        else { return }
+        let pending = pendingPluginSaves.remove(at: index)
+        savePluginOutput(pending.result, plugin: pending.plugin, elapsed: 0)
+    }
+
+    /// A cancellation is not an error — the user asked for it — so it gets its
+    /// own title rather than being reported under "Plugin error" like a failure
+    /// they need to look into.
     private func handlePluginError(_ error: PluginError) {
+        if case .cancelled = error {
+            showNotice("Plugin stopped", "You cancelled the run.")
+            return
+        }
         showNotice("Plugin error", error.localizedDescription)
     }
 

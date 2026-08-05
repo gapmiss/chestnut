@@ -66,7 +66,8 @@ output.
 | `accepts` | yes | Array of input types this plugin handles. |
 | `output` | yes | How Chestnut interprets stdout (see Output modes). |
 | `script` | yes | Filename of the executable, relative to the plugin directory. |
-| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`, clamped to 1–300. |
+| `timeout` | no | Maximum seconds before the plugin is killed. Default: `10`, clamped to 1–14400 (4 hours). |
+| `stream` | no | `true` makes each line of stdout a complete JSON envelope, so the plugin can report progress while it runs. Requires `"output": "structured"`. Default: `false` (see Long-running plugins). |
 
 ### Input types
 
@@ -114,13 +115,22 @@ This covers what Chestnut writes on your plugin's behalf. It cannot cover what y
 
 ### Limits
 
-- **Stdout** is capped at **1 MB**. Output beyond that is silently truncated.
-  For `structured` mode, truncation breaks the JSON; the error message will
-  note that stdout was truncated.
+- **Stdout** is capped at **1 MB** for the whole run. Output beyond that is
+  silently truncated. For `structured` mode, truncation breaks the JSON, and
+  the error message says that stdout was truncated.
+
+  This matters more the longer your plugin runs. A ten-second plugin never
+  approaches 1 MB; one that prints a progress line every second for an hour
+  does, and the envelope it prints at the end is the part that gets cut off.
+  **A long-running plugin should not print continuously.** If you want progress
+  messages, set `"stream": true`, which caps each line (64 KB) instead of the
+  run, so nothing you print early can crowd out what you print at the end.
 - **Timeout** defaults to 10 seconds (configurable via `timeout` in the
-  manifest, clamped to 1–300; a value outside that range is logged and
+  manifest, clamped to 1–14400; a value outside that range is logged and
   adjusted). On timeout the plugin and any child processes are terminated
-  (SIGTERM, then SIGKILL after 1 s).
+  (SIGTERM, then SIGKILL after 1 s). Omitting `timeout` gives you 10 seconds;
+  `timeout: 0` is clamped up to 1 second and never means "no timeout" — there
+  is no way to run without one.
 
 ## Environment variables
 
@@ -197,10 +207,100 @@ submitted note actually refers to by filename are copied, and the copy happens
 when the user submits. Name conflicts get Obsidian-style suffixes in every
 case.
 
+## Long-running plugins
+
+Some plugins take minutes or hours: transcribing a recording, OCR-ing a long
+scan, converting a folder of documents, running a local model over a PDF. Set
+`timeout` to cover the worst case (up to 4 hours) and the run is supervised the
+whole time.
+
+While a plugin runs:
+
+- The pet chews. It keeps chewing until the *last* run finishes, so two plugins
+  at once behave the way you would expect.
+- Right-click the pet → **Running Plugins** lists every live run by name, with
+  how long it has been going. The submenu is absent when nothing is running.
+- Clicking a run stops it. The script and anything it started are sent SIGTERM,
+  then SIGKILL a second later, and the notice says the run was stopped rather
+  than that it timed out.
+- Quitting Chestnut from the menu stops running plugins the same way. This is
+  best-effort, and only covers a real quit: a crash, a force quit from Activity
+  Monitor, or `pkill`/`kill` from a terminal all leave your script running.
+  Nothing macOS offers can change that.
+
+A plugin that finishes more than a minute after it started does not steal focus.
+Past that point the user has moved on to another application, and anything that
+opens a panel there is an interruption over someone else's work. So a late
+result waits rather than appearing:
+
+- An `action: "capture"` parks its draft. The **Capture…** row badges itself
+  `draft`, and the draft is there the next time that row is opened.
+- An `action: "save"` that has to ask which vault parks too, rather than opening
+  the vault picker. A row reading **Save <plugin>'s Output…** appears in the
+  right-click menu and opens the picker when the user is ready. Two plugins
+  waiting at once get a row each.
+
+Both also show a notice when they park, but the notice is only a shortcut — it
+fades like any other, and the menu is what holds the result.
+
+A `save` whose envelope names a `vault` is unaffected by any of this. It needs
+no picker, so it lands straight away however late it finishes.
+
+**If your plugin runs for hours, name the vault.** Set `"vault"` in the envelope
+to a vault path, or to `"pinned"` or `"last"`, and the note is written the moment
+your script exits — no waiting row, no picker, and a journal record the user can
+undo. Leaving it out means the result waits in the menu for a user who may have
+walked away, and **a waiting save does not survive Chestnut exiting.** It is held
+in memory only: quitting, logging out, restarting or a crash discards it, and the
+plugin has to run again. Chestnut shows the waiting row in the same menu the user
+must open to quit, but nothing protects the result from a restart three hours
+into an overnight job.
+
+This is a deliberate limit rather than a gap waiting to be filled. Chestnut keeps
+completed work — a written note is journaled and undoable — and forgets work in
+flight, the same way an unsubmitted capture draft is forgotten. A four-hour job
+should not depend on the app staying alive to find out where its output goes, and
+naming the vault removes that dependency entirely.
+
+### Reporting progress
+
+Set `"stream": true` (with `"output": "structured"`) and print **one complete
+JSON envelope per line**:
+
+```bash
+#!/bin/bash
+total=50
+for i in $(seq $total); do
+  process_one "$i"
+  printf '{"action":"notify","notify":"%d of %d"}\n' "$i" "$total"
+done
+printf '{"action":"save","filename":"result.md","content":"..."}\n'
+```
+
+Each `notify` line updates the notice bubble as it arrives. Rules:
+
+- **Only `notify` happens while the plugin runs.** Every other action — `save`,
+  `clipboard`, `capture` — is held until your script exits 0. **A plugin that
+  fails still writes nothing**, exactly as before: print an envelope and then
+  `exit 1`, and nothing lands.
+- **Print one non-`notify` envelope.** If you print several, the last one wins;
+  the others are discarded.
+- **A line that is not valid JSON is skipped**, logged, and the run continues.
+  A stray `echo` will not lose you an hour of work.
+- **Each line is capped at 64 KB.** A longer line is cut, which makes it invalid
+  JSON, so it is skipped like any other bad line.
+- Envelopes must be one per line. Do not pretty-print them — that is exactly
+  what `stream` changes, and it is why `stream` is opt-in.
+
+Without `"stream": true`, nothing changes: the whole of stdout is one envelope,
+pretty-printed or not.
+
 ## Error handling
 
 - **Non-zero exit** shows the first line of stderr as an error bubble.
 - **Timeout** shows "Plugin timed out" as an error bubble.
+- **Cancelled** (from **Running Plugins**) shows "Plugin stopped" — it is not
+  reported as an error, because you asked for it.
 - **Bad structured output** (invalid JSON or missing `action`) shows an error.
 
 Errors never trigger the gulp animation.

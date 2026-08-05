@@ -197,7 +197,8 @@ brew install --cask gapmiss/tap/chestnut</code></pre>
           <tr><td><code>accepts</code></td><td>string[]</td><td>Input types this plugin handles. See <a href="#input-types">input types</a>.</td></tr>
           <tr><td><code>extensions</code></td><td>string[]</td><td>Optional. Narrows <code>file</code> matching to specific extensions (e.g. <code>["csv", "txt"]</code>). Omit to accept all files.</td></tr>
           <tr><td><code>output</code></td><td>string</td><td>Output mode. See <a href="#output-modes">output modes</a>.</td></tr>
-          <tr><td><code>timeout</code></td><td>number</td><td>Optional. Max seconds before the script is killed. Default: <code>10</code>, clamped to 1 to 300.</td></tr>
+          <tr><td><code>timeout</code></td><td>number</td><td>Optional. Max seconds before the script is killed. Default: <code>10</code>, clamped to 1 to 14400 (4 hours).</td></tr>
+          <tr><td><code>stream</code></td><td>boolean</td><td>Optional. Makes each line of stdout one complete JSON envelope, so a slow plugin can report progress while it runs. Needs <code>"output": "structured"</code>. Default: <code>false</code>. See <a href="#long-running">long-running plugins</a>.</td></tr>
         </tbody>
       </table>
     </div>
@@ -327,6 +328,49 @@ brew install --cask gapmiss/tap/chestnut</code></pre>
           name, with no path, so Chestnut explains the limitation instead of
           routing it anywhere. Drag folders from Finder.</li>
     </ul>
+
+    <h3 id="long-running">Long-running plugins</h3>
+    <p>
+      Some plugins take minutes or hours: transcribing a recording, OCR-ing a
+      long scan, converting a folder of documents. Set <code>timeout</code> to
+      cover the worst case, up to 4 hours, and the run stays supervised the
+      whole time.
+    </p>
+    <ul>
+      <li>Chestnut chews until the last run finishes, so two plugins at once
+          behave the way you would expect.</li>
+      <li>Right-click &rarr; <strong>Running Plugins</strong> lists every live
+          run. Click one to stop it: the script and anything it started are
+          sent SIGTERM, then SIGKILL a second later.</li>
+      <li>Quitting Chestnut from the menu stops running plugins too. This is
+          best-effort, so a force quit or a crash can leave a script running.</li>
+      <li>A plugin that finishes more than a minute after it started never
+          steals focus. A <code>capture</code> that arrives that late parks its
+          draft behind a notice you click to open.</li>
+    </ul>
+    <p>
+      To report progress, set <code>"stream": true</code> alongside
+      <code>"output": "structured"</code> and print one complete JSON envelope
+      per line. Each <code>notify</code> line updates the speech bubble as it
+      arrives.
+    </p>
+    <pre><code class="language-bash">for i in $(seq 50); do
+  process_one "$i"
+  printf '{"action":"notify","notify":"%d of 50"}\n' "$i"
+done
+printf '{"action":"save","filename":"result.md","content":"..."}\n'</code></pre>
+    <p>
+      Only <code>notify</code> happens while the plugin runs. Everything that
+      writes something - <code>save</code>, <code>clipboard</code>,
+      <code>capture</code> - waits for a clean exit, so a plugin that fails
+      still writes nothing. Print one non-<code>notify</code> envelope; if you
+      print several, the last one wins. A line that is not valid JSON is
+      skipped and the run carries on, and each line is capped at 64 KB.
+    </p>
+    <p>
+      Without <code>stream</code>, nothing changes: the whole of stdout is one
+      envelope, pretty-printed or not. That is why it is opt-in.
+    </p>
 
     <h3>Hot-reload</h3>
     <p>
@@ -622,6 +666,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
           <tr><td>Settings &rarr; Edit Configuration&hellip;</td><td>Opens <code>config.json</code> in whatever you edit JSON with. Changes apply on next launch.</td></tr>
           <tr><td><strong>Plugins &rarr;</strong></td><td>Lists installed plugins with checkmarks. Toggle to enable/disable.</td></tr>
           <tr><td>Plugins &rarr; Open Plugins Folder</td><td>Opens <code>~/.config/chestnut/plugins/</code> in Finder.</td></tr>
+          <tr><td><strong>Running Plugins &rarr;</strong></td><td>One row per plugin running right now, named, with how long it has been going. Click a row to stop that run. The whole submenu is absent when nothing is running.</td></tr>
           <tr><td>Check for Updates&hellip;</td><td>Opens the GitHub releases page in your browser. Badged with the version you're running.</td></tr>
           <tr><td>Support Chestnut</td><td>Opens the GitHub Sponsors page.</td></tr>
           <tr><td>Quit Chestnut</td><td>Quits the app.</td></tr>
@@ -742,7 +787,7 @@ echo "Saved on $(date +%Y-%m-%d)."</code></pre>
     </a>
   </nav>
   <p class="version">
-    Chestnut <a href="https://github.com/gapmiss/chestnut/releases/latest">0.7.1</a>
+    Chestnut <a href="https://github.com/gapmiss/chestnut/releases/latest">0.8.0</a>
   </p>
   <p class="legal">
     Chestnut is an independent companion app for Obsidian and is not affiliated

@@ -1,5 +1,5 @@
 APP     := Chestnut
-VERSION := 0.7.1
+VERSION := 0.8.0
 CONFIG  ?= debug
 BUILD   := .build
 BUNDLE  := $(BUILD)/$(APP).app
@@ -34,6 +34,7 @@ check: site-gen
 		Sources/$(APP)/Plugins/PluginSave.swift \
 		Sources/$(APP)/Plugins/PluginRegistry.swift \
 		Sources/$(APP)/Plugins/PluginRunner.swift \
+		Sources/$(APP)/Plugins/PluginRunRegistry.swift \
 		Sources/$(APP)/Plugins/PluginDispatch.swift \
 		Sources/$(APP)/Plugins/DropRouter.swift
 	$(BUILD)/chestnut-check

@@ -50,10 +50,27 @@ final class PetWindow: NSPanel {
     var undoCaptureRow: (() -> UndoRow?)?
     var onUndoPluginSave: (() -> Void)?
     var undoPluginSaveRow: (() -> UndoRow?)?
+    /// Names of plugins whose saves are waiting for the user to pick a vault,
+    /// oldest first, empty when nothing is waiting. Read once per menu build,
+    /// and one row is added per entry.
+    ///
+    /// This row is what keeps a pending save from living inside a notice. A
+    /// notice is a receipt: it fades, it gets replaced, and nothing should be
+    /// lost when it does. The waiting save is state, so it is reachable here
+    /// for as long as it is waiting — the same shape as a parked capture
+    /// draft, which waits in `captureDraft` for the next Capture…
+    var pendingPluginSaves: (() -> [String])?
+    var onResumePluginSave: ((Int) -> Void)?
+    /// Whether a capture draft is waiting, which badges the Capture… row.
+    var hasCaptureDraft: (() -> Bool)?
     var installedPlugins: (() -> [PluginManifest])?
     var isPluginEnabled: ((String) -> Bool)?
     var togglePlugin: ((String) -> Void)?
     var onOpenPluginsFolder: (() -> Void)?
+    /// Plugin processes running right now, newest last, for the Running
+    /// Plugins submenu. Read once per menu build.
+    var runningPlugins: (() -> [PluginRunRegistry.Run])?
+    var onCancelPluginRun: ((UUID) -> Void)?
     /// Menu → Edit Configuration…; the delegate opens config.json.
     var onEditConfiguration: (() -> Void)?
     /// True while the right-click menu is on screen. The delegate releases the
@@ -318,7 +335,31 @@ final class PetWindow: NSPanel {
         menu.delegate = self
 
         menu.addItem(menuItem("Vaults…", #selector(toggleHopper), hotkey: config.hotkeys.hopper))
-        menu.addItem(menuItem("Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture))
+        let captureItem = menuItem(
+            "Capture…", #selector(beginCapture), hotkey: config.hotkeys.capture
+        )
+        // A draft waiting in `captureDraft` is invisible until this row is
+        // clicked, and the notice announcing it is a receipt that fades. The
+        // badge is the standing sign that opening Capture… will not give you
+        // an empty editor. No separate row, because this row already does the
+        // thing — a second one would just be the same action twice.
+        if hasCaptureDraft?() == true {
+            captureItem.badge = NSMenuItemBadge(string: "draft")
+        }
+        menu.addItem(captureItem)
+        // Hidden rather than dimmed when nothing is waiting, the same rule the
+        // Undo Last Plugin Save row and the Running Plugins submenu follow: a
+        // row that can never be clicked teaches nothing.
+        for (index, waiting) in (pendingPluginSaves?() ?? []).enumerated() {
+            let item = menuItem(
+                "Save \(waiting)'s Output…", #selector(resumePluginSave)
+            )
+            // The row carries which waiting save it belongs to, so two
+            // plugins waiting at once stay separable. Menu items are rebuilt
+            // on every open, so the index cannot go stale between builds.
+            item.tag = index
+            menu.addItem(item)
+        }
 
         menu.addItem(.separator())
         let delivery = undoDeliveryRow?()
@@ -343,6 +384,7 @@ final class PetWindow: NSPanel {
         menu.addItem(themeMenuItem())
         menu.addItem(settingsMenuItem())
         menu.addItem(pluginsMenuItem())
+        if let running = runningPluginsMenuItem() { menu.addItem(running) }
 
         menu.addItem(.separator())
         menu.addItem(updatesMenuItem())
@@ -525,6 +567,36 @@ final class PetWindow: NSPanel {
         return Self.submenuItem("Plugins", submenu)
     }
 
+    /// Running Plugins: one row per live plugin process, clicking it stops that
+    /// run. Absent entirely when nothing is running — see
+    /// `PluginRunRegistry.showsRunningSubmenu` for why it isn't shown empty.
+    ///
+    /// The list is a snapshot taken when the menu is built. A run that finishes
+    /// while the menu is open leaves a row that no longer matches anything, and
+    /// clicking it does nothing at all: cancel is looked up by the run's id, and
+    /// an id the registry has dropped is not found. That is the reason cancel
+    /// takes an id rather than a row index.
+    private func runningPluginsMenuItem() -> NSMenuItem? {
+        let runs = runningPlugins?() ?? []
+        guard PluginRunRegistry.showsRunningSubmenu(runCount: runs.count) else {
+            return nil
+        }
+        let submenu = NSMenu()
+        let now = Date()
+        for run in runs {
+            let item = menuItem(run.name, #selector(cancelPluginRunAction(_:)))
+            item.representedObject = run.id
+            if #available(macOS 14.4, *) {
+                item.subtitle = PluginRunRegistry.elapsedLabel(
+                    seconds: now.timeIntervalSince(run.started))
+            }
+            submenu.addItem(item)
+        }
+        let parent = Self.submenuItem("Running Plugins", submenu)
+        parent.badge = NSMenuItemBadge(count: runs.count)
+        return parent
+    }
+
     /// The version rides along as a badge rather than a dead disabled row: it
     /// stays quotable in a bug report without spending a line. NSMenuItem
     /// allows only one badge, so the opens-in-browser ↗ joins the string.
@@ -620,6 +692,9 @@ final class PetWindow: NSPanel {
     @objc private func undoCapture() { onUndoCapture?() }
 
     @objc private func undoPluginSave() { onUndoPluginSave?() }
+    @objc private func resumePluginSave(_ sender: NSMenuItem) {
+        onResumePluginSave?(sender.tag)
+    }
 
     @objc private func toggleReduceMotion() {
         state.reduceMotion.toggle()
@@ -665,6 +740,11 @@ final class PetWindow: NSPanel {
     @objc private func togglePluginAction(_ sender: NSMenuItem) {
         guard let name = sender.representedObject as? String else { return }
         togglePlugin?(name)
+    }
+
+    @objc private func cancelPluginRunAction(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID else { return }
+        onCancelPluginRun?(id)
     }
 
     @objc private func openPluginsFolder() { onOpenPluginsFolder?() }

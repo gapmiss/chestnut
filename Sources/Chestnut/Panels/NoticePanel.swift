@@ -14,6 +14,7 @@ final class NoticePanel: NSPanel {
 
     /// Fires exactly once when the bubble goes away, whatever the reason
     /// (fade, click, hotkey, replacement) — the notice hotkey unregisters here.
+    /// Safe to show another notice from inside it; see `dismiss`.
     var onDismiss: (() -> Void)?
 
     init(title: String, subtitle: String, hotkeyHint: String? = nil, onClick: (() -> Void)? = nil) {
@@ -93,8 +94,14 @@ final class NoticePanel: NSPanel {
     func dismiss() {
         fadeTask?.cancel()
         fadeTask = nil
-        onDismiss?()
+        // Taken and cleared *before* it runs, not after. A handler is allowed
+        // to show another notice, and showing one dismisses whatever is up —
+        // which is this panel, still holding this handler. Calling it first
+        // and clearing it second let that path re-enter here forever and took
+        // the app out with a stack overflow.
+        let handler = onDismiss
         onDismiss = nil
+        handler?()
         close()
     }
 }
