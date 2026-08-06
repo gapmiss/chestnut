@@ -3,6 +3,4 @@
 .swiftpm/
 # local-only: maintainer docs and internal dev notes, never published
 RELEASING.md
-docs/plans/
-docs/specs/
-AUDIT*.md
+.claude
